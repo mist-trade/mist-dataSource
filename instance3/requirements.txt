@@ -1,0 +1,3 @@
+# Instance 3 - AKTools 独立依赖
+# AKTools 是一个独立的 Python 包
+aktools>=1.0.0
