@@ -48,9 +48,9 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 
 | Instance | 端口 | 用途 |
 |----------|------|------|
-| Instance 1 | 9001 | TDX 适配器 |
-| Instance 2 | 9002 | QMT 适配器 |
-| Instance 3 | 8080 | AKTools |
+| tdx | 9001 | TDX 适配器 |
+| qmt | 9002 | QMT 适配器 |
+| aktools | 8080 | AKTools |
 
 ## 快速开始
 
@@ -76,8 +76,8 @@ cp .env.example .env
 
 ```bash
 # macOS 开发 - 单独启动
-uv run uvicorn instance1.main:app --port 9001 --reload
-uv run uvicorn instance2.main:app --port 9002 --reload
+uv run uvicorn tdx.main:app --port 9001 --reload
+uv run uvicorn qmt.main:app --port 9002 --reload
 ```
 
 ### 运行测试
@@ -106,9 +106,9 @@ mist-datasource/
 │   ├── core/                 # 配置、日志、异常
 │   ├── adapter/              # 适配器层
 │   └── ws/                   # WebSocket 管理
-├── instance1/                # TDX 适配器服务 (Port 9001)
-├── instance2/                # QMT 适配器服务 (Port 9002)
-├── instance3/                # AKTools (Port 8080)
+├── tdx/                     # TDX 适配器服务 (Port 9001)
+├── qmt/                     # QMT 适配器服务 (Port 9002)
+├── aktools/                 # AKTools (Port 8080)
 ├── tests/                    # 测试
 └── scripts/                  # 启动脚本
 ```
@@ -116,8 +116,8 @@ mist-datasource/
 ## API 文档
 
 启动服务后访问：
-- Instance 1: http://localhost:9001/docs
-- Instance 2: http://localhost:9002/docs
+- TDX: http://localhost:9001/docs
+- QMT: http://localhost:9002/docs
 
 ## 许可证
 

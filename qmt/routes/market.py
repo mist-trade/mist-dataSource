@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from instance2.main import qmt_adapter
+from qmt.main import qmt_adapter
 
 router = APIRouter()
 

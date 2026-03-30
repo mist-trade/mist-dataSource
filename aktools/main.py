@@ -7,7 +7,7 @@ for consistent startup with other instances.
 import asyncio
 import sys
 
-from instance3 import PORT
+from aktools import PORT
 from src.core.logging import setup_logging, get_logger
 
 setup_logging()

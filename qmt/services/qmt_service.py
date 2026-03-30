@@ -6,7 +6,7 @@ including both market data and trading operations.
 
 from typing import Any
 
-from instance2.main import qmt_adapter
+from qmt.main import qmt_adapter
 from src.core.exceptions import AdapterError
 
 

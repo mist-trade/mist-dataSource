@@ -5,7 +5,7 @@ These routes are specific to QMT as TDX does not support trading.
 
 from fastapi import APIRouter, HTTPException
 
-from instance2.main import qmt_adapter
+from qmt.main import qmt_adapter
 
 router = APIRouter()
 

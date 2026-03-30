@@ -4,7 +4,7 @@ import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from instance2.main import ws_manager
+from qmt.main import ws_manager
 from src.ws.protocol import WSMessage
 
 router = APIRouter()

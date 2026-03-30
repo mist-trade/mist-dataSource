@@ -6,8 +6,8 @@ from typing import AsyncGenerator, Generator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from instance1.main import app as tdx_app
-from instance2.main import app as qmt_app
+from tdx.main import app as tdx_app
+from qmt.main import app as qmt_app
 
 
 @pytest.fixture(scope="session")

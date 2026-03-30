@@ -67,9 +67,9 @@ async def health():
 
 
 # Route registration
-from instance2.routes.market import router as market_router
-from instance2.routes.trade import router as trade_router
-from instance2.routes.ws import router as ws_router
+from qmt.routes.market import router as market_router
+from qmt.routes.trade import router as trade_router
+from qmt.routes.ws import router as ws_router
 
 app.include_router(market_router, prefix="/api/qmt/market", tags=["Market"])
 app.include_router(trade_router, prefix="/api/qmt/trade", tags=["Trade"])

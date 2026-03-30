@@ -28,7 +28,7 @@ check_port() {
 # Start Instance 1 (TDX)
 if check_port 9001; then
     echo "Starting Instance 1 (TDX Adapter) on port 9001..."
-    uv run uvicorn instance1.main:app --host 0.0.0.0 --port 9001 &
+    uv run uvicorn tdx.main:app --host 0.0.0.0 --port 9001 &
     TDX_PID=$!
     echo "TDX Adapter started with PID: $TDX_PID"
 fi
@@ -36,7 +36,7 @@ fi
 # Start Instance 2 (QMT)
 if check_port 9002; then
     echo "Starting Instance 2 (QMT Adapter) on port 9002..."
-    uv run uvicorn instance2.main:app --host 0.0.0.0 --port 9002 &
+    uv run uvicorn qmt.main:app --host 0.0.0.0 --port 9002 &
     QMT_PID=$!
     echo "QMT Adapter started with PID: $QMT_PID"
 fi
