@@ -39,9 +39,6 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
         websocket: WebSocket 连接实例
         client_id: 客户端标识符，用于区分不同的 NestJS 后端实例
 
-    Raises:
-        WebSocketDisconnect: 客户端断开连接时触发，自动清理连接资源
-
     Examples:
         连接: ws://localhost:9001/ws/quote/nestjs-instance-1
         心跳: {"type": "ping"}

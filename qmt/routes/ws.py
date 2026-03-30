@@ -1,10 +1,25 @@
-"""WebSocket routes for QMT adapter."""
+"""QMT 实时行情 WebSocket 路由.
 
-import asyncio
+为 NestJS 后端提供实时行情推送的 WebSocket 接口.
+对应 QMT SDK: xtquant.xtdata (subscribe_quote, subscribe_whole_quote)
+
+消息协议:
+    客户端发送:
+    - {"type": "ping"}                       心跳检测
+    - {"type": "subscribe", "stocks": []}    订阅单股行情
+
+    服务端响应:
+    - {"type": "pong"}                       心跳响应
+    - {"type": "subscribed", "stocks": []}   订阅确认
+    - {"type": "quote", "data": {}}          行情推送
+    - {"type": "error", "data": {"error": ""}} 错误信息
+"""
+
 import json
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from qmt.main import ws_manager
+from qmt.main import qmt_adapter, ws_manager
 from src.ws.protocol import WSMessage
 
 router = APIRouter()
@@ -12,65 +27,52 @@ router = APIRouter()
 
 @router.websocket("/quote/{client_id}")
 async def websocket_quote(websocket: WebSocket, client_id: str):
-    """NestJS 连接此端点接收实时行情推送.
+    """实时行情 WebSocket 端点.
+
+    NestJS 后端连接此端点以接收实时行情推送. 连接建立后保持长连接，
+    通过 JSON 消息进行心跳检测和股票订阅管理.
+
+    对应 QMT SDK:
+        - xtdata.subscribe_quote(stock_code, period, callback)
+        - xtdata.unsubscribe_quote(seq)
 
     Args:
-        websocket: WebSocket connection
-        client_id: Client identifier (e.g., NestJS instance name)
+        websocket: WebSocket 连接实例
+        client_id: 客户端标识符，用于区分不同的 NestJS 后端实例
+
+    Examples:
+        连接: ws://localhost:9002/ws/quote/nestjs-instance-1
+        心跳: {"type": "ping"}
+        订阅: {"type": "subscribe", "stocks": ["000001.SZ", "600000.SH"]}
     """
     await ws_manager.connect(websocket, client_id)
 
     try:
         while True:
-            # 保持连接，接收心跳和订阅请求
             data = await websocket.receive_text()
             message = json.loads(data)
 
             if message.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
             elif message.get("type") == "subscribe":
-                # 处理订阅请求（TODO: 实现动态订阅）
                 stocks = message.get("stocks", [])
-                await websocket.send_text(
-                    json.dumps(
-                        {
-                            "type": "subscribed",
-                            "stocks": stocks,
-                            "message": f"Subscribed to {len(stocks)} stocks",
-                        }
+                if not qmt_adapter:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "data": {"error": "Adapter not initialized"}})
                     )
+                    continue
+
+                await websocket.send_text(
+                    json.dumps({
+                        "type": "subscribed",
+                        "stocks": stocks,
+                        "message": f"Subscribed to {len(stocks)} stocks",
+                    })
                 )
 
-    except WebSocketDisconnect:
-        await ws_manager.disconnect(client_id)
-    except Exception as e:
-        await ws_manager.disconnect(client_id)
-        try:
-            error_msg = WSMessage(type="error", data={"error": str(e)})
-            await websocket.send_text(error_msg.to_json())
-        except Exception:
-            pass
-
-
-@router.websocket("/trade/{client_id}")
-async def websocket_trade(websocket: WebSocket, client_id: str):
-    """NestJS 连接此端点接收交易事件推送.
-
-    Args:
-        websocket: WebSocket connection
-        client_id: Client identifier
-    """
-    await ws_manager.connect(websocket, client_id)
-
-    try:
-        while True:
-            # 保持连接，接收心跳
-            data = await websocket.receive_text()
-            message = json.loads(data)
-
-            if message.get("type") == "ping":
-                await websocket.send_text(json.dumps({"type": "pong"}))
-            # 交易事件通过适配器回调推送（TODO: 实现）
+                async for quote_data in qmt_adapter.subscribe_quote(stocks):
+                    msg = WSMessage(type="quote", data=quote_data)
+                    await ws_manager.broadcast(msg)
 
     except WebSocketDisconnect:
         await ws_manager.disconnect(client_id)

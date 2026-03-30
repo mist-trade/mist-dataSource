@@ -4,7 +4,7 @@
 对应 TDX SDK: tqcenter.tq (get_stock_list_in_sector, get_market_data)
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from tdx.main import tdx_adapter
 
@@ -21,16 +21,7 @@ async def get_stock_list(sector: str = "通达信88"):
         sector: 板块名称，默认 "通达信88"
 
     Returns:
-        包含以下字段的字典:
-        - stocks (list[str]): 股票代码列表
-        - count (int): 股票数量
-
-    Raises:
-        HTTPException: 503 - 适配器未初始化
-
-    Examples:
-        >>> GET /api/tdx/stocks?sector=通达信88
-        {"stocks": ["SH600519", "SZ000001", ...], "count": 88}
+        {"stocks": [...], "count": int}
     """
     if not tdx_adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
@@ -41,11 +32,12 @@ async def get_stock_list(sector: str = "通达信88"):
 
 @router.get("/market-data")
 async def get_market_data(
-    stocks: str,
-    fields: str = "Close",
-    period: str = "1d",
-    start_time: str = "",
-    end_time: str = "",
+    stocks: str = Query(..., description="逗号分隔的股票代码，如 SH600519,SZ000001"),
+    fields: str = Query("Close", description="逗号分隔的字段名，如 Close,Open,Volume"),
+    period: str = Query("1d", description="K线周期: 1d,1m,5m"),
+    start_time: str = Query("", description="起始时间，格式 YYYYMMDD"),
+    end_time: str = Query("", description="结束时间，格式 YYYYMMDD"),
+    dividend_type: str = Query("front", description="复权类型: front,none,back"),
 ):
     """获取历史行情数据.
 
@@ -54,23 +46,8 @@ async def get_market_data(
     支持的字段: Date, Time, Open, High, Low, Close, Volume, Amount, ForwardFactor.
     支持的周期: "1d"(日线), "1m"(分钟线), "5m"(五分钟线).
 
-    Args:
-        stocks: 股票代码列表，逗号分隔，如 "SH600519,SZ000001"
-        fields: 字段列表，逗号分隔，如 "Close,Open,Volume"，默认 "Close"
-        period: K线周期，支持 "1d", "1m", "5m"，默认 "1d"
-        start_time: 开始时间，格式 "YYYYMMDD"，如 "20240101"，空字符串表示不限制
-        end_time: 结束时间，格式 "YYYYMMDD"，如 "20241231"，空字符串表示不限制
-
     Returns:
-        包含以下字段的字典:
-        - data (dict[str, Any]): 行情数据，key 为字段名，value 为 {股票代码: 数据值}
-
-    Raises:
-        HTTPException: 503 - 适配器未初始化; 500 - 查询失败
-
-    Examples:
-        >>> GET /api/tdx/market-data?stocks=SH600519&fields=Close,Volume&period=1d&start_time=20240101
-        {"data": {"Close": {"SH600519": 1680.50}, "Volume": {"SH600519": 25000}}}
+        {"data": dict}
     """
     if not tdx_adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
@@ -85,6 +62,7 @@ async def get_market_data(
             period=period,
             start_time=start_time,
             end_time=end_time,
+            dividend_type=dividend_type,
         )
         return {"data": data}
     except Exception as e:

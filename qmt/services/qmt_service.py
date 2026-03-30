@@ -1,7 +1,7 @@
-"""QMT service layer for business logic orchestration.
+"""QMT 业务服务层.
 
-This module contains higher-level business logic that uses the QMT adapter,
-including both market data and trading operations.
+封装 QMT 适配器的高层业务逻辑，组合多个底层适配器调用实现复杂操作。
+对应 QMT SDK: xtquant.xtdata
 """
 
 from typing import Any
@@ -11,72 +11,51 @@ from src.core.exceptions import AdapterError
 
 
 class QMTService:
-    """QMT 业务服务类."""
+    """QMT 业务服务类.
 
-    async def get_account_overview(self) -> dict[str, Any]:
-        """获取账户概览信息.
+    提供板块概览等组合业务操作，内部通过 MarketDataAdapter 调用 QMT SDK.
+    对应 QMT SDK: xtquant.xtdata
+    """
 
-        Returns:
-            包含持仓和当日委托的账户概览
-        """
-        if not qmt_adapter:
-            raise AdapterError("QMT adapter not initialized")
+    async def get_sector_overview(self, sector: str = "沪深300") -> dict[str, Any]:
+        """获取板块概览信息.
 
-        try:
-            positions = await qmt_adapter.query_positions()
-            orders = await qmt_adapter.query_orders()
+        组合调用 get_stock_list + get_market_data，返回板块股票列表及前10只股票的最新行情快照.
 
-            return {
-                "positions": positions,
-                "position_count": len(positions),
-                "orders": orders,
-                "order_count": len(orders),
-            }
-        except Exception as e:
-            raise AdapterError(f"Failed to get account overview: {e}") from e
-
-    async def place_and_monitor_order(
-        self,
-        stock_code: str,
-        order_type: int,
-        volume: int,
-        price_type: int,
-        price: float = 0.0,
-    ) -> dict[str, Any]:
-        """下单并返回监控信息.
+        对应 QMT SDK:
+            - xtdata.get_stock_list_in_sector(sector)
+            - xtdata.get_market_data(stock_list, field_list, period, ...)
 
         Args:
-            stock_code: 股票代码
-            order_type: 订单类型（0=买，1=卖）
-            volume: 委托数量
-            price_type: 价格类型
-            price: 委托价格
+            sector: 板块名称，默认 "沪深300"
 
         Returns:
-            订单信息和账户概览
+            包含以下字段的字典:
+            - sector (str): 板块名称
+            - total_stocks (int): 板块内股票总数
+            - sample_data (dict[str, Any]): 前10只股票的最新日线行情（close, volume）
         """
         if not qmt_adapter:
             raise AdapterError("QMT adapter not initialized")
 
+        stocks = await qmt_adapter.get_stock_list(sector)
+
         try:
-            order_id = await qmt_adapter.order_stock(
-                stock_code, order_type, volume, price_type, price
+            market_data = await qmt_adapter.get_market_data(
+                stock_list=stocks[:10],
+                fields=["close", "volume"],
+                period="1d",
+                start_time="",
+                end_time="",
             )
 
-            # 获取更新后的账户信息
-            overview = await self.get_account_overview()
-
             return {
-                "order_id": order_id,
-                "stock_code": stock_code,
-                "order_type": "buy" if order_type == 0 else "sell",
-                "volume": volume,
-                "price": price,
-                "account_overview": overview,
+                "sector": sector,
+                "total_stocks": len(stocks),
+                "sample_data": market_data,
             }
         except Exception as e:
-            raise AdapterError(f"Failed to place order: {e}") from e
+            raise AdapterError(f"Failed to get sector overview: {e}") from e
 
 
-# Singleton instance
 qmt_service = QMTService()
