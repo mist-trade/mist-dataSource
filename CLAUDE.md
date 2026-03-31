@@ -4,320 +4,85 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**mist-datasource** is a data source bridge layer (适配器层) that wraps local trading SDKs (通达信/TDX and miniQMT) as HTTP/WebSocket services. It serves as an adapter between Windows-only trading terminals and the NestJS backend.
+**mist-datasource** is a data source bridge layer that wraps Windows-only trading SDKs (通达信/TDX via `tqcenter`, miniQMT via `xtquant`) as HTTP/WebSocket services for the NestJS backend. Not a general-purpose microservice — a focused adapter layer.
 
-**Key Design**: Not a general-purpose WebSocket microservice, but a focused adapter layer for market data and trading operations.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Python** 3.12+ (xtquant最高支持3.12)
-- **uv** package manager (fast, reliable lockfile)
+## Development Commands
 
 ```bash
-pip install uv
-```
+uv sync                                    # Install dependencies
+uv run pytest                              # Run all tests
+uv run pytest tests/integration/test_tdx_service.py::test_name  # Single test
+uv run pytest --cov=src --cov=tdx --cov=qmt  # With coverage
+uv run ruff check .                        # Lint
+uv run ruff format .                       # Format
+uv run pyright src/                        # Type check (strict mode)
 
-### Installation
-
-```bash
-# Install dependencies
-uv sync
-
-# Or with pip
-pip install -e ".[dev]"
-```
-
-### Configuration
-
-```bash
-cp .env.example .env
-# Edit .env for your environment
-```
-
-### Development (macOS)
-
-```bash
-# Start TDX adapter (port 9001) - uses mock adapter
+# Start instances (macOS uses mock adapters automatically)
 uv run uvicorn tdx.main:app --port 9001 --reload
-
-# Start QMT adapter (port 9002) - uses mock adapter
 uv run uvicorn qmt.main:app --port 9002 --reload
-
-# Start all instances
-./scripts/start_all.sh
 ```
-
-### Production (Windows)
-
-```bash
-# Set APP_ENV=production in .env
-# Start with real SDK connections (requires TDX/QMT clients running)
-uv run uvicorn tdx.main:app --host 0.0.0.0 --port 9001
-uv run uvicorn qmt.main:app --host 0.0.0.0 --port 9002
-```
-
----
 
 ## Architecture
 
 ### Multi-Instance Pattern
 
-Each instance is a separate FastAPI application with its own port:
+Each instance is a separate FastAPI app. Shared code lives in `src/`.
 
-| Instance | Port | Purpose | Adapter |
-|----------|------|---------|---------|
-| **tdx** | 9001 | TDX market data | `TDXAdapter` / `TDXMockAdapter` |
-| **qmt** | 9002 | QMT market + trade | `QMTAdapter` / `QMTMockAdapter` |
-| **aktools** | 8080 | AKTools wrapper | (independent service) |
+| Instance | Port | Adapter | SDK | Stock Code Format |
+|----------|------|---------|-----|-------------------|
+| tdx | 9001 | `TDXAdapter`/`TDXMockAdapter` | `tqcenter.tq` | `SH600519`, `SZ000001` |
+| qmt | 9002 | `QMTAdapter`/`QMTMockAdapter` | `xtquant.xtdata` | `600000.SH`, `000001.SZ` |
 
-### Shared Core Structure
-
-```
-src/
-├── core/           # Config, logging, exceptions
-├── adapter/        # Adapter implementations
-│   ├── base.py     # MarketDataAdapter abstract class
-│   ├── tdx/        # TDX real implementation (Windows)
-│   ├── qmt/        # QMT real implementation (Windows)
-│   └── mock/       # Mock implementations (macOS/dev)
-└── ws/             # WebSocket management
-```
-
-### Instance Structure
-
-Each instance follows the same pattern:
+### Request Flow
 
 ```
-tdx/
-├── main.py         # FastAPI app with lifespan
-├── config.py       # Instance-specific config
-├── routes/         # API route handlers
-└── services/       # Business logic layer
+NestJS backend → HTTP /api/{tdx|qmt}/* → routes/ → adapter (module global in main.py)
+                → WebSocket /ws/quote/{client_id} → ws_manager.broadcast()
 ```
 
-### Adapter Pattern
+### Module-Level Singletons
 
-**Base Class** (`src/adapter/base.py`):
-```python
-class MarketDataAdapter(ABC):
-    async def initialize() -> None
-    async def shutdown() -> None
-    async def get_stock_list(sector: str) -> list[str]
-    async def get_market_data(...) -> dict[str, Any]
-    async def subscribe_quote(...) -> AsyncIterator[dict]
+Each `main.py` holds module-level globals: `{tdx|qmt}_adapter` (adapter instance) and `ws_manager` (WebSocket connection manager). Routes and services import these directly from `main.py`. Services use singleton pattern (e.g., `tdx_service = TDXService()` in `tdx/services/`).
+
+### Adapter Pattern (`src/adapter/`)
+
+`base.py` defines `MarketDataAdapter` with:
+- **4 abstract methods** (must implement): `initialize`, `shutdown`, `get_stock_list`, `get_market_data`, `subscribe_quote`
+- **15+ optional methods** (raise `NotImplementedError` by default): `get_instrument_detail`, `get_full_tick`, `get_financial_data`, `download_history_data`, `get_trading_dates`, `get_sector_list`, `get_index_weight`, `get_full_kline`, `subscribe_whole_quote`, `get_local_data`, etc.
+
+Factory functions in `__init__.py` (`create_tdx_adapter`, `create_qmt_adapter`) return real or mock adapters based on `settings.is_production` (controlled by `APP_ENV` env var).
+
+### API Routes
+
+| Instance | Method | Path | Description |
+|----------|--------|------|-------------|
+| TDX | GET | `/api/tdx/stocks?sector=通达信88` | Stock list by sector |
+| TDX | GET | `/api/tdx/market-data?stocks=SH600519&fields=Close&period=1d` | Historical market data |
+| TDX | WS | `/ws/quote/{client_id}` | Real-time quotes |
+| QMT | GET | `/api/qmt/stocks?sector=沪深300` | Stock list by sector |
+| QMT | GET | `/api/qmt/market-data?stocks=000001.SZ&fields=close&period=1d` | Historical market data |
+| QMT | WS | `/ws/quote/{client_id}` | Real-time quotes |
+| Both | GET | `/health` | Health check |
+
+### WebSocket Protocol
+
+Messages use `WSMessage` pydantic model (`src/ws/protocol.py`): `{type, data, timestamp}`. Client sends `{type: "ping"}` for heartbeat, `{type: "subscribe", stocks: [...]}` to subscribe. Server responds with `pong`, `subscribed`, `quote`, or `error`. Connection manager (`src/ws/manager.py`) handles 1-2 NestJS backend connections.
+
+### Directory Layout
+
+```
+src/core/          config.py (pydantic-settings), exceptions.py, logging.py
+src/adapter/       base.py, factory in __init__.py, tdx/ (real), qmt/ (real), mock/
+src/ws/            protocol.py (WSMessage), manager.py (ConnectionManager)
+tdx/               main.py, config.py, routes/{market,ws}.py, services/tdx_service.py
+qmt/               main.py, config.py, routes/{market,ws}.py, services/qmt_service.py
+tests/             conftest.py (httpx ASGI fixtures), unit/, integration/
 ```
 
-**Factory Functions** (`src/adapter/__init__.py`):
-- `create_tdx_adapter()` → Returns `TDXAdapter` (production) or `TDXMockAdapter` (dev)
-- `create_qmt_adapter(path, account_id)` → Returns `QMTAdapter` or `QMTMockAdapter`
-
-Environment selection via `settings.is_production` (based on `APP_ENV`).
-
-### Configuration System
-
-Uses **pydantic-settings** with type-safe environment variables:
-
-```python
-from src.core.config import settings
-
-# Global
-settings.app_env          # "development" | "production"
-settings.log_level
-settings.allowed_origins_list
-
-# Instance-specific
-settings.tdx.host / port
-settings.qmt.host / port / path / account_id
-settings.aktools.host / port
-```
-
----
-
-## Testing
-
-### Run Tests
-
-```bash
-# All tests
-uv run pytest
-
-# Specific test file
-uv run pytest tests/integration/test_tdx_service.py
-
-# Specific test
-uv run pytest tests/integration/test_tdx_service.py::test_get_sector_overview
-
-# With coverage
-uv run pytest --cov=src --cov=tdx --cov=qmt
-```
-
-### Test Structure
-
-- **Unit tests**: `tests/unit/` - Mock adapters, config, protocol
-- **Integration tests**: `tests/integration/` - Service layer with real adapters
-
-**Fixtures** (`tests/conftest.py`):
-- `tdx_client` - Async HTTP client for TDX API
-- `qmt_client` - Async HTTP client for QMT API
-
-### Test Pattern
-
-```python
-@pytest.mark.asyncio
-async def test_example():
-    adapter = create_tdx_adapter()
-    await adapter.initialize()
-    try:
-        result = await adapter.get_stock_list("通达信88")
-        assert len(result) > 0
-    finally:
-        await adapter.shutdown()
-```
-
----
-
-## Code Quality
-
-### Tools
-
-- **ruff** - Linting and formatting (line length: 100)
-- **pyright** - Static type checking (strict mode)
-- **pre-commit** - Git hooks
-
-### Commands
-
-```bash
-# Lint
-uv run ruff check .
-
-# Format
-uv run ruff format .
-
-# Type check
-uv run pyright src/
-
-# Install pre-commit hooks
-uv run pre-commit install
-```
-
-### Pre-commit Hook
-
-Runs automatically on git commit:
-- `ruff --fix --exit-non-zero-on-fix`
-- `ruff-format`
-- File validation (yaml, toml, conflicts)
-
----
-
-## Cross-Platform Strategy
-
-### macOS Development
-- `APP_ENV=development` → Mock adapters auto-selected
-- Mock adapters return random data for development/testing
-- WebSocket streaming works with simulated quotes
-
-### Windows Production
-- `APP_ENV=production` → Real SDK adapters
-- **Prerequisites**: TDX terminal or MiniQMT client must be running
-- Can be registered as Windows service using NSSM
-
----
-
-## WebSocket Protocol
-
-**Message Format** (`src/ws/protocol.py`):
-```python
-{
-    "type": "quote" | "trade" | "order" | "position" | "heartbeat" | "error",
-    "data": {...},
-    "timestamp": "2024-01-01T12:00:00"
-}
-```
-
-**Connection Manager** (`src/ws/manager.py`):
-- Manages 1-2 NestJS backend connections (not for end users)
-- `broadcast()` - Send to all connected backends
-- `send_to_client()` - Send to specific backend
-
-**Endpoints**:
-- TDX: `ws://localhost:9001/ws/quote/{client_id}`
-- QMT: `ws://localhost:9002/ws/quote/{client_id}`
-
----
-
-## API Documentation
-
-Start services and visit:
-- **TDX**: http://localhost:9001/docs
-- **QMT**: http://localhost:9002/docs
-
-Auto-generated by FastAPI's OpenAPI integration.
-
----
-
-## Common Patterns
-
-### Adding a New Route
-
-1. Create handler in `tdx/routes/` or `qmt/routes/`
-2. Import and register in `tdx/main.py` or `qmt/main.py`:
-   ```python
-   app.include_router(router, prefix="/api/...", tags=["..."])
-   ```
-
-### Adding Business Logic
-
-1. Create service class in `tdx/services/` or `qmt/services/`
-2. Use singleton pattern: `service_name = ServiceClass()`
-3. Import and use in route handlers
-
-### Adapter Implementation
-
-1. Extend `MarketDataAdapter` base class
-2. Implement all abstract methods
-3. Add to `src/adapter/tdx/` or `src/adapter/qmt/` for real SDK
-4. Add mock version to `src/adapter/mock/`
-5. Update factory function in `src/adapter/__init__.py`
-
----
-
-## Environment Variables
-
-Key variables in `.env`:
-
-```bash
-APP_ENV=development          # development | production
-LOG_LEVEL=INFO
-
-TDX_HOST=0.0.0.0
-TDX_PORT=9001
-
-QMT_HOST=0.0.0.0
-QMT_PORT=9002
-QMT_PATH=/path/to/miniQMT
-QMT_ACCOUNT_ID=
-
-AKTOOLS_HOST=0.0.0.0
-AKTOOLS_PORT=8080
-
-ALLOWED_ORIGINS=http://localhost:8001,http://localhost:8002
-```
-
----
-
-## Known Constraints
-
-- **TDX SDK** (`tqcenter`) - Windows only
-- **QMT SDK** (`xtquant`) - Windows only, Python 3.12 max
-- **AKTools** - Runs independently via `python3 -m aktools`
-- WebSocket connections intended for NestJS backends only (1-2 connections typical)
-
----
-
-## License
-
-BSD-3-Clause
+## Key Conventions
+
+- **Config**: `src/core/config.py` — single `settings = AppSettings()` singleton. `APP_ENV=development` selects mock adapters, `production` selects real SDKs.
+- **Tests**: `pytest-asyncio` with `asyncio_mode = "auto"` (configured in pyproject.toml). Fixtures in `conftest.py` provide `tdx_client` / `qmt_client` as httpx `AsyncClient` with ASGI transport.
+- **Code style**: ruff (line length 100, Python 3.12 target), pyright strict mode, pre-commit hooks.
+- **SDK references**: See `TDX.md` for `tqcenter.tq` API, `QMT.md` for `xtquant.xtdata` API.
+- **Cross-platform**: macOS development uses mock adapters returning random data. Windows production requires TDX terminal or MiniQMT client running.
