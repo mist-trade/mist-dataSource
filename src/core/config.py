@@ -9,6 +9,7 @@ class TDXSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TDX_")
     host: str = "0.0.0.0"
     port: int = 9001
+    sdk_path: str = ""  # 通达信 SDK 路径, e.g. "D:/tdx_sdk/tqcenter"
 
 
 class QMTSettings(BaseSettings):
@@ -19,6 +20,7 @@ class QMTSettings(BaseSettings):
     port: int = 9002
     path: str = ""
     account_id: str = ""
+    sdk_path: str = ""  # QMT SDK 路径, e.g. "D:/miniQMT/Lib"
 
 
 class AKToolsSettings(BaseSettings):

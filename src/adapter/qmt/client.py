@@ -4,12 +4,18 @@ Note: This module requires xtquant SDK which is only available on Windows.
 The MiniQMT client must be running and logged in before using this adapter.
 
 对应 QMT SDK: xtquant.xtdata (行情)
+
+部署方式: 将 miniQMT 客户端的 Lib 目录路径设置为 QMT_SDK_PATH 环境变量,
+例如: QMT_SDK_PATH=D:/miniQMT/Lib
 """
 
 import asyncio
+import sys
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from src.adapter.base import MarketDataAdapter
+from src.core.config import settings
 from src.core.exceptions import AdapterError
 
 
@@ -41,6 +47,13 @@ class QMTAdapter(MarketDataAdapter):
             AdapterError: If initialization fails
         """
         try:
+            # 将 SDK 路径添加到 sys.path, 使 xtquant 可被导入
+            sdk_path = settings.qmt.sdk_path
+            if sdk_path:
+                sdk_dir = str(Path(sdk_path).resolve())
+                if sdk_dir not in sys.path:
+                    sys.path.insert(0, sdk_dir)
+
             from xtquant import xtdata
 
             self._xtdata = xtdata
@@ -49,7 +62,8 @@ class QMTAdapter(MarketDataAdapter):
         except ImportError as e:
             raise ImportError(
                 "xtquant SDK is not available. "
-                "This adapter only works on Windows with QMT client installed. "
+                "Please set QMT_SDK_PATH to the directory containing xtquant package "
+                "(usually the Lib folder inside miniQMT installation). "
                 "Use QMTMockAdapter for development on other platforms."
             ) from e
         except Exception as e:
