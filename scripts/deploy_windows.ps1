@@ -153,14 +153,18 @@ if (-not $Only -or $Only -eq "test") {
     # 创建日志目录
     if (-not (Test-Path $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir | Out-Null }
 
-    # 启动 TDX 实例, 等几秒检查是否存活
+    # 读取 .env (确保 $envContent 可用)
+    if (-not $envContent) { $envContent = Get-Content (Join-Path $ProjectDir ".env") -Raw }
+
+    # 启动 TDX 实例
     $tdxTestLog = Join-Path $LogsDir "deploy-test-tdx.log"
+    $tdxTestErr = Join-Path $LogsDir "deploy-test-tdx-err.log"
     Write-Host "  启动 TDX 实例 (临时, 仅测试)..."
     $proc = Start-Process -FilePath $venvPython `
         -ArgumentList "-m", "uvicorn", "tdx.main:app", "--host", "127.0.0.1", "--port", "9001" `
         -WorkingDirectory $ProjectDir `
         -RedirectStandardOutput $tdxTestLog `
-        -RedirectStandardError (Join-Path $LogsDir "deploy-test-tdx-err.log") `
+        -RedirectStandardError $tdxTestErr `
         -PassThru -NoNewWindow
 
     # 等待启动, 最多重试 5 次 (SDK 加载 DLL 可能较慢)
@@ -168,7 +172,7 @@ if (-not $Only -or $Only -eq "test") {
     Start-Sleep -Seconds 3
     if ($proc.HasExited) {
         Write-Fail "TDX 实例启动后立即退出 (exit code: $($proc.ExitCode))"
-        Get-Content (Join-Path $LogsDir "deploy-test-tdx-err.log") | ForEach-Object { Write-Host "  $_" }
+        Get-Content $tdxTestErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
     } else {
         for ($i = 1; $i -le 5; $i++) {
             try {
@@ -183,7 +187,7 @@ if (-not $Only -or $Only -eq "test") {
                     Start-Sleep -Seconds 3
                 } else {
                     Write-Fail "TDX health 接口无响应 (已重试 5 次)"
-                    Get-Content (Join-Path $LogsDir "deploy-test-tdx-err.log") -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+                    Get-Content $tdxTestErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
                     Get-Content $tdxTestLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
                 }
             }
@@ -195,48 +199,50 @@ if (-not $Only -or $Only -eq "test") {
     if (-not $tdxOk) {
         Write-Host "`n  TDX 测试失败! 请检查上面的错误信息。" -ForegroundColor Red
         Write-Host "  常见问题:" -ForegroundColor Yellow
-        Write-Host "    1. APP_ENV=development → 检查 mock adapter 是否正常" -ForegroundColor Yellow
-        Write-Host "    2. APP_ENV=production → 检查 TDX_SDK_PATH 是否正确" -ForegroundColor Yellow
-        Write-Host "    3. 端口 9001 被占用 → 关闭占用进程" -ForegroundColor Yellow
+        Write-Host "    1. APP_ENV=development -> 检查 mock adapter 是否正常" -ForegroundColor Yellow
+        Write-Host "    2. APP_ENV=production -> 检查 TDX_SDK_PATH 是否正确, 通达信终端是否已登录" -ForegroundColor Yellow
+        Write-Host "    3. 端口 9001 被占用 -> 关闭占用进程" -ForegroundColor Yellow
         if (-not $Only) {
-            Write-Host "`n  是否继续部署 QMT 和注册服务? (Y/N)" -ForegroundColor Yellow
+            Write-Host "`n  是否继续注册服务? (Y/N)" -ForegroundColor Yellow
             $cont = Read-Host
             if ($cont -ne "Y") { exit 1 }
         }
     }
 
     # 测试 QMT 实例 (仅在配置了 QMT_SDK_PATH 时)
+    Write-Step "Step 4/5: 测试 QMT 实例启动"
+
     $qmtSdk = if ($envContent -match 'QMT_SDK_PATH\s*=\s*(.+)') { $Matches[1].Trim() } else { "" }
     if (-not $qmtSdk -or $qmtSdk -eq "") {
-        Write-Step "Step 4/5: 跳过 QMT 测试 (QMT_SDK_PATH 未配置)"
+        Write-Host "  跳过 QMT 测试 (QMT_SDK_PATH 未配置)" -ForegroundColor Yellow
     } else {
-        Write-Step "Step 4/5: 测试 QMT 实例启动"
+        $qmtTestLog = Join-Path $LogsDir "deploy-test-qmt.log"
+        $qmtTestErr = Join-Path $LogsDir "deploy-test-qmt-err.log"
+        Write-Host "  启动 QMT 实例 (临时, 仅测试)..."
+        $qmtProc = Start-Process -FilePath $venvPython `
+            -ArgumentList "-m", "uvicorn", "qmt.main:app", "--host", "127.0.0.1", "--port", "9002" `
+            -WorkingDirectory $ProjectDir `
+            -RedirectStandardOutput $qmtTestLog `
+            -RedirectStandardError $qmtTestErr `
+            -PassThru -NoNewWindow
 
-    $qmtTestLog = Join-Path $LogsDir "deploy-test-qmt.log"
-    Write-Host "  启动 QMT 实例 (临时, 仅测试)..."
-    $proc = Start-Process -FilePath $venvPython `
-        -ArgumentList "-m", "uvicorn", "qmt.main:app", "--host", "127.0.0.1", "--port", "9002" `
-        -WorkingDirectory $ProjectDir `
-        -RedirectStandardOutput $qmtTestLog `
-        -RedirectStandardError (Join-Path $LogsDir "deploy-test-qmt-err.log") `
-        -PassThru -NoNewWindow
+        Start-Sleep -Seconds 3
 
-    Start-Sleep -Seconds 3
-
-    if ($proc.HasExited) {
-        Write-Fail "QMT 实例启动后立即退出 (exit code: $($proc.ExitCode))"
-        Get-Content (Join-Path $LogsDir "deploy-test-qmt-err.log") | ForEach-Object { Write-Host "  $_" }
-    } else {
-        try {
-            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:9002/health" -TimeoutSec 5 -UseBasicParsing
-            $body = $resp.Content | ConvertFrom-Json
-            Write-Ok "QMT health: status=$($body.status), adapter=$($body.adapter)"
-        } catch {
-            Write-Fail "QMT health 接口无响应: $_"
-            Get-Content $qmtTestLog | ForEach-Object { Write-Host "  $_" }
+        if ($qmtProc.HasExited) {
+            Write-Fail "QMT 实例启动后立即退出 (exit code: $($qmtProc.ExitCode))"
+            Get-Content $qmtTestErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+        } else {
+            try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:9002/health" -TimeoutSec 5 -UseBasicParsing
+                $body = $resp.Content | ConvertFrom-Json
+                Write-Ok "QMT health: status=$($body.status), adapter=$($body.adapter)"
+            } catch {
+                Write-Fail "QMT health 接口无响应: $_"
+                Get-Content $qmtTestErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+            }
+            $qmtProc.Kill()
+            $qmtProc.WaitForExit(5000)
         }
-        $proc.Kill()
-        $proc.WaitForExit(5000)
     }
 }
 
