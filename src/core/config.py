@@ -6,16 +6,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class TDXSettings(BaseSettings):
     """TDX Instance settings."""
 
-    model_config = SettingsConfigDict(env_prefix="TDX_")
+    model_config = SettingsConfigDict(env_prefix="TDX_", env_file=".env", case_sensitive=False)
     host: str = "0.0.0.0"
     port: int = 9001
-    sdk_path: str = ""  # 通达信 SDK 路径, e.g. "D:/tdx_sdk/tqcenter"
+    sdk_path: str = ""  # 通达信 SDK 路径, e.g. "D:/tdx_sdk"
 
 
 class QMTSettings(BaseSettings):
     """QMT Instance settings."""
 
-    model_config = SettingsConfigDict(env_prefix="QMT_")
+    model_config = SettingsConfigDict(env_prefix="QMT_", env_file=".env", case_sensitive=False)
     host: str = "0.0.0.0"
     port: int = 9002
     path: str = ""
@@ -26,7 +26,7 @@ class QMTSettings(BaseSettings):
 class AKToolsSettings(BaseSettings):
     """AKTools Instance settings."""
 
-    model_config = SettingsConfigDict(env_prefix="AKTOOLS_")
+    model_config = SettingsConfigDict(env_prefix="AKTOOLS_", env_file=".env", case_sensitive=False)
     host: str = "0.0.0.0"
     port: int = 8080
 
