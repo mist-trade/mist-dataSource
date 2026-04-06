@@ -96,7 +96,7 @@ class TDXMockAdapter(MarketDataAdapter):
 
     # ---- Market Data Methods ----
 
-    async def get_market_snapshot(self, stock_code: str) -> dict[str, Any]:
+    async def get_market_snapshot(self, stock_code: str, field_list: list[str] | None = None) -> dict[str, Any]:
         """获取市场快照数据."""
         # Return fixed snapshot data
         return self._snapshot.copy()
@@ -303,44 +303,50 @@ class TDXMockAdapter(MarketDataAdapter):
 
     # ---- Value Methods ----
 
-    async def get_bkjy_value(self, stock_list: list[str], fields: list[str]) -> dict[str, Any]:
+    async def get_bkjy_value(
+        self, stock_list: list[str], field_list: list[str], start_time: str = "", end_time: str = ""
+    ) -> dict[str, Any]:
         """获取板块交易数据."""
         result = {}
-        for field in fields:
+        for field in field_list:
             result[field] = {code: 1000000.0 for code in stock_list}
         return result
 
     async def get_bkjy_value_by_date(
-        self, stock_list: list[str], fields: list[str], date: str
+        self, stock_list: list[str], field_list: list[str], year: int = 0, mmdd: int = 0
     ) -> dict[str, Any]:
         """获取指定日期板块交易数据."""
-        return await self.get_bkjy_value(stock_list, fields)
+        return await self.get_bkjy_value(stock_list, field_list)
 
-    async def get_gpjy_value(self, stock_list: list[str], fields: list[str]) -> dict[str, Any]:
+    async def get_gpjy_value(
+        self, stock_list: list[str], field_list: list[str], start_time: str = "", end_time: str = ""
+    ) -> dict[str, Any]:
         """获取股票交易数据."""
         result = {}
-        for field in fields:
+        for field in field_list:
             result[field] = {code: 500000.0 for code in stock_list}
         return result
 
     async def get_gpjy_value_by_date(
-        self, stock_list: list[str], fields: list[str], date: str
+        self, stock_list: list[str], field_list: list[str], year: int = 0, mmdd: int = 0
     ) -> dict[str, Any]:
         """获取指定日期股票交易数据."""
-        return await self.get_gpjy_value(stock_list, fields)
+        return await self.get_gpjy_value(stock_list, field_list)
 
-    async def get_scjy_value(self, stock_list: list[str], fields: list[str]) -> dict[str, Any]:
+    async def get_scjy_value(
+        self, field_list: list[str], start_time: str = "", end_time: str = ""
+    ) -> dict[str, Any]:
         """获取市场交易数据."""
         result = {}
-        for field in fields:
-            result[field] = {code: 10000000.0 for code in stock_list}
+        for field in field_list:
+            result[field] = 10000000.0
         return result
 
     async def get_scjy_value_by_date(
-        self, stock_list: list[str], fields: list[str], date: str
+        self, field_list: list[str], year: int = 0, mmdd: int = 0
     ) -> dict[str, Any]:
         """获取指定日期市场交易数据."""
-        return await self.get_scjy_value(stock_list, fields)
+        return await self.get_scjy_value(field_list)
 
     # ---- Sector Methods ----
 
@@ -366,7 +372,7 @@ class TDXMockAdapter(MarketDataAdapter):
         """下载指数成分权重信息."""
         pass
 
-    async def get_user_sector(self, name: str) -> list[str]:
+    async def get_user_sector(self, name: str = "") -> list[str]:
         """获取自定义板块."""
         # Return fixed user sector stocks
         return ["600519.SH", "000001.SZ", "601318.SH"]
@@ -393,12 +399,14 @@ class TDXMockAdapter(MarketDataAdapter):
 
     # ---- ETF Methods ----
 
-    async def get_kzz_info(self) -> dict[str, Any]:
+    async def get_kzz_info(self, stock_code: str = "", field_list: list[str] | None = None) -> dict[str, Any]:
         """获取可转债信息."""
+        # In real implementation, would filter by stock_code
         return self._kzz_info.copy()
 
-    async def get_ipo_info(self) -> dict[str, Any]:
+    async def get_ipo_info(self, ipo_type: int = 0, ipo_date: int = 0) -> dict[str, Any]:
         """获取新股信息."""
+        # In real implementation, would filter by ipo_type and ipo_date
         return {
             "IPOStocks": [
                 {"Code": "301001.SZ", "Name": "新股1", "Date": "20250101", "Price": 25.50},
@@ -406,7 +414,7 @@ class TDXMockAdapter(MarketDataAdapter):
             ]
         }
 
-    async def get_trackzs_etf_info(self) -> dict[str, Any]:
+    async def get_trackzs_etf_info(self, zs_code: str = "") -> dict[str, Any]:
         """获取ETF跟踪指数信息."""
         return {
             "ETFs": [
@@ -562,9 +570,9 @@ class TDXMockAdapter(MarketDataAdapter):
         """打印到通达信终端."""
         pass
 
-    async def exec_to_tdx(self, code: str) -> None:
-        """执行代码到通达信终端."""
-        pass
+    async def exec_to_tdx(self, cmd: str = "", param: str = "") -> dict[str, Any]:
+        """调用客户端功能接口."""
+        return {"result": "ok", "cmd": cmd, "param": param}
 
     # ---- Trading Calendar & Holidays ----
 

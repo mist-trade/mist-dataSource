@@ -547,11 +547,11 @@ class MarketDataAdapter(ABC):
 
     # ---- Sector Methods ----
 
-    async def get_user_sector(self, name: str) -> list[str]:
+    async def get_user_sector(self, name: str = "") -> list[str]:
         """获取自定义板块.
 
         Args:
-            name: 板块名称
+            name: 板块名称，留空返回所有板块
 
         Returns:
             股票代码列表
@@ -603,24 +603,35 @@ class MarketDataAdapter(ABC):
 
     # ---- ETF Methods ----
 
-    async def get_kzz_info(self) -> dict[str, Any]:
+    async def get_kzz_info(self, stock_code: str = "", field_list: list[str] | None = None) -> dict[str, Any]:
         """获取可转债信息.
+
+        Args:
+            stock_code: 可转债代码
+            field_list: 字段列表
 
         Returns:
             可转债信息
         """
         raise NotImplementedError("get_kzz_info not implemented")
 
-    async def get_ipo_info(self) -> dict[str, Any]:
+    async def get_ipo_info(self, ipo_type: int = 0, ipo_date: int = 0) -> dict[str, Any]:
         """获取新股信息.
+
+        Args:
+            ipo_type: IPO类型
+            ipo_date: IPO日期
 
         Returns:
             新股信息
         """
         raise NotImplementedError("get_ipo_info not implemented")
 
-    async def get_trackzs_etf_info(self) -> dict[str, Any]:
+    async def get_trackzs_etf_info(self, zs_code: str = "") -> dict[str, Any]:
         """获取ETF跟踪指数信息.
+
+        Args:
+            zs_code: 指数代码
 
         Returns:
             ETF跟踪指数信息
@@ -655,11 +666,15 @@ class MarketDataAdapter(ABC):
 
     # ---- Client Methods ----
 
-    async def exec_to_tdx(self, code: str) -> None:
-        """执行代码到通达信终端.
+    async def exec_to_tdx(self, cmd: str = "", param: str = "") -> dict[str, Any]:
+        """调用客户端功能接口.
 
         Args:
-            code: 代码
+            cmd: 命令
+            param: 参数
+
+        Returns:
+            执行结果
         """
         raise NotImplementedError("exec_to_tdx not implemented")
 
