@@ -256,7 +256,10 @@ if ((-not $SkipService) -and (-not $Only -or $Only -eq "service")) {
 
     # --- TDX 服务 ---
     $tdxService = "MistTDX"
+    $prevEAP2 = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $existing = nssm status $tdxService 2>&1
+    $ErrorActionPreference = $prevEAP2
     if ($existing -match "SERVICE_RUNNING|SERVICE_STOPPED") {
         Write-Host "  $tdxService 已存在 (状态: $existing), 跳过注册" -ForegroundColor Yellow
     } else {
@@ -274,7 +277,10 @@ if ((-not $SkipService) -and (-not $Only -or $Only -eq "service")) {
 
     # --- QMT 服务 ---
     $qmtService = "MistQMT"
+    $prevEAP3 = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $existing = nssm status $qmtService 2>&1
+    $ErrorActionPreference = $prevEAP3
     if ($existing -match "SERVICE_RUNNING|SERVICE_STOPPED") {
         Write-Host "  $qmtService 已存在 (状态: $existing), 跳过注册" -ForegroundColor Yellow
     } else {
