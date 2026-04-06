@@ -5,8 +5,6 @@ Tests all HTTP endpoints against the TDX service using mock adapter.
 
 import pytest
 
-from tests.conftest import tdx_client
-
 
 @pytest.mark.asyncio
 class TestMarketRoutes:

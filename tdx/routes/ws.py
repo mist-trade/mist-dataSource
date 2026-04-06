@@ -231,7 +231,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
         quote_queue.put_nowait(None)
         try:
             await asyncio.wait_for(consumer_task, timeout=1.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         await tdx.main.ws_manager.disconnect(client_id)

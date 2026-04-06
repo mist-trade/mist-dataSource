@@ -11,10 +11,8 @@ Manual testing example:
     Then send: {"type": "ping"}
 """
 
-import json
 
 import pytest
-
 from starlette.testclient import TestClient
 
 from tdx.main import app

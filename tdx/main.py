@@ -81,13 +81,13 @@ async def health():
     }
 
 
-from tdx.routes.market import router as market_router
-from tdx.routes.stock import router as stock_router
-from tdx.routes.financial import router as financial_router
-from tdx.routes.value import router as value_router
-from tdx.routes.sector import router as sector_router
-from tdx.routes.etf import router as etf_router
 from tdx.routes.client import router as client_router
+from tdx.routes.etf import router as etf_router
+from tdx.routes.financial import router as financial_router
+from tdx.routes.market import router as market_router
+from tdx.routes.sector import router as sector_router
+from tdx.routes.stock import router as stock_router
+from tdx.routes.value import router as value_router
 from tdx.routes.ws import router as ws_router
 
 app.include_router(market_router, prefix="/api/tdx", tags=["Market"])

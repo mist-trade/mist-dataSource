@@ -1,10 +1,8 @@
 """Adapter factory for creating market data adapters."""
 
-import os
-
 from src.adapter.base import MarketDataAdapter
-from src.adapter.mock.tdx_mock import TDXMockAdapter
 from src.adapter.mock.qmt_mock import QMTMockAdapter
+from src.adapter.mock.tdx_mock import TDXMockAdapter
 from src.core.config import settings
 
 

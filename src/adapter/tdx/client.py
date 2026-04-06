@@ -206,7 +206,7 @@ class TDXAdapter(MarketDataAdapter):
 
     # ---- Market Data Methods ----
 
-    async def get_market_snapshot(self, stock_code: str, field_list: list[str] = []) -> dict:
+    async def get_market_snapshot(self, stock_code: str, field_list: list[str] | None = None) -> dict:
         """获取实时行情快照.
 
         对应 TDX SDK: tq.get_market_snapshot(stock_code, field_list)
@@ -219,7 +219,7 @@ class TDXAdapter(MarketDataAdapter):
             市场快照数据字典
         """
         try:
-            return self._tq.get_market_snapshot(stock_code, field_list)
+            return self._tq.get_market_snapshot(stock_code, field_list or [])
         except Exception as e:
             raise AdapterError(f"Failed to get market snapshot: {e}") from e
 
@@ -241,7 +241,7 @@ class TDXAdapter(MarketDataAdapter):
         except Exception as e:
             raise AdapterError(f"Failed to get dividend factors: {e}") from e
 
-    async def get_gb_info(self, stock_code: str, date_list: list[str] = [], count: int = 1) -> list[dict]:
+    async def get_gb_info(self, stock_code: str, date_list: list[str] | None = None, count: int = 1) -> list[dict]:
         """获取股本数据.
 
         对应 TDX SDK: tq.get_gb_info(stock_code, date_list, count)
@@ -255,7 +255,7 @@ class TDXAdapter(MarketDataAdapter):
             股本数据列表
         """
         try:
-            return self._tq.get_gb_info(stock_code, date_list, count)
+            return self._tq.get_gb_info(stock_code, date_list or [], count)
         except Exception as e:
             raise AdapterError(f"Failed to get gb info: {e}") from e
 
@@ -295,7 +295,7 @@ class TDXAdapter(MarketDataAdapter):
         except Exception as e:
             raise AdapterError(f"Failed to refresh cache: {e}") from e
 
-    async def refresh_kline(self, stock_list: list[str] = [], period: str = "1d") -> dict:
+    async def refresh_kline(self, stock_list: list[str] | None = None, period: str = "1d") -> dict:
         """刷新K线缓存.
 
         对应 TDX SDK: tq.refresh_kline(stock_list, period)
@@ -308,7 +308,7 @@ class TDXAdapter(MarketDataAdapter):
             刷新结果字典
         """
         try:
-            return self._tq.refresh_kline(stock_list, period)
+            return self._tq.refresh_kline(stock_list or [], period)
         except Exception as e:
             raise AdapterError(f"Failed to refresh kline: {e}") from e
 
@@ -364,7 +364,7 @@ class TDXAdapter(MarketDataAdapter):
         except Exception as e:
             raise AdapterError(f"Failed to get report data: {e}") from e
 
-    async def get_more_info(self, stock_code: str = "", field_list: list[str] = []) -> dict:
+    async def get_more_info(self, stock_code: str = "", field_list: list[str] | None = None) -> dict:
         """获取更多信息.
 
         对应 TDX SDK: tq.get_more_info(stock_code, field_list)
@@ -377,7 +377,7 @@ class TDXAdapter(MarketDataAdapter):
             更多信息字典
         """
         try:
-            return self._tq.get_more_info(stock_code, field_list)
+            return self._tq.get_more_info(stock_code, field_list or [])
         except Exception as e:
             raise AdapterError(f"Failed to get more info: {e}") from e
 
@@ -902,7 +902,7 @@ class TDXAdapter(MarketDataAdapter):
 
     # ---- Formula Methods (TODO) ----
 
-    async def formula_format_data(self, data_dict: dict = {}) -> list[dict]:
+    async def formula_format_data(self, data_dict: dict[str, Any] | None = None) -> list[dict]:
         """格式化K线数据.
 
         对应 TDX SDK: tq.formula_format_data(data_dict)
@@ -915,7 +915,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         raise NotImplementedError("formula_format_data not yet implemented")
 
-    async def formula_set_data(self, data_dict: dict = {}) -> dict:
+    async def formula_set_data(self, data_dict: dict[str, Any] | None = None) -> dict:
         """设置公式数据.
 
         对应 TDX SDK: tq.formula_set_data(data_dict)
@@ -928,7 +928,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         raise NotImplementedError("formula_set_data not yet implemented")
 
-    async def formula_set_data_info(self, data_dict: dict = {}) -> dict:
+    async def formula_set_data_info(self, data_dict: dict[str, Any] | None = None) -> dict:
         """设置公式数据信息.
 
         对应 TDX SDK: tq.formula_set_data_info(data_dict)
@@ -998,7 +998,7 @@ class TDXAdapter(MarketDataAdapter):
 
     async def formula_process(
         self,
-        codes: list[str] = [],
+        codes: list[str] | None = None,
         period: str = "1d",
         starttime: str = "",
         endtime: str = "",
@@ -1020,7 +1020,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         raise NotImplementedError("formula_process not yet implemented")
 
-    async def formula_process_mul_xg(self, exp_list: list[str] = []) -> list[dict]:
+    async def formula_process_mul_xg(self, exp_list: list[str] | None = None) -> list[dict]:
         """批量执行公式选股.
 
         对应 TDX SDK: tq.formula_process_mul_xg(exp_list)
@@ -1033,7 +1033,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         raise NotImplementedError("formula_process_mul_xg not yet implemented")
 
-    async def formula_process_mul_zb(self, data_name_list: list[str] = [], zbi_list: list[int] = []) -> dict:
+    async def formula_process_mul_zb(self, data_name_list: list[str] | None = None, zbi_list: list[int] | None = None) -> dict:
         """批量执行公式指标.
 
         对应 TDX SDK: tq.formula_process_mul_zb(data_name_list, zbi_list)

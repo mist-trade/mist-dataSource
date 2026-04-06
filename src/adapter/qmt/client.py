@@ -11,8 +11,9 @@ The MiniQMT client must be running and logged in before using this adapter.
 
 import asyncio
 import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from src.adapter.base import MarketDataAdapter
 from src.core.config import settings

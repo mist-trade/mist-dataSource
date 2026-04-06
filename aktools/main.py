@@ -5,10 +5,9 @@ for consistent startup with other instances.
 """
 
 import asyncio
-import sys
 
 from aktools import PORT
-from src.core.logging import setup_logging, get_logger
+from src.core.logging import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger(__name__)

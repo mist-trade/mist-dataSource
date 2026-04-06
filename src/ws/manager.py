@@ -1,6 +1,7 @@
 """WebSocket connection manager for NestJS backend connections."""
 
 import asyncio
+
 from fastapi import WebSocket
 
 from src.ws.protocol import WSMessage

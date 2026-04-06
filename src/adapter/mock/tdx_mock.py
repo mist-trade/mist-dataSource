@@ -2,9 +2,10 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from src.adapter.base import MarketDataAdapter
 
@@ -309,7 +310,7 @@ class TDXMockAdapter(MarketDataAdapter):
         """获取板块交易数据."""
         result = {}
         for field in field_list:
-            result[field] = {code: 1000000.0 for code in stock_list}
+            result[field] = dict.fromkeys(stock_list, 1000000.0)
         return result
 
     async def get_bkjy_value_by_date(
@@ -324,7 +325,7 @@ class TDXMockAdapter(MarketDataAdapter):
         """获取股票交易数据."""
         result = {}
         for field in field_list:
-            result[field] = {code: 500000.0 for code in stock_list}
+            result[field] = dict.fromkeys(stock_list, 500000.0)
         return result
 
     async def get_gpjy_value_by_date(

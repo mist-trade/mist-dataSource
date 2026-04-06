@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.adapter import create_tdx_adapter, create_qmt_adapter
+from src.adapter import create_qmt_adapter, create_tdx_adapter
 
 
 @pytest.mark.asyncio

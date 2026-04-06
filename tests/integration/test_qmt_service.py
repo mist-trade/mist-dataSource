@@ -3,8 +3,8 @@
 import pytest
 
 import qmt.main
-from src.adapter import create_qmt_adapter
 from qmt.services.qmt_service import QMTService
+from src.adapter import create_qmt_adapter
 
 
 @pytest.mark.asyncio
