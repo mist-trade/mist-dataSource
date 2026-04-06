@@ -112,8 +112,12 @@ if (-not $Only -or $Only -eq "install") {
 
     Push-Location $ProjectDir
     try {
-        & uv sync 2>$null
-        if ($LASTEXITCODE -ne 0) { throw "uv sync failed (exit code $LASTEXITCODE)" }
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        & uv sync 2>$null | Out-Null
+        $syncExit = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAP
+        if ($syncExit -ne 0) { throw "uv sync failed (exit code $syncExit)" }
         Write-Ok "uv sync 完成"
 
         # 检查 venv 是否创建
