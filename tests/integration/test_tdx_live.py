@@ -99,8 +99,9 @@ async def test_live_get_kzz_info():
     adapter = create_tdx_adapter()
     await adapter.initialize()
     try:
-        # TDX SDK uses get_cb_info for convertible bonds
-        result = await adapter.get_kzz_info("", [])
+        # TDX SDK requires a specific convertible bond code
+        # 113050.SH is a common convertible bond code (南航转债)
+        result = await adapter.get_kzz_info("113050.SH", [])
         assert isinstance(result, dict)
         print(f"Convertible bond info: {list(result.keys())[:5]}...")  # Show first 5 keys
     finally:
