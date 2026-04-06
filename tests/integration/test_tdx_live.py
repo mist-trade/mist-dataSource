@@ -98,7 +98,7 @@ async def test_live_get_kzz_info():
     adapter = create_tdx_adapter()
     await adapter.initialize()
     try:
-        result = await adapter.get_kzz_info()
+        result = await adapter.get_kzz_info("", [])
         assert isinstance(result, dict)
         print(f"Convertible bond info: {list(result.keys())[:5]}...")  # Show first 5 keys
     finally:
