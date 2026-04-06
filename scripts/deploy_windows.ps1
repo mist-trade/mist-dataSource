@@ -192,8 +192,10 @@ if (-not $Only -or $Only -eq "test") {
                 }
             }
         }
-        $proc.Kill()
-        $proc.WaitForExit(5000)
+        if (-not $proc.HasExited) {
+            $proc.Kill()
+            $proc.WaitForExit(5000)
+        }
     }
 
     if (-not $tdxOk) {
