@@ -104,9 +104,10 @@ class TDXAdapter(MarketDataAdapter):
                 )
 
             self._tq = _load_tq_module(sdk_path)
-            # initialize 传入连接路径, DLL 路径由 SDK 内部自动定位:
-            # Path(__file__).parents[1] / 'TPythClient.dll'
-            self._tq.initialize(os.path.abspath(__file__))
+            # initialize 用 SDK 目录下的脚本路径作为策略标识
+            # TDX 终端用此路径做策略名, 传 SDK 目录内的路径避免 "已有同名策略运行" 错误
+            init_path = os.path.join(sdk_path, "mist_datasource.py")
+            self._tq.initialize(init_path)
         except ImportError as e:
             raise ImportError(
                 "tqcenter SDK is not available. "
