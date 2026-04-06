@@ -86,3 +86,5 @@ tests/             conftest.py (httpx ASGI fixtures), unit/, integration/
 - **Code style**: ruff (line length 100, Python 3.12 target), pyright strict mode, pre-commit hooks.
 - **SDK references**: See `TDX.md` for `tqcenter.tq` API, `QMT.md` for `xtquant.xtdata` API.
 - **Cross-platform**: macOS development uses mock adapters returning random data. Windows production requires TDX terminal or MiniQMT client running.
+- **TDX 策略管理**: 通达信终端用文件路径作为策略名标识。服务重启前必须在通达信终端中**手动删除**已注册的策略, 否则 `tq.initialize()` 会报 "已有同名策略运行" 导致初始化失败。服务注册身份为 `sdk_path/mist_datasource.py`。
+- **Windows 部署**: 使用 `scripts/deploy_windows.ps1` 一键部署 (需管理员权限)。支持 `-SkipService` 跳过服务注册, `-Only install|test|service` 运行单步。
