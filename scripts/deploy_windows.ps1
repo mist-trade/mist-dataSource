@@ -163,23 +163,30 @@ if (-not $Only -or $Only -eq "test") {
         -RedirectStandardError (Join-Path $LogsDir "deploy-test-tdx-err.log") `
         -PassThru -NoNewWindow
 
-    Start-Sleep -Seconds 3
-
-    # 检查进程是否还活着
+    # 等待启动, 最多重试 5 次 (SDK 加载 DLL 可能较慢)
     $tdxOk = $false
+    Start-Sleep -Seconds 3
     if ($proc.HasExited) {
         Write-Fail "TDX 实例启动后立即退出 (exit code: $($proc.ExitCode))"
         Get-Content (Join-Path $LogsDir "deploy-test-tdx-err.log") | ForEach-Object { Write-Host "  $_" }
     } else {
-        # 尝试访问 health 接口
-        try {
-            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:9001/health" -TimeoutSec 5 -UseBasicParsing
-            $body = $resp.Content | ConvertFrom-Json
-            Write-Ok "TDX health: status=$($body.status), adapter=$($body.adapter)"
-            $tdxOk = $true
-        } catch {
-            Write-Fail "TDX health 接口无响应: $_"
-            Get-Content $tdxTestLog | ForEach-Object { Write-Host "  $_" }
+        for ($i = 1; $i -le 5; $i++) {
+            try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:9001/health" -TimeoutSec 5 -UseBasicParsing
+                $body = $resp.Content | ConvertFrom-Json
+                Write-Ok "TDX health: status=$($body.status), adapter=$($body.adapter)"
+                $tdxOk = $true
+                break
+            } catch {
+                if ($i -lt 5) {
+                    Write-Host "  等待 TDX 启动... ($i/5)" -ForegroundColor Yellow
+                    Start-Sleep -Seconds 3
+                } else {
+                    Write-Fail "TDX health 接口无响应 (已重试 5 次)"
+                    Get-Content (Join-Path $LogsDir "deploy-test-tdx-err.log") -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+                    Get-Content $tdxTestLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+                }
+            }
         }
         $proc.Kill()
         $proc.WaitForExit(5000)
@@ -198,8 +205,12 @@ if (-not $Only -or $Only -eq "test") {
         }
     }
 
-    # 测试 QMT 实例
-    Write-Step "Step 4/5: 测试 QMT 实例启动"
+    # 测试 QMT 实例 (仅在配置了 QMT_SDK_PATH 时)
+    $qmtSdk = if ($envContent -match 'QMT_SDK_PATH\s*=\s*(.+)') { $Matches[1].Trim() } else { "" }
+    if (-not $qmtSdk -or $qmtSdk -eq "") {
+        Write-Step "Step 4/5: 跳过 QMT 测试 (QMT_SDK_PATH 未配置)"
+    } else {
+        Write-Step "Step 4/5: 测试 QMT 实例启动"
 
     $qmtTestLog = Join-Path $LogsDir "deploy-test-qmt.log"
     Write-Host "  启动 QMT 实例 (临时, 仅测试)..."
