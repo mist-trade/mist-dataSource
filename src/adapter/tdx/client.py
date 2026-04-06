@@ -687,7 +687,7 @@ class TDXAdapter(MarketDataAdapter):
     async def get_kzz_info(self, stock_code: str = "", field_list: list[str] | None = None) -> dict:
         """获取可转债信息.
 
-        对应 TDX SDK: tq.get_kzz_info(stock_code, field_list)
+        对应 TDX SDK: tq.get_cb_info(stock_code, field_list)
 
         Args:
             stock_code: 可转债代码
@@ -699,9 +699,9 @@ class TDXAdapter(MarketDataAdapter):
         try:
             if field_list is None:
                 field_list = []
-            return self._tq.get_kzz_info(stock_code, field_list)
+            return self._tq.get_cb_info(stock_code, field_list)
         except Exception as e:
-            raise AdapterError(f"Failed to get kzz info: {e}") from e
+            raise AdapterError(f"Failed to get cb info: {e}") from e
 
     async def get_ipo_info(self, ipo_type: int = 0, ipo_date: int = 0) -> list[dict]:
         """获取新股申购信息.

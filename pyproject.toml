@@ -43,3 +43,6 @@ typeCheckingMode = "strict"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "live: marks tests that require Windows + TDX terminal (deselect with '-m \"not live\"')"
+]
