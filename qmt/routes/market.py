@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, HTTPException, Query
 
-from qmt.main import qmt_adapter
+import qmt.main
 
 router = APIRouter()
 
@@ -23,10 +23,11 @@ async def get_stock_list(sector: str = "沪深300"):
     Returns:
         {"stocks": [...], "count": int}
     """
-    if not qmt_adapter:
+    adapter = qmt.main.qmt_adapter
+    if not adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
 
-    stocks = await qmt_adapter.get_stock_list(sector)
+    stocks = await adapter.get_stock_list(sector)
     return {"stocks": stocks, "count": len(stocks)}
 
 
@@ -49,14 +50,15 @@ async def get_market_data(
     Returns:
         {"data": dict}
     """
-    if not qmt_adapter:
+    adapter = qmt.main.qmt_adapter
+    if not adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
     try:
-        data = await qmt_adapter.get_market_data(
+        data = await adapter.get_market_data(
             stock_list=stock_list,
             fields=field_list,
             period=period,

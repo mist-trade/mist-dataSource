@@ -6,8 +6,8 @@
 
 from typing import Any
 
+import tdx.main
 from src.core.exceptions import AdapterError
-from tdx.main import tdx_adapter
 
 
 class TDXService:
@@ -46,13 +46,14 @@ class TDXService:
             >>> print(overview["total_stocks"])
             88
         """
-        if not tdx_adapter:
+        adapter = tdx.main.tdx_adapter
+        if not adapter:
             raise AdapterError("TDX adapter not initialized")
 
-        stocks = await tdx_adapter.get_stock_list(sector)
+        stocks = await adapter.get_stock_list(sector)
 
         try:
-            market_data = await tdx_adapter.get_market_data(
+            market_data = await adapter.get_market_data(
                 stock_list=stocks[:10],
                 fields=["Close", "Volume"],
                 period="1d",

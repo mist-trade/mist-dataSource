@@ -2,8 +2,9 @@
 
 import pytest
 
-from tdx.services.tdx_service import TDXService
+import tdx.main
 from src.adapter import create_tdx_adapter
+from tdx.services.tdx_service import TDXService
 
 
 @pytest.mark.asyncio
@@ -13,10 +14,9 @@ async def test_get_sector_overview():
     await adapter.initialize()
 
     service = TDXService()
-    # Patch the adapter reference
-    import tdx.services.tdx_service as tdx_service_module
-    original_adapter = tdx_service_module.tdx_adapter
-    tdx_service_module.tdx_adapter = adapter
+    # Patch the adapter reference in the main module
+    original_adapter = tdx.main.tdx_adapter
+    tdx.main.tdx_adapter = adapter
 
     try:
         overview = await service.get_sector_overview("通达信88")
@@ -27,5 +27,5 @@ async def test_get_sector_overview():
         assert overview["total_stocks"] > 0
         assert "sample_data" in overview
     finally:
-        tdx_service_module.tdx_adapter = original_adapter
+        tdx.main.tdx_adapter = original_adapter
         await adapter.shutdown()

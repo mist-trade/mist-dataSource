@@ -18,8 +18,8 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+import tdx.main
 from src.ws.protocol import WSMessage
-from tdx.main import ws_manager
 
 router = APIRouter()
 
@@ -44,7 +44,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
         心跳: {"type": "ping"}
         订阅: {"type": "subscribe", "stocks": ["SH600519", "SZ000001"]}
     """
-    await ws_manager.connect(websocket, client_id)
+    await tdx.main.ws_manager.connect(websocket, client_id)
 
     try:
         while True:
@@ -66,9 +66,9 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
                 )
 
     except WebSocketDisconnect:
-        await ws_manager.disconnect(client_id)
+        await tdx.main.ws_manager.disconnect(client_id)
     except Exception as e:
-        await ws_manager.disconnect(client_id)
+        await tdx.main.ws_manager.disconnect(client_id)
         try:
             error_msg = WSMessage(type="error", data={"error": str(e)})
             await websocket.send_text(error_msg.to_json())

@@ -6,7 +6,7 @@
 
 from typing import Any
 
-from qmt.main import qmt_adapter
+import qmt.main
 from src.core.exceptions import AdapterError
 
 
@@ -35,13 +35,14 @@ class QMTService:
             - total_stocks (int): 板块内股票总数
             - sample_data (dict[str, Any]): 前10只股票的最新日线行情（close, volume）
         """
-        if not qmt_adapter:
+        adapter = qmt.main.qmt_adapter
+        if not adapter:
             raise AdapterError("QMT adapter not initialized")
 
-        stocks = await qmt_adapter.get_stock_list(sector)
+        stocks = await adapter.get_stock_list(sector)
 
         try:
-            market_data = await qmt_adapter.get_market_data(
+            market_data = await adapter.get_market_data(
                 stock_list=stocks[:10],
                 fields=["close", "volume"],
                 period="1d",
