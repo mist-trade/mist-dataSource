@@ -203,3 +203,196 @@ class TDXAdapter(MarketDataAdapter):
             self._tq.send_user_block(block_code, stocks, show=True)
         except Exception as e:
             raise AdapterError(f"Failed to send user block: {e}") from e
+
+    # ---- Market Data Methods ----
+
+    async def get_market_snapshot(self, stock_code: str, field_list: list[str] = []) -> dict:
+        """获取实时行情快照.
+
+        对应 TDX SDK: tq.get_market_snapshot(stock_code, field_list)
+
+        Args:
+            stock_code: 证券代码
+            field_list: 字段筛选列表，传空则返回全部
+
+        Returns:
+            市场快照数据字典
+        """
+        try:
+            return self._tq.get_market_snapshot(stock_code, field_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to get market snapshot: {e}") from e
+
+    async def get_divid_factors(self, stock_code: str, start_time: str = "", end_time: str = "") -> Any:
+        """获取除权除息数据.
+
+        对应 TDX SDK: tq.get_divid_factors(stock_code, start_time, end_time)
+
+        Args:
+            stock_code: 证券代码
+            start_time: 起始时间
+            end_time: 结束时间
+
+        Returns:
+            除权除息数据 (DataFrame)
+        """
+        try:
+            return self._tq.get_divid_factors(stock_code, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get dividend factors: {e}") from e
+
+    async def get_gb_info(self, stock_code: str, date_list: list[str] = [], count: int = 1) -> list[dict]:
+        """获取股本数据.
+
+        对应 TDX SDK: tq.get_gb_info(stock_code, date_list, count)
+
+        Args:
+            stock_code: 证券代码
+            date_list: 日期数组
+            count: 日期有效个数
+
+        Returns:
+            股本数据列表
+        """
+        try:
+            return self._tq.get_gb_info(stock_code, date_list, count)
+        except Exception as e:
+            raise AdapterError(f"Failed to get gb info: {e}") from e
+
+    async def get_trading_dates(self, market: str = "SH", start_time: str = "", end_time: str = "", count: int = -1) -> list[str]:
+        """获取交易日列表.
+
+        对应 TDX SDK: tq.get_trading_dates(market, start_time, end_time, count)
+
+        Args:
+            market: 市场代码（暂固定为SH）
+            start_time: 起始时间
+            end_time: 结束时间
+            count: 返回最近的count个交易日
+
+        Returns:
+            交易日列表
+        """
+        try:
+            return self._tq.get_trading_dates(market, start_time, end_time, count)
+        except Exception as e:
+            raise AdapterError(f"Failed to get trading dates: {e}") from e
+
+    async def refresh_cache(self, market: str = "AG", force: bool = False) -> dict:
+        """刷新行情缓存.
+
+        对应 TDX SDK: tq.refresh_cache(market, force)
+
+        Args:
+            market: 指定刷新的市场 ('AG'=A股, 'HK'=港股, 'US'=美股, 'QH'=期货等)
+            force: 是否强制刷新
+
+        Returns:
+            刷新结果字典
+        """
+        try:
+            return self._tq.refresh_cache(market, force)
+        except Exception as e:
+            raise AdapterError(f"Failed to refresh cache: {e}") from e
+
+    async def refresh_kline(self, stock_list: list[str] = [], period: str = "1d") -> dict:
+        """刷新K线缓存.
+
+        对应 TDX SDK: tq.refresh_kline(stock_list, period)
+
+        Args:
+            stock_list: 证券代码列表
+            period: 周期 (1d=日线, 1m=1分钟, 5m=5分钟)
+
+        Returns:
+            刷新结果字典
+        """
+        try:
+            return self._tq.refresh_kline(stock_list, period)
+        except Exception as e:
+            raise AdapterError(f"Failed to refresh kline: {e}") from e
+
+    async def download_file(self, stock_code: str = "", down_time: str = "", down_type: int = 1) -> dict:
+        """下载特定数据文件.
+
+        对应 TDX SDK: tq.download_file(stock_code, down_time, down_type)
+
+        Args:
+            stock_code: 证券代码
+            down_time: 指定日期
+            down_type: 下载类型 (1=10大股东, 2=ETF申赎, 3=最近舆情, 4=综合信息)
+
+        Returns:
+            下载结果字典
+        """
+        try:
+            return self._tq.download_file(stock_code, down_time, down_type)
+        except Exception as e:
+            raise AdapterError(f"Failed to download file: {e}") from e
+
+    # ---- Stock Info Methods ----
+
+    async def get_stock_info(self, stock_code: str = "") -> dict:
+        """获取股票基本信息.
+
+        对应 TDX SDK: tq.get_stock_info(stock_code)
+
+        Args:
+            stock_code: 证券代码
+
+        Returns:
+            股票基本信息字典
+        """
+        try:
+            return self._tq.get_stock_info(stock_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get stock info: {e}") from e
+
+    async def get_report_data(self, stock_code: str = "") -> dict:
+        """获取报告数据.
+
+        对应 TDX SDK: tq.get_report_data(stock_code)
+
+        Args:
+            stock_code: 证券代码
+
+        Returns:
+            报告数据字典
+        """
+        try:
+            return self._tq.get_report_data(stock_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get report data: {e}") from e
+
+    async def get_more_info(self, stock_code: str = "", field_list: list[str] = []) -> dict:
+        """获取更多信息.
+
+        对应 TDX SDK: tq.get_more_info(stock_code, field_list)
+
+        Args:
+            stock_code: 证券代码
+            field_list: 字段筛选列表，传空则返回全部
+
+        Returns:
+            更多信息字典
+        """
+        try:
+            return self._tq.get_more_info(stock_code, field_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to get more info: {e}") from e
+
+    async def get_relation(self, stock_code: str = "") -> dict:
+        """获取股票所属板块.
+
+        对应 TDX SDK: tq.get_relation(stock_code)
+
+        Args:
+            stock_code: 证券代码
+
+        Returns:
+            板块关联信息字典
+        """
+        try:
+            return self._tq.get_relation(stock_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get relation: {e}") from e
