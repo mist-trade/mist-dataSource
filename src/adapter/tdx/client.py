@@ -595,3 +595,522 @@ class TDXAdapter(MarketDataAdapter):
             return self._tq.get_scjy_value_by_date(field_list, year, mmdd)
         except Exception as e:
             raise AdapterError(f"Failed to get scjy value by date: {e}") from e
+
+    # ---- Sector Management Methods ----
+
+    async def get_sector_list(self, list_type: int = 0) -> list:
+        """获取A股板块代码列表.
+
+        对应 TDX SDK: tq.get_sector_list(list_type)
+
+        Args:
+            list_type: 板块列表类型 (0=全部, 其他值见TDX文档)
+
+        Returns:
+            板块代码列表
+        """
+        try:
+            return self._tq.get_sector_list(list_type)
+        except Exception as e:
+            raise AdapterError(f"Failed to get sector list: {e}") from e
+
+    async def get_user_sector(self) -> list:
+        """获取自定义板块列表.
+
+        对应 TDX SDK: tq.get_user_sector()
+
+        Returns:
+            自定义板块列表
+        """
+        try:
+            return self._tq.get_user_sector()
+        except Exception as e:
+            raise AdapterError(f"Failed to get user sector: {e}") from e
+
+    # TODO: 以下板块管理方法待后续实现
+    async def create_sector(self, block_code: str = "", block_name: str = "") -> dict:
+        """创建自定义板块.
+
+        对应 TDX SDK: tq.create_sector(block_code, block_name)
+
+        Args:
+            block_code: 板块代码
+            block_name: 板块名称
+
+        Returns:
+            创建结果字典
+        """
+        raise NotImplementedError("create_sector not yet implemented")
+
+    async def delete_sector(self, block_code: str = "") -> dict:
+        """删除自定义板块.
+
+        对应 TDX SDK: tq.delete_sector(block_code)
+
+        Args:
+            block_code: 板块代码
+
+        Returns:
+            删除结果字典
+        """
+        raise NotImplementedError("delete_sector not yet implemented")
+
+    async def rename_sector(self, block_code: str = "", block_name: str = "") -> dict:
+        """重命名自定义板块.
+
+        对应 TDX SDK: tq.rename_sector(block_code, block_name)
+
+        Args:
+            block_code: 板块代码
+            block_name: 新板块名称
+
+        Returns:
+            重命名结果字典
+        """
+        raise NotImplementedError("rename_sector not yet implemented")
+
+    async def clear_sector(self, block_code: str = "") -> dict:
+        """清空自定义板块成份股.
+
+        对应 TDX SDK: tq.clear_sector(block_code)
+
+        Args:
+            block_code: 板块代码
+
+        Returns:
+            清空结果字典
+        """
+        raise NotImplementedError("clear_sector not yet implemented")
+
+    # ---- ETF/Bond Methods ----
+
+    async def get_kzz_info(self, stock_code: str = "", field_list: list[str] | None = None) -> dict:
+        """获取可转债信息.
+
+        对应 TDX SDK: tq.get_kzz_info(stock_code, field_list)
+
+        Args:
+            stock_code: 可转债代码
+            field_list: 字段筛选列表，传None则返回全部
+
+        Returns:
+            可转债信息字典
+        """
+        try:
+            if field_list is None:
+                field_list = []
+            return self._tq.get_kzz_info(stock_code, field_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to get kzz info: {e}") from e
+
+    async def get_ipo_info(self, ipo_type: int = 0, ipo_date: int = 0) -> list[dict]:
+        """获取新股申购信息.
+
+        对应 TDX SDK: tq.get_ipo_info(ipo_type, ipo_date)
+
+        Args:
+            ipo_type: IPO类型 (0=全部, 其他值见TDX文档)
+            ipo_date: 指定日期
+
+        Returns:
+            新股申购信息列表
+        """
+        try:
+            return self._tq.get_ipo_info(ipo_type, ipo_date)
+        except Exception as e:
+            raise AdapterError(f"Failed to get ipo info: {e}") from e
+
+    async def get_trackzs_etf_info(self, zs_code: str = "") -> list[dict]:
+        """获取跟踪指数的ETF信息.
+
+        对应 TDX SDK: tq.get_trackzs_etf_info(zs_code)
+
+        Args:
+            zs_code: 指数代码
+
+        Returns:
+            ETF信息列表
+        """
+        try:
+            return self._tq.get_trackzs_etf_info(zs_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get trackzs etf info: {e}") from e
+
+    # ---- Subscription Methods ----
+
+    async def subscribe_hq(self, stock_list: list[str], callback: Any) -> dict:
+        """订阅股票实时更新.
+
+        对应 TDX SDK: tq.subscribe_hq(stock_list, callback)
+
+        Args:
+            stock_list: 股票代码列表
+            callback: 回调函数
+
+        Returns:
+            订阅结果字典
+        """
+        try:
+            return self._tq.subscribe_hq(stock_list=stock_list, callback=callback)
+        except Exception as e:
+            raise AdapterError(f"Failed to subscribe hq: {e}") from e
+
+    async def unsubscribe_hq(self, stock_list: list[str] | None = None) -> dict:
+        """取消订阅股票更新.
+
+        对应 TDX SDK: tq.unsubscribe_hq(stock_list)
+
+        Args:
+            stock_list: 股票代码列表，传None或空列表则取消全部
+
+        Returns:
+            取消订阅结果字典
+        """
+        try:
+            if stock_list is None:
+                stock_list = []
+            return self._tq.unsubscribe_hq(stock_list=stock_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to unsubscribe hq: {e}") from e
+
+    async def get_subscribe_list(self) -> list[str]:
+        """获取当前订阅的股票列表.
+
+        对应 TDX SDK: tq.get_subscribe_hq_stock_list()
+
+        Returns:
+            订阅的股票代码列表
+        """
+        try:
+            return self._tq.get_subscribe_hq_stock_list()
+        except Exception as e:
+            raise AdapterError(f"Failed to get subscribe list: {e}") from e
+
+    # ---- Client Control ----
+
+    async def exec_to_tdx(self, cmd: str = "", param: str = "") -> dict:
+        """调用客户端功能接口.
+
+        对应 TDX SDK: tq.exec_to_tdx(cmd, param)
+
+        Args:
+            cmd: 命令字符串
+            param: 参数字符串
+
+        Returns:
+            执行结果字典
+        """
+        try:
+            return self._tq.exec_to_tdx(cmd, param)
+        except Exception as e:
+            raise AdapterError(f"Failed to exec to tdx: {e}") from e
+
+    # ---- Trading Methods (TODO) ----
+
+    async def order_stock(
+        self,
+        account_id: str = "",
+        stock_code: str = "",
+        price: float = 0,
+        amount: int = 0,
+        order_type: int = 0,
+        price_type: int = 0,
+    ) -> dict:
+        """执行股票交易.
+
+        对应 TDX SDK: tq.order_stock(account_id, stock_code, price, amount, order_type, price_type)
+
+        Args:
+            account_id: 账户ID
+            stock_code: 股票代码
+            price: 价格
+            amount: 数量
+            order_type: 委托类型
+            price_type: 价格类型
+
+        Returns:
+            委托结果字典
+        """
+        raise NotImplementedError("order_stock not yet implemented")
+
+    async def cancel_order_stock(self, account_id: str = "", stock_code: str = "", order_id: str = "") -> dict:
+        """取消股票委托.
+
+        对应 TDX SDK: tq.cancel_order_stock(account_id, stock_code, order_id)
+
+        Args:
+            account_id: 账户ID
+            stock_code: 股票代码
+            order_id: 委托编号
+
+        Returns:
+            取消委托结果字典
+        """
+        raise NotImplementedError("cancel_order_stock not yet implemented")
+
+    async def query_stock_orders(self, account_id: str = "") -> list[dict]:
+        """查询股票委托.
+
+        对应 TDX SDK: tq.query_stock_orders(account_id)
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            委托列表
+        """
+        raise NotImplementedError("query_stock_orders not yet implemented")
+
+    async def query_stock_positions(self, account_id: str = "") -> list[dict]:
+        """查询股票持仓.
+
+        对应 TDX SDK: tq.query_stock_positions(account_id)
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            持仓列表
+        """
+        raise NotImplementedError("query_stock_positions not yet implemented")
+
+    async def query_stock_asset(self, account_id: str = "") -> dict:
+        """查询股票资产.
+
+        对应 TDX SDK: tq.query_stock_asset(account_id)
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            资产信息字典
+        """
+        raise NotImplementedError("query_stock_asset not yet implemented")
+
+    async def stock_account(self, account_id: str = "") -> list:
+        """查询股票账号.
+
+        对应 TDX SDK: tq.stock_account(account_id)
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            账号列表
+        """
+        raise NotImplementedError("stock_account not yet implemented")
+
+    # ---- Formula Methods (TODO) ----
+
+    async def formula_format_data(self, data_dict: dict = {}) -> list[dict]:
+        """格式化K线数据.
+
+        对应 TDX SDK: tq.formula_format_data(data_dict)
+
+        Args:
+            data_dict: 数据字典
+
+        Returns:
+            格式化后的数据列表
+        """
+        raise NotImplementedError("formula_format_data not yet implemented")
+
+    async def formula_set_data(self, data_dict: dict = {}) -> dict:
+        """设置公式数据.
+
+        对应 TDX SDK: tq.formula_set_data(data_dict)
+
+        Args:
+            data_dict: 数据字典
+
+        Returns:
+            设置结果字典
+        """
+        raise NotImplementedError("formula_set_data not yet implemented")
+
+    async def formula_set_data_info(self, data_dict: dict = {}) -> dict:
+        """设置公式数据信息.
+
+        对应 TDX SDK: tq.formula_set_data_info(data_dict)
+
+        Args:
+            data_dict: 数据字典
+
+        Returns:
+            设置结果字典
+        """
+        raise NotImplementedError("formula_set_data_info not yet implemented")
+
+    async def formula_get_data(self, data_name: str = "", data_type: int = 0) -> Any:
+        """获取公式数据.
+
+        对应 TDX SDK: tq.formula_get_data(data_name, data_type)
+
+        Args:
+            data_name: 数据名称
+            data_type: 数据类型
+
+        Returns:
+            公式数据
+        """
+        raise NotImplementedError("formula_get_data not yet implemented")
+
+    async def formula_zb(self, data_name: str = "", zbi: int = 0) -> dict:
+        """执行公式指标.
+
+        对应 TDX SDK: tq.formula_zb(data_name, zbi)
+
+        Args:
+            data_name: 数据名称
+            zbi: 指标索引
+
+        Returns:
+            指标结果字典
+        """
+        raise NotImplementedError("formula_zb not yet implemented")
+
+    async def formula_exp(self, exp: str = "", data_name: str = "") -> dict:
+        """执行公式表达式.
+
+        对应 TDX SDK: tq.formula_exp(exp, data_name)
+
+        Args:
+            exp: 表达式
+            data_name: 数据名称
+
+        Returns:
+            表达式结果字典
+        """
+        raise NotImplementedError("formula_exp not yet implemented")
+
+    async def formula_xg(self, exp: str = "") -> list[dict]:
+        """执行公式选股.
+
+        对应 TDX SDK: tq.formula_xg(exp)
+
+        Args:
+            exp: 选股表达式
+
+        Returns:
+            选股结果列表
+        """
+        raise NotImplementedError("formula_xg not yet implemented")
+
+    async def formula_process(
+        self,
+        codes: list[str] = [],
+        period: str = "1d",
+        starttime: str = "",
+        endtime: str = "",
+        data: Any = None,
+    ) -> Any:
+        """执行公式处理.
+
+        对应 TDX SDK: tq.formula_process(codes, period, starttime, endtime, data)
+
+        Args:
+            codes: 代码列表
+            period: 周期
+            starttime: 起始时间
+            endtime: 结束时间
+            data: 数据
+
+        Returns:
+            处理结果
+        """
+        raise NotImplementedError("formula_process not yet implemented")
+
+    async def formula_process_mul_xg(self, exp_list: list[str] = []) -> list[dict]:
+        """批量执行公式选股.
+
+        对应 TDX SDK: tq.formula_process_mul_xg(exp_list)
+
+        Args:
+            exp_list: 表达式列表
+
+        Returns:
+            选股结果列表
+        """
+        raise NotImplementedError("formula_process_mul_xg not yet implemented")
+
+    async def formula_process_mul_zb(self, data_name_list: list[str] = [], zbi_list: list[int] = []) -> dict:
+        """批量执行公式指标.
+
+        对应 TDX SDK: tq.formula_process_mul_zb(data_name_list, zbi_list)
+
+        Args:
+            data_name_list: 数据名称列表
+            zbi_list: 指标索引列表
+
+        Returns:
+            指标结果字典
+        """
+        raise NotImplementedError("formula_process_mul_zb not yet implemented")
+
+    # ---- Client Communication Methods (TODO) ----
+
+    async def send_message(self, msg_str: str = "") -> dict:
+        """发送消息到通达信客户端.
+
+        对应 TDX SDK: tq.send_message(msg_str)
+
+        Args:
+            msg_str: 消息字符串
+
+        Returns:
+            发送结果字典
+        """
+        raise NotImplementedError("send_message not yet implemented")
+
+    async def send_file(self, file_path: str = "", msg_str: str = "") -> dict:
+        """发送文件到通达信客户端.
+
+        对应 TDX SDK: tq.send_file(file_path, msg_str)
+
+        Args:
+            file_path: 文件路径
+            msg_str: 消息字符串
+
+        Returns:
+            发送结果字典
+        """
+        raise NotImplementedError("send_file not yet implemented")
+
+    async def send_warn(self, warn_str: str = "") -> dict:
+        """发送警告到通达信客户端.
+
+        对应 TDX SDK: tq.send_warn(warn_str)
+
+        Args:
+            warn_str: 警告字符串
+
+        Returns:
+            发送结果字典
+        """
+        raise NotImplementedError("send_warn not yet implemented")
+
+    async def send_bt_data(self, bt_data: Any = None) -> dict:
+        """发送回测数据到通达信客户端.
+
+        对应 TDX SDK: tq.send_bt_data(bt_data)
+
+        Args:
+            bt_data: 回测数据
+
+        Returns:
+            发送结果字典
+        """
+        raise NotImplementedError("send_bt_data not yet implemented")
+
+    async def print_to_tdx(self, msg_str: str = "") -> dict:
+        """打印消息到通达信客户端.
+
+        对应 TDX SDK: tq.print_to_tdx(msg_str)
+
+        Args:
+            msg_str: 消息字符串
+
+        Returns:
+            打印结果字典
+        """
+        raise NotImplementedError("print_to_tdx not yet implemented")
