@@ -16,6 +16,8 @@ SDK 目录结构 (通达信官方原始结构):
 TPythClient.dll 由 SDK 内部通过 Path(__file__).parents[1] 自动定位.
 """
 
+import asyncio
+import contextlib
 import importlib.util
 import os
 import sys
@@ -84,8 +86,33 @@ class TDXAdapter(MarketDataAdapter):
         AdapterError: If TDX connection fails
     """
 
+    # 心跳间隔：10分钟（通达信30分钟无操作会断开连接）
+    _HEARTBEAT_INTERVAL = 600
+
     def __init__(self) -> None:
         self._tq: Any = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
+        self._should_stop = False
+
+    async def _heartbeat_loop(self) -> None:
+        """心跳保活循环 - 定期调用 TDX API 保持连接.
+
+        通达信终端在30分钟无操作后会断开连接，因此需要定期调用 API。
+        使用简单的 get_stock_list 调用作为心跳。
+        """
+        while not self._should_stop:
+            try:
+                # 使用轻量级 API 调用保持连接
+                self._tq.get_stock_list("1")
+            except Exception as e:
+                # 心跳失败不影响主流程，只记录日志
+                print(f"TDX heartbeat warning: {e}")
+
+            # 等待下次心跳
+            try:
+                await asyncio.sleep(self._HEARTBEAT_INTERVAL)
+            except asyncio.CancelledError:
+                break
 
     async def initialize(self) -> None:
         """Initialize TDX connection.
@@ -108,6 +135,10 @@ class TDXAdapter(MarketDataAdapter):
             # TDX 终端用此路径做策略名, 传 SDK 目录内的路径避免 "已有同名策略运行" 错误
             init_path = os.path.join(sdk_path, "mist_datasource.py")
             self._tq.initialize(init_path)
+
+            # 启动心跳保活任务
+            self._should_stop = False
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         except ImportError as e:
             raise ImportError(
                 "tqcenter SDK is not available. "
@@ -120,6 +151,12 @@ class TDXAdapter(MarketDataAdapter):
 
     async def shutdown(self) -> None:
         """Shutdown TDX connection."""
+        self._should_stop = True
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._heartbeat_task
+            self._heartbeat_task = None
         self._tq = None
 
     async def get_stock_list(self, market: str = "0") -> list[str]:
