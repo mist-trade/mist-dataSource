@@ -1,4 +1,4 @@
-# mist-datasource Windows 部署脚本
+﻿# mist-datasource Windows 部署脚本
 # 用法: 以管理员身份打开 PowerShell, 然后:
 #   cd D:\mist-datasource
 #   .\scripts\deploy_windows.ps1
