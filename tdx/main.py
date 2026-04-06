@@ -82,7 +82,19 @@ async def health():
 
 
 from tdx.routes.market import router as market_router
+from tdx.routes.stock import router as stock_router
+from tdx.routes.financial import router as financial_router
+from tdx.routes.value import router as value_router
+from tdx.routes.sector import router as sector_router
+from tdx.routes.etf import router as etf_router
+from tdx.routes.client import router as client_router
 from tdx.routes.ws import router as ws_router
 
 app.include_router(market_router, prefix="/api/tdx", tags=["Market"])
+app.include_router(stock_router, prefix="/api/tdx", tags=["Stock"])
+app.include_router(financial_router, prefix="/api/tdx", tags=["Financial"])
+app.include_router(value_router, prefix="/api/tdx", tags=["Value"])
+app.include_router(sector_router, prefix="/api/tdx", tags=["Sector"])
+app.include_router(etf_router, prefix="/api/tdx", tags=["ETF"])
+app.include_router(client_router, prefix="/api/tdx", tags=["Client"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
