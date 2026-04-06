@@ -114,11 +114,8 @@ if (-not $Only -or $Only -eq "install") {
     try {
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        # 生产环境需要 --extra tdx/qmt 安装 numpy, pandas 等 SDK 依赖
+        # 所有依赖都在主依赖列表中, 不需要 extra 参数
         $syncArgs = @("sync")
-        if ($appEnv -eq "production") {
-            $syncArgs += @("--extra", "tdx", "--extra", "qmt")
-        }
         & uv @syncArgs 2>$null | Out-Null
         $syncExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
