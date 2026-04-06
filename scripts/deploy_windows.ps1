@@ -112,8 +112,8 @@ if (-not $Only -or $Only -eq "install") {
 
     Push-Location $ProjectDir
     try {
-        & uv sync 2>&1 | ForEach-Object { Write-Host "  $_" }
-        if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
+        & uv sync 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "uv sync failed (exit code $LASTEXITCODE)" }
         Write-Ok "uv sync 完成"
 
         # 检查 venv 是否创建
