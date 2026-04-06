@@ -396,3 +396,202 @@ class TDXAdapter(MarketDataAdapter):
             return self._tq.get_relation(stock_code)
         except Exception as e:
             raise AdapterError(f"Failed to get relation: {e}") from e
+
+    # ---- Financial and Value Methods ----
+
+    async def get_financial_data(
+        self,
+        stock_list: list[str],
+        field_list: list[str],
+        start_time: str = "",
+        end_time: str = "",
+        report_type: str = "announce_time",
+    ) -> dict:
+        """获取专业财务数据.
+
+        对应 TDX SDK: tq.get_financial_data(
+            stock_list, field_list, start_time, end_time, report_type
+        )
+
+        Args:
+            stock_list: 证券代码列表
+            field_list: 字段列表
+            start_time: 起始时间
+            end_time: 结束时间
+            report_type: 报表筛选方式 ("announce_time" 或 "report_time")
+
+        Returns:
+            专业财务数据字典
+        """
+        try:
+            return self._tq.get_financial_data(stock_list, field_list, start_time, end_time, report_type)
+        except Exception as e:
+            raise AdapterError(f"Failed to get financial data: {e}") from e
+
+    async def get_financial_data_by_date(
+        self, stock_list: list[str], field_list: list[str], year: int = 0, mmdd: int = 0
+    ) -> dict:
+        """获取指定日期专业财务数据.
+
+        对应 TDX SDK: tq.get_financial_data_by_date(
+            stock_list, field_list, year, mmdd
+        )
+
+        Args:
+            stock_list: 证券代码列表
+            field_list: 字段列表
+            year: 年份 (0表示最新)
+            mmdd: 月日 (0表示最新, 1表示倒数第2个, 以此类推)
+
+        Returns:
+            专业财务数据字典
+        """
+        try:
+            return self._tq.get_financial_data_by_date(stock_list, field_list, year, mmdd)
+        except Exception as e:
+            raise AdapterError(f"Failed to get financial data by date: {e}") from e
+
+    async def get_gp_one_data(self, stock_list: list[str], field_list: list[str]) -> dict:
+        """获取股票单个数据.
+
+        对应 TDX SDK: tq.get_gp_one_data(stock_list, field_list)
+
+        Args:
+            stock_list: 证券代码列表
+            field_list: 字段列表
+
+        Returns:
+            股票单个数据字典
+        """
+        try:
+            return self._tq.get_gp_one_data(stock_list, field_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to get gp one data: {e}") from e
+
+    async def get_bkjy_value(
+        self, stock_list: list[str], field_list: list[str], start_time: str = "", end_time: str = ""
+    ) -> dict:
+        """获取板块交易数据.
+
+        对应 TDX SDK: tq.get_bkjy_value(
+            stock_list, field_list, start_time, end_time
+        )
+
+        Args:
+            stock_list: 板块代码列表
+            field_list: 字段列表
+            start_time: 起始时间
+            end_time: 结束时间
+
+        Returns:
+            板块交易数据字典
+        """
+        try:
+            return self._tq.get_bkjy_value(stock_list, field_list, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get bkjy value: {e}") from e
+
+    async def get_bkjy_value_by_date(
+        self, stock_list: list[str], field_list: list[str], year: int = 0, mmdd: int = 0
+    ) -> dict:
+        """获取指定日期板块交易数据.
+
+        对应 TDX SDK: tq.get_bkjy_value_by_date(
+            stock_list, field_list, year, mmdd
+        )
+
+        Args:
+            stock_list: 板块代码列表
+            field_list: 字段列表
+            year: 年份 (0表示最新)
+            mmdd: 月日 (0表示最新, 1表示倒数第2个, 以此类推)
+
+        Returns:
+            板块交易数据字典
+        """
+        try:
+            return self._tq.get_bkjy_value_by_date(stock_list, field_list, year, mmdd)
+        except Exception as e:
+            raise AdapterError(f"Failed to get bkjy value by date: {e}") from e
+
+    async def get_gpjy_value(
+        self, stock_list: list[str], field_list: list[str], start_time: str = "", end_time: str = ""
+    ) -> dict:
+        """获取股票交易数据.
+
+        对应 TDX SDK: tq.get_gpjy_value(
+            stock_list, field_list, start_time, end_time
+        )
+
+        Args:
+            stock_list: 证券代码列表
+            field_list: 字段列表
+            start_time: 起始时间
+            end_time: 结束时间
+
+        Returns:
+            股票交易数据字典
+        """
+        try:
+            return self._tq.get_gpjy_value(stock_list, field_list, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get gpjy value: {e}") from e
+
+    async def get_gpjy_value_by_date(
+        self, stock_list: list[str], field_list: list[str], year: int = 0, mmdd: int = 0
+    ) -> dict:
+        """获取指定日期股票交易数据.
+
+        对应 TDX SDK: tq.get_gpjy_value_by_date(
+            stock_list, field_list, year, mmdd
+        )
+
+        Args:
+            stock_list: 证券代码列表
+            field_list: 字段列表
+            year: 年份 (0表示最新)
+            mmdd: 月日 (0表示最新, 1表示倒数第2个, 以此类推)
+
+        Returns:
+            股票交易数据字典
+        """
+        try:
+            return self._tq.get_gpjy_value_by_date(stock_list, field_list, year, mmdd)
+        except Exception as e:
+            raise AdapterError(f"Failed to get gpjy value by date: {e}") from e
+
+    async def get_scjy_value(self, field_list: list[str], start_time: str = "", end_time: str = "") -> dict:
+        """获取市场交易数据.
+
+        对应 TDX SDK: tq.get_scjy_value(field_list, start_time, end_time)
+
+        Args:
+            field_list: 字段列表
+            start_time: 起始时间
+            end_time: 结束时间
+
+        Returns:
+            市场交易数据字典
+        """
+        try:
+            return self._tq.get_scjy_value(field_list, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get scjy value: {e}") from e
+
+    async def get_scjy_value_by_date(self, field_list: list[str], year: int = 0, mmdd: int = 0) -> dict:
+        """获取指定日期市场交易数据.
+
+        对应 TDX SDK: tq.get_scjy_value_by_date(field_list, year, mmdd)
+
+        Args:
+            field_list: 字段列表
+            year: 年份 (0表示最新)
+            mmdd: 月日 (0表示最新, 1表示倒数第2个, 以此类推)
+
+        Returns:
+            市场交易数据字典
+        """
+        try:
+            return self._tq.get_scjy_value_by_date(field_list, year, mmdd)
+        except Exception as e:
+            raise AdapterError(f"Failed to get scjy value by date: {e}") from e
