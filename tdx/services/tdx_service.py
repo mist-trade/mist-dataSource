@@ -50,7 +50,7 @@ class TDXService:
         if not adapter:
             raise AdapterError("TDX adapter not initialized")
 
-        stocks = await adapter.get_stock_list(sector)
+        stocks = await adapter.get_stock_list_in_sector(sector)
 
         try:
             market_data = await adapter.get_market_data(

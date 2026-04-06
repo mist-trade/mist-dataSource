@@ -19,6 +19,7 @@ async def test_get_sector_overview():
     tdx.main.tdx_adapter = adapter
 
     try:
+        # The service internally calls get_stock_list_in_sector
         overview = await service.get_sector_overview("通达信88")
 
         assert "sector" in overview

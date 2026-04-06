@@ -27,7 +27,7 @@ async def get_stock_list(sector: str = "通达信88"):
     if not adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
 
-    stocks = await adapter.get_stock_list(sector)
+    stocks = await adapter.get_stock_list_in_sector(sector)
     return {"stocks": stocks, "count": len(stocks)}
 
 

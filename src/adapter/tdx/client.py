@@ -122,15 +122,25 @@ class TDXAdapter(MarketDataAdapter):
         """Shutdown TDX connection."""
         self._tq = None
 
-    async def get_stock_list(self, sector: str = "通达信88") -> list[str]:
-        """获取板块股票列表.
+    async def get_stock_list(self, market: str = "0") -> list[str]:
+        """获取市场股票列表.
 
-        对应 TDX SDK: tq.get_stock_list_in_sector(sector)
+        对应 TDX SDK: tq.get_stock_list(market)
         """
         try:
-            return self._tq.get_stock_list_in_sector(sector)
+            return self._tq.get_stock_list(market)
         except Exception as e:
             raise AdapterError(f"Failed to get stock list: {e}") from e
+
+    async def get_stock_list_in_sector(self, block_code: str = "通达信88", block_type: int = 0, list_type: int = 0) -> list[str]:
+        """获取板块股票列表.
+
+        对应 TDX SDK: tq.get_stock_list_in_sector(block_code, block_type, list_type)
+        """
+        try:
+            return self._tq.get_stock_list_in_sector(block_code, block_type, list_type)
+        except Exception as e:
+            raise AdapterError(f"Failed to get stock list in sector: {e}") from e
 
     async def get_market_data(
         self,

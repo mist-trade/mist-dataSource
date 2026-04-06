@@ -75,15 +75,26 @@ class QMTAdapter(MarketDataAdapter):
 
     # ---- 行情接口 (xtdata) ----
 
-    async def get_stock_list(self, sector: str = "沪深300") -> list[str]:
+    async def get_stock_list(self, market: str = "0") -> list[str]:
+        """获取市场股票列表.
+
+        对应 QMT SDK: xtdata.get_stock_list_in_sector(sector_name)
+        """
+        raise NotImplementedError("get_stock_list not implemented for QMT")
+
+    async def get_stock_list_in_sector(self, block_code: str = "沪深300", block_type: int = 0, list_type: int = 0) -> list[str]:
         """获取板块股票列表.
 
         对应 QMT SDK: xtdata.get_stock_list_in_sector(sector_name)
         """
         try:
-            return self._xtdata.get_stock_list_in_sector(sector)
+            if list_type == 0:
+                return self._xtdata.get_stock_list_in_sector(block_code)
+            else:
+                # QMT doesn't support list_type=1 natively, return codes only
+                return self._xtdata.get_stock_list_in_sector(block_code)
         except Exception as e:
-            raise AdapterError(f"Failed to get stock list: {e}") from e
+            raise AdapterError(f"Failed to get stock list in sector: {e}") from e
 
     async def get_market_data(
         self,

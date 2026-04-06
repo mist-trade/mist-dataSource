@@ -17,7 +17,10 @@ class TDXMockAdapter(MarketDataAdapter):
     async def shutdown(self) -> None:
         pass
 
-    async def get_stock_list(self, sector: str = "通达信88") -> list[str]:
+    async def get_stock_list(self, market: str = "0") -> list[str]:
+        return ["SH000001", "SH600519", "SZ000001", "SH601318", "SZ000858"]
+
+    async def get_stock_list_in_sector(self, block_code: str = "通达信88", block_type: int = 0, list_type: int = 0) -> list[str]:
         return ["SH000001", "SH600519", "SZ000001", "SH601318", "SZ000858"]
 
     async def get_market_data(

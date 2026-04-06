@@ -11,8 +11,8 @@ async def test_tdx_mock_adapter():
     adapter = create_tdx_adapter()
     await adapter.initialize()
 
-    # Test get_stock_list
-    stocks = await adapter.get_stock_list()
+    # Test get_stock_list_in_sector
+    stocks = await adapter.get_stock_list_in_sector()
     assert isinstance(stocks, list)
     assert len(stocks) > 0
 
@@ -34,8 +34,8 @@ async def test_qmt_mock_adapter():
     adapter = create_qmt_adapter(path="/mock/path", account_id="12345")
     await adapter.initialize()
 
-    # Test get_stock_list
-    stocks = await adapter.get_stock_list()
+    # Test get_stock_list_in_sector
+    stocks = await adapter.get_stock_list_in_sector()
     assert isinstance(stocks, list)
     assert len(stocks) > 0
 
