@@ -10,26 +10,15 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "websockets>=13.0",
-]
-
-[project.optional-dependencies]
-# TDX/QMT SDKs are local packages distributed with trading terminals,
-# not pip-installable. Set TDX_SDK_PATH / QMT_SDK_PATH env vars instead.
-tdx = [
+    # Data processing
     "numpy>=1.26.0",
     "pandas>=2.1.0",
-]
-qmt = [
-    "numpy>=1.26.0",
-    "pandas>=2.1.0",
-]
-dev = [
-    "ruff>=0.8.0",
-    "pyright>=1.1.388",
+    # Testing
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.27.0",
-    "pre-commit>=4.0.0",
+    # Code quality
+    "ruff>=0.8.0",
 ]
 
 [build-system]
