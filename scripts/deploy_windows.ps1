@@ -114,7 +114,12 @@ if (-not $Only -or $Only -eq "install") {
     try {
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        & uv sync 2>$null | Out-Null
+        # 生产环境需要 --extra tdx/qmt 安装 numpy, pandas 等 SDK 依赖
+        $syncArgs = @("sync")
+        if ($appEnv -eq "production") {
+            $syncArgs += @("--extra", "tdx", "--extra", "qmt")
+        }
+        & uv @syncArgs 2>$null | Out-Null
         $syncExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
         if ($syncExit -ne 0) { throw "uv sync failed (exit code $syncExit)" }
