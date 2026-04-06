@@ -3,16 +3,17 @@
 Note: This module requires tqcenter SDK which is only available on Windows.
 The通达信终端 must be running and logged in before using this adapter.
 
-对应 TDX SDK: tqcenter.tq (通达信官方提供的 tq.py)
+对应 TDX SDK: tqcenter.tq (通达信官方提供的 tqcenter.py)
 
 部署方式: 将通达信提供的 SDK 文件夹路径设置为 TDX_SDK_PATH 环境变量,
-例如: TDX_SDK_PATH=D:/tdx_sdk
-SDK 目录结构 (通达信官方原始结构, 无需 __init__.py):
-    D:/tdx_sdk/
+例如: TDX_SDK_PATH=D:/tdx/PYPlugins/user
+SDK 目录结构 (通达信官方原始结构):
+    D:/tdx/PYPlugins/
         TPythClient.dll
-        tqcenter/
-            tq.py
-代码会自动处理缺少 __init__.py 的情况, 直接通过文件路径加载模块.
+        user/
+            tqcenter.py       ← 单文件模块, 包含 tq 类
+代码会自动将 TDX_SDK_PATH 加入 sys.path, 使 from tqcenter import tq 可用.
+TPythClient.dll 由 SDK 内部通过 Path(__file__).parents[1] 自动定位.
 """
 
 import importlib.util
@@ -29,25 +30,25 @@ from src.core.exceptions import AdapterError
 def _load_tq_module(sdk_path: str) -> Any:
     """从 SDK 路径加载 tq 模块.
 
-    通达信官方 SDK 的 tqcenter/ 目录没有 __init__.py, 不是标准 Python 包.
-    这里按优先级尝试三种方式加载:
+    通达信官方 SDK 的 tqcenter 是一个单文件 tqcenter.py,
+    不是标准 Python 包 (没有 __init__.py 的目录).
 
-    1. 标准 import (用户手动创建了 __init__.py 的情况)
-    2. 将 tqcenter/ 加入 sys.path 后 import tq
-    3. 用 importlib 直接从文件路径加载
+    按优先级尝试三种方式加载:
+    1. 将 sdk_path 加入 sys.path 后 from tqcenter import tq
+    2. 用 importlib 直接从文件路径加载 tqcenter.py
 
     Args:
-        sdk_path: SDK 根目录路径
+        sdk_path: 包含 tqcenter.py 的目录路径
 
     Returns:
-        tq 模块
+        tq 类
 
     Raises:
         ImportError: 无法找到或加载 tq 模块
     """
     sdk_dir = str(Path(sdk_path).resolve())
 
-    # 方式 1: 标准 import (tqcenter/ 下有 __init__.py)
+    # 方式 1: 加入 sys.path 后标准 import
     if sdk_dir not in sys.path:
         sys.path.insert(0, sdk_dir)
     try:
@@ -57,31 +58,19 @@ def _load_tq_module(sdk_path: str) -> Any:
     except ImportError:
         pass
 
-    # 方式 2: 将 tqcenter/ 目录加入 sys.path, 直接 import tq
-    tqcenter_dir = os.path.join(sdk_dir, "tqcenter")
-    if os.path.isdir(tqcenter_dir):
-        abs_tqcenter = str(Path(tqcenter_dir).resolve())
-        if abs_tqcenter not in sys.path:
-            sys.path.insert(0, abs_tqcenter)
-        try:
-            import tq  # noqa: F811
-
-            return tq
-        except ImportError:
-            pass
-
-        # 方式 3: importlib 直接从文件路径加载
-        tq_py = os.path.join(tqcenter_dir, "tq.py")
-        if os.path.isfile(tq_py):
-            spec = importlib.util.spec_from_file_location("tq", tq_py)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                return module
+    # 方式 2: importlib 直接从文件路径加载
+    tqcenter_py = os.path.join(sdk_dir, "tqcenter.py")
+    if os.path.isfile(tqcenter_py):
+        spec = importlib.util.spec_from_file_location("tqcenter", tqcenter_py)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["tqcenter"] = module
+            spec.loader.exec_module(module)
+            return module.tq
 
     raise ImportError(
         f"Cannot load tq module from SDK path: {sdk_path}. "
-        f"Expected structure: {sdk_dir}/tqcenter/tq.py and {sdk_dir}/TPythClient.dll"
+        f"Expected file: {sdk_dir}/tqcenter.py"
     )
 
 
@@ -110,18 +99,19 @@ class TDXAdapter(MarketDataAdapter):
             if not sdk_path:
                 raise ImportError(
                     "TDX_SDK_PATH is not set. "
-                    "Please set it to the directory containing tqcenter/ and TPythClient.dll."
+                    "Please set it to the directory containing tqcenter.py "
+                    "(e.g. TDX_SDK_PATH=D:/tdx/PYPlugins/user)."
                 )
 
             self._tq = _load_tq_module(sdk_path)
-            # initialize 需要传入文件路径和 DLL 路径
-            init_path = os.path.abspath(__file__)
-            dll_path = str(Path(sdk_path).resolve() / "TPythClient.dll")
-            self._tq.initialize(init_path, dll_path=dll_path)
+            # initialize 传入连接路径, DLL 路径由 SDK 内部自动定位:
+            # Path(__file__).parents[1] / 'TPythClient.dll'
+            self._tq.initialize(os.path.abspath(__file__))
         except ImportError as e:
             raise ImportError(
                 "tqcenter SDK is not available. "
-                "Please set TDX_SDK_PATH to the directory containing tqcenter/ and TPythClient.dll. "
+                "Please set TDX_SDK_PATH to the directory containing tqcenter.py "
+                "(e.g. TDX_SDK_PATH=D:/tdx/PYPlugins/user). "
                 "Use TDXMockAdapter for development on other platforms."
             ) from e
         except Exception as e:
