@@ -11,7 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 uv sync                                    # Install dependencies
 uv run pytest                              # Run all tests
-uv run pytest tests/integration/test_tdx_service.py::test_name  # Single test
+uv run pytest -m "not live"                # Skip Windows-only tests
+uv run pytest tests/integration/test_tdx_routes.py::test_name  # Single test
 uv run pytest --cov=src --cov=tdx --cov=qmt  # With coverage
 uv run ruff check .                        # Lint
 uv run ruff format .                       # Format
@@ -42,27 +43,56 @@ NestJS backend → HTTP /api/{tdx|qmt}/* → routes/ → adapter (module global 
 
 ### Module-Level Singletons
 
-Each `main.py` holds module-level globals: `{tdx|qmt}_adapter` (adapter instance) and `ws_manager` (WebSocket connection manager). Routes and services import these directly from `main.py`. Services use singleton pattern (e.g., `tdx_service = TDXService()` in `tdx/services/`).
+Each `main.py` holds module-level globals: `{tdx|qmt}_adapter` (adapter instance) and `ws_manager` (WebSocket connection manager). Routes access these via a `_get_adapter()` helper that imports from the main module to avoid circular dependencies:
+
+```python
+def _get_adapter():
+    import tdx.main
+    return tdx.main.tdx_adapter
+```
+
+Services use singleton pattern (e.g., `tdx_service = TDXService()` in `tdx/services/`).
 
 ### Adapter Pattern (`src/adapter/`)
 
-`base.py` defines `MarketDataAdapter` with:
-- **4 abstract methods** (must implement): `initialize`, `shutdown`, `get_stock_list`, `get_market_data`, `subscribe_quote`
-- **15+ optional methods** (raise `NotImplementedError` by default): `get_instrument_detail`, `get_full_tick`, `get_financial_data`, `download_history_data`, `get_trading_dates`, `get_sector_list`, `get_index_weight`, `get_full_kline`, `subscribe_whole_quote`, `get_local_data`, etc.
+`base.py` defines `MarketDataAdapter` abstract base class with 70+ methods:
+
+**Required abstract methods** (must implement):
+- `initialize()` - Initialize SDK connection
+- `shutdown()` - Close SDK connection
+- `get_stock_list(market)` - Get all stocks in market
+- `get_stock_list_in_sector(block_code, block_type, list_type)` - Get stocks by sector
+- `get_market_data(stock_list, fields, period, start_time, end_time, **kwargs)` - Historical K-line data
+- `subscribe_quote(stock_list)` - AsyncIterator for real-time quotes
+
+**Optional methods** (raise `NotImplementedError` by default):
+- Market data: `get_market_snapshot`, `get_full_tick`, `get_divid_factors`, `get_trading_dates`, `get_gb_info`, `refresh_cache`, `refresh_kline`, `download_file`, `get_local_data`
+- Instrument info: `get_instrument_detail`, `get_instrument_type`, `get_stock_info`
+- Financial: `get_financial_data`, `download_financial_data`, `get_financial_data_by_date`
+- Sectors: `get_sector_list`, `download_sector_data`, `get_index_weight`, `download_index_weight`
+- User sectors: `get_user_sector`, `create_sector`, `delete_sector`, `rename_sector`
+- ETF: `get_kzz_info`, `get_ipo_info`, `get_trackzs_etf_info`
+- Subscription: `subscribe_hq`, `unsubscribe_hq`, `get_subscribe_list`
+- Trading: `order_stock`, `cancel_order_stock`, `query_stock_orders`, `query_stock_positions`, `query_stock_asset`
+- Formula: `formula_zb`, `formula_exp`, `formula_xg`
+- Client comm: `exec_to_tdx`, `send_message`, `print_to_tdx`
 
 Factory functions in `__init__.py` (`create_tdx_adapter`, `create_qmt_adapter`) return real or mock adapters based on `settings.is_production` (controlled by `APP_ENV` env var).
 
 ### API Routes
 
-| Instance | Method | Path | Description |
-|----------|--------|------|-------------|
-| TDX | GET | `/api/tdx/stocks?sector=通达信88` | Stock list by sector |
-| TDX | GET | `/api/tdx/market-data?stocks=SH600519&fields=Close&period=1d` | Historical market data |
-| TDX | WS | `/ws/quote/{client_id}` | Real-time quotes |
-| QMT | GET | `/api/qmt/stocks?sector=沪深300` | Stock list by sector |
-| QMT | GET | `/api/qmt/market-data?stocks=000001.SZ&fields=close&period=1d` | Historical market data |
-| QMT | WS | `/ws/quote/{client_id}` | Real-time quotes |
-| Both | GET | `/health` | Health check |
+| Instance | Route Group | Endpoints |
+|----------|-------------|-----------|
+| TDX | `/api/tdx/market` | stock-list-in-sector, market-data, market-snapshot, trading-dates, divid-factors, gb-info, refresh-cache, refresh-kline, download-file |
+| TDX | `/api/tdx/stock` | instrument-detail, stock-info, report-data, more-info, relation |
+| TDX | `/api/tdx/financial` | financial-data, download-financial-data, financial-data-by-date |
+| TDX | `/api/tdx/value` | bkjy-value, gpjy-value, scjy-value (by-date variants) |
+| TDX | `/api/tdx/sector` | sector-list, download-sector-data, index-weight, download-index-weight, user-sector CRUD |
+| TDX | `/api/tdx/etf` | kzz-info, ipo-info, trackzs-etf-info |
+| TDX | `/api/tdx/client` | exec-to-tdx, send-message, print-to-tdx |
+| QMT | `/api/qmt/market` | stocks, market-data |
+| Both | `/health` | Health check |
+| Both | `/ws/quote/{client_id}` | Real-time quotes |
 
 ### WebSocket Protocol
 
@@ -72,17 +102,17 @@ Messages use `WSMessage` pydantic model (`src/ws/protocol.py`): `{type, data, ti
 
 ```
 src/core/          config.py (pydantic-settings), exceptions.py, logging.py
-src/adapter/       base.py, factory in __init__.py, tdx/ (real), qmt/ (real), mock/
+src/adapter/       base.py (MarketDataAdapter ABC), factory in __init__.py, tdx/, qmt/, mock/
 src/ws/            protocol.py (WSMessage), manager.py (ConnectionManager)
-tdx/               main.py, config.py, routes/{market,ws}.py, services/tdx_service.py
+tdx/               main.py, config.py, routes/{market,stock,financial,value,sector,etf,client,ws}.py, services/tdx_service.py
 qmt/               main.py, config.py, routes/{market,ws}.py, services/qmt_service.py
-tests/             conftest.py (httpx ASGI fixtures), unit/, integration/
+tests/             conftest.py (httpx ASGI fixtures that auto-init adapters), unit/, integration/
 ```
 
 ## Key Conventions
 
 - **Config**: `src/core/config.py` — single `settings = AppSettings()` singleton. `APP_ENV=development` selects mock adapters, `production` selects real SDKs.
-- **Tests**: `pytest-asyncio` with `asyncio_mode = "auto"` (configured in pyproject.toml). Fixtures in `conftest.py` provide `tdx_client` / `qmt_client` as httpx `AsyncClient` with ASGI transport.
+- **Tests**: `pytest-asyncio` with `asyncio_mode = "auto"` (configured in pyproject.toml). Fixtures in `conftest.py` provide `tdx_client` / `qmt_client` as httpx `AsyncClient` with ASGI transport. These fixtures automatically initialize the adapter before yielding and shut it down in cleanup.
 - **Code style**: ruff (line length 100, Python 3.12 target), pyright strict mode, pre-commit hooks.
 - **SDK references**: See `TDX.md` for `tqcenter.tq` API, `QMT.md` for `xtquant.xtdata` API.
 - **Cross-platform**: macOS development uses mock adapters returning random data. Windows production requires TDX terminal or MiniQMT client running.
