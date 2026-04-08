@@ -162,3 +162,278 @@ class QMTAdapter(MarketDataAdapter):
         finally:
             for stock_code in stock_list:
                 self._xtdata.unsubscribe_quote(stock_code)
+
+    # ---- 行情扩展接口 (xtdata) ----
+
+    async def get_local_data(self, stock_list, fields, period="1d", start_time="", end_time="", **kwargs):
+        try:
+            dividend_type = kwargs.get("dividend_type", "none")
+            count = kwargs.get("count", -1)
+            fill_data = kwargs.get("fill_data", True)
+            return self._xtdata.get_local_data(
+                field_list=fields, stock_list=stock_list, period=period,
+                start_time=start_time, end_time=end_time, count=count,
+                dividend_type=dividend_type, fill_data=fill_data,
+            )
+        except Exception as e:
+            raise AdapterError(f"Failed to get local data: {e}") from e
+
+    async def get_full_tick(self, code_list: list[str]) -> dict[str, Any]:
+        try:
+            return self._xtdata.get_full_tick(code_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to get full tick: {e}") from e
+
+    async def get_full_kline(self, stock_list, period="1m", fields=None, start_time="", end_time="", count=1, dividend_type="none"):
+        try:
+            return self._xtdata.get_full_kline(
+                field_list=fields or [], stock_list=stock_list, period=period,
+                start_time=start_time, end_time=end_time, count=count,
+                dividend_type=dividend_type,
+            )
+        except Exception as e:
+            raise AdapterError(f"Failed to get full kline: {e}") from e
+
+    async def get_divid_factors(self, stock_code, start_time="", end_time=""):
+        try:
+            return self._xtdata.get_divid_factors(stock_code, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get divid factors: {e}") from e
+
+    async def download_history_data(self, stock_code, period, start_time="", end_time="", incrementally=None):
+        try:
+            self._xtdata.download_history_data(stock_code, period, start_time, end_time, incrementally)
+        except Exception as e:
+            raise AdapterError(f"Failed to download history data: {e}") from e
+
+    async def download_history_data2(self, stock_list, period, start_time="", end_time=""):
+        try:
+            self._xtdata.download_history_data2(stock_list, period, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to batch download history data: {e}") from e
+
+    async def get_trading_dates(self, market, start_time="", end_time="", count=-1):
+        try:
+            return self._xtdata.get_trading_dates(market, start_time, end_time, count)
+        except Exception as e:
+            raise AdapterError(f"Failed to get trading dates: {e}") from e
+
+    async def get_trading_calendar(self, market, start_time="", end_time=""):
+        try:
+            return self._xtdata.get_trading_calendar(market, start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get trading calendar: {e}") from e
+
+    async def get_holidays(self):
+        try:
+            return self._xtdata.get_holidays()
+        except Exception as e:
+            raise AdapterError(f"Failed to get holidays: {e}") from e
+
+    async def download_holiday_data(self):
+        try:
+            self._xtdata.download_holiday_data()
+        except Exception as e:
+            raise AdapterError(f"Failed to download holiday data: {e}") from e
+
+    async def get_period_list(self):
+        try:
+            return self._xtdata.get_period_list()
+        except Exception as e:
+            raise AdapterError(f"Failed to get period list: {e}") from e
+
+    # ---- 合约信息接口 (xtdata) ----
+
+    async def get_instrument_detail(self, stock_code, iscomplete=False):
+        try:
+            return self._xtdata.get_instrument_detail(stock_code, iscomplete)
+        except Exception as e:
+            raise AdapterError(f"Failed to get instrument detail: {e}") from e
+
+    async def get_instrument_type(self, stock_code):
+        try:
+            return self._xtdata.get_instrument_type(stock_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get instrument type: {e}") from e
+
+    # ---- 财务数据接口 (xtdata) ----
+
+    async def get_financial_data(self, stock_list, table_list=None, start_time="", end_time="", report_type="report_time"):
+        try:
+            return self._xtdata.get_financial_data(stock_list, table_list or [], start_time, end_time, report_type)
+        except Exception as e:
+            raise AdapterError(f"Failed to get financial data: {e}") from e
+
+    async def download_financial_data(self, stock_list, table_list=None):
+        try:
+            self._xtdata.download_financial_data(stock_list, table_list or [])
+        except Exception as e:
+            raise AdapterError(f"Failed to download financial data: {e}") from e
+
+    async def download_financial_data2(self, stock_list, table_list=None, start_time="", end_time=""):
+        try:
+            self._xtdata.download_financial_data2(stock_list, table_list or [], start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to batch download financial data: {e}") from e
+
+    # ---- 板块管理接口 (xtdata) ----
+
+    async def get_sector_list(self):
+        try:
+            return self._xtdata.get_sector_list()
+        except Exception as e:
+            raise AdapterError(f"Failed to get sector list: {e}") from e
+
+    async def download_sector_data(self):
+        try:
+            self._xtdata.download_sector_data()
+        except Exception as e:
+            raise AdapterError(f"Failed to download sector data: {e}") from e
+
+    async def get_index_weight(self, index_code):
+        try:
+            return self._xtdata.get_index_weight(index_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get index weight: {e}") from e
+
+    async def download_index_weight(self):
+        try:
+            self._xtdata.download_index_weight()
+        except Exception as e:
+            raise AdapterError(f"Failed to download index weight: {e}") from e
+
+    async def create_sector_folder(self, parent_node, folder_name, overwrite=True):
+        try:
+            return self._xtdata.create_sector_folder(parent_node, folder_name, overwrite)
+        except Exception as e:
+            raise AdapterError(f"Failed to create sector folder: {e}") from e
+
+    async def create_sector(self, parent_node="", sector_name="", overwrite=True):
+        try:
+            return self._xtdata.create_sector(parent_node, sector_name, overwrite)
+        except Exception as e:
+            raise AdapterError(f"Failed to create sector: {e}") from e
+
+    async def add_sector(self, sector_name, stock_list):
+        try:
+            self._xtdata.add_sector(sector_name, stock_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to add sector: {e}") from e
+
+    async def remove_stock_from_sector(self, sector_name, stock_list):
+        try:
+            return self._xtdata.remove_stock_from_sector(sector_name, stock_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to remove stock from sector: {e}") from e
+
+    async def remove_sector(self, sector_name):
+        try:
+            self._xtdata.remove_sector(sector_name)
+        except Exception as e:
+            raise AdapterError(f"Failed to remove sector: {e}") from e
+
+    async def reset_sector(self, sector_name, stock_list):
+        try:
+            return self._xtdata.reset_sector(sector_name, stock_list)
+        except Exception as e:
+            raise AdapterError(f"Failed to reset sector: {e}") from e
+
+    # ---- ETF/可转债接口 (xtdata) ----
+
+    async def get_cb_info(self, stock_code):
+        try:
+            return self._xtdata.get_cb_info(stock_code)
+        except Exception as e:
+            raise AdapterError(f"Failed to get cb info: {e}") from e
+
+    async def download_cb_data(self):
+        try:
+            self._xtdata.download_cb_data()
+        except Exception as e:
+            raise AdapterError(f"Failed to download cb data: {e}") from e
+
+    async def get_ipo_info(self, start_time="", end_time=""):
+        try:
+            return self._xtdata.get_ipo_info(start_time, end_time)
+        except Exception as e:
+            raise AdapterError(f"Failed to get ipo info: {e}") from e
+
+    async def get_etf_info(self):
+        try:
+            return self._xtdata.get_etf_info()
+        except Exception as e:
+            raise AdapterError(f"Failed to get etf info: {e}") from e
+
+    async def download_etf_info(self):
+        try:
+            self._xtdata.download_etf_info()
+        except Exception as e:
+            raise AdapterError(f"Failed to download etf info: {e}") from e
+
+    # ---- 交易存根 (XtTrader，待后续实现) ----
+
+    async def order_stock(self, stock_code, order_type, volume, price_type, price, strategy_name="", order_remark=""):
+        raise NotImplementedError("order_stock not yet implemented")
+
+    async def order_stock_async(self, stock_code, order_type, volume, price_type, price, strategy_name="", order_remark=""):
+        raise NotImplementedError("order_stock_async not yet implemented")
+
+    async def cancel_order_stock(self, order_id):
+        raise NotImplementedError("cancel_order_stock not yet implemented")
+
+    async def cancel_order_stock_async(self, order_id):
+        raise NotImplementedError("cancel_order_stock_async not yet implemented")
+
+    async def query_stock_asset(self):
+        raise NotImplementedError("query_stock_asset not yet implemented")
+
+    async def query_stock_orders(self):
+        raise NotImplementedError("query_stock_orders not yet implemented")
+
+    async def query_stock_order(self, order_id):
+        raise NotImplementedError("query_stock_order not yet implemented")
+
+    async def query_stock_trades(self):
+        raise NotImplementedError("query_stock_trades not yet implemented")
+
+    async def query_stock_positions(self):
+        raise NotImplementedError("query_stock_positions not yet implemented")
+
+    async def query_stock_position(self, stock_code):
+        raise NotImplementedError("query_stock_position not yet implemented")
+
+    async def fund_transfer(self, transfer_direction, price):
+        raise NotImplementedError("fund_transfer not yet implemented")
+
+    async def query_credit_detail(self):
+        raise NotImplementedError("query_credit_detail not yet implemented")
+
+    async def query_stk_compacts(self):
+        raise NotImplementedError("query_stk_compacts not yet implemented")
+
+    async def query_credit_subjects(self):
+        raise NotImplementedError("query_credit_subjects not yet implemented")
+
+    async def query_credit_slo_code(self):
+        raise NotImplementedError("query_credit_slo_code not yet implemented")
+
+    async def query_credit_assure(self):
+        raise NotImplementedError("query_credit_assure not yet implemented")
+
+    async def query_account_infos(self):
+        raise NotImplementedError("query_account_infos not yet implemented")
+
+    async def query_account_status(self):
+        raise NotImplementedError("query_account_status not yet implemented")
+
+    async def query_new_purchase_limit(self):
+        raise NotImplementedError("query_new_purchase_limit not yet implemented")
+
+    async def query_ipo_data(self):
+        raise NotImplementedError("query_ipo_data not yet implemented")
+
+    async def query_com_fund(self):
+        raise NotImplementedError("query_com_fund not yet implemented")
+
+    async def query_com_position(self):
+        raise NotImplementedError("query_com_position not yet implemented")
