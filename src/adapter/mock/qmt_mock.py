@@ -75,40 +75,132 @@ class QMTMockAdapter(MarketDataAdapter):
             }
             await asyncio.sleep(1)
 
-    # Trading methods (mock implementations for testing)
-    async def order_stock(
-        self, stock_code: str, order_type: int, volume: int, price_type: int, price: float
-    ) -> int:
-        """Mock order placement."""
-        return random.randint(100000, 999999)
+    # ---- 行情扩展接口 mock ----
 
-    async def cancel_order_stock(self, order_id: int) -> int:
-        """Mock order cancellation."""
-        return 1
+    async def get_local_data(self, stock_list, fields, period="1d", start_time="", end_time="", **kwargs):
+        result = {}
+        for field in fields:
+            result[field] = {
+                code: round(random.uniform(10, 100), 2) for code in stock_list
+            }
+        return result
 
-    async def query_stock_orders(self, order_id: int = 0) -> list[dict[str, Any]]:
-        """Mock order query."""
-        return []
-
-    async def query_stock_positions(self) -> list[dict[str, Any]]:
-        """Mock position query."""
-        return []
-
-    async def query_stock_asset(self) -> dict[str, Any]:
-        """Mock asset query."""
+    async def get_full_tick(self, code_list: list[str]) -> dict[str, Any]:
         return {
-            "cash": 1000000.0,
-            "market_value": 500000.0,
-            "total_asset": 1500000.0,
+            code: {
+                "lastPrice": round(random.uniform(10, 100), 2),
+                "open": round(random.uniform(10, 100), 2),
+                "high": round(random.uniform(10, 100), 2),
+                "low": round(random.uniform(10, 100), 2),
+                "volume": random.randint(1000, 100000),
+                "amount": round(random.uniform(10000, 1000000), 2),
+            }
+            for code in code_list
         }
 
-    async def stock_account(self) -> dict[str, Any]:
-        """Mock account query."""
+    async def get_full_kline(self, stock_list, period="1m", fields=None, start_time="", end_time="", count=1, dividend_type="none"):
+        return {code: {"close": round(random.uniform(10, 100), 2)} for code in stock_list}
+
+    async def get_divid_factors(self, stock_code, start_time="", end_time=""):
         return {
-            "account_id": self._account_id,
-            "account_type": "stock",
+            "interest": 0.1,
+            "stockBonus": 0.0,
+            "stockGift": 0.0,
+            "allotNum": 0.0,
+            "allotPrice": 0.0,
         }
 
-    async def query_positions(self) -> list[dict[str, Any]]:
-        """Mock position query (alias for query_stock_positions)."""
-        return await self.query_stock_positions()
+    async def download_history_data(self, stock_code, period, start_time="", end_time="", incrementally=None):
+        pass
+
+    async def download_history_data2(self, stock_list, period, start_time="", end_time=""):
+        pass
+
+    async def get_trading_dates(self, market, start_time="", end_time="", count=-1):
+        return ["20260102", "20260105", "20260106", "20260107", "20260108"]
+
+    async def get_trading_calendar(self, market, start_time="", end_time=""):
+        return ["20260102", "20260105", "20260106", "20260107", "20260108"]
+
+    async def get_holidays(self):
+        return ["20260101", "20260129", "20260130", "20260131"]
+
+    async def download_holiday_data(self):
+        pass
+
+    async def get_period_list(self):
+        return ["tick", "1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mon"]
+
+    # ---- 合约信息接口 mock ----
+
+    async def get_instrument_detail(self, stock_code, iscomplete=False):
+        return {
+            "ExchangeID": "SH",
+            "InstrumentID": stock_code,
+            "InstrumentName": "MockStock",
+            "PreClose": round(random.uniform(10, 100), 2),
+            "IsTrading": True,
+        }
+
+    async def get_instrument_type(self, stock_code):
+        return {"index": False, "stock": True, "fund": False, "etf": False}
+
+    # ---- 财务数据接口 mock ----
+
+    async def get_financial_data(self, stock_list, table_list=None, start_time="", end_time="", report_type="report_time"):
+        return {code: {} for code in stock_list}
+
+    async def download_financial_data(self, stock_list, table_list=None):
+        pass
+
+    async def download_financial_data2(self, stock_list, table_list=None, start_time="", end_time=""):
+        pass
+
+    # ---- 板块管理接口 mock ----
+
+    async def get_sector_list(self):
+        return ["沪深A股", "沪深300", "中证500", "创业板", "科创板"]
+
+    async def download_sector_data(self):
+        pass
+
+    async def get_index_weight(self, index_code):
+        return {"600000.SH": 0.05, "000001.SZ": 0.03, "600519.SH": 0.08}
+
+    async def download_index_weight(self):
+        pass
+
+    async def create_sector_folder(self, parent_node, folder_name, overwrite=True):
+        return folder_name
+
+    async def create_sector(self, parent_node="", sector_name="", overwrite=True):
+        return sector_name
+
+    async def add_sector(self, sector_name, stock_list):
+        pass
+
+    async def remove_stock_from_sector(self, sector_name, stock_list):
+        return True
+
+    async def remove_sector(self, sector_name):
+        pass
+
+    async def reset_sector(self, sector_name, stock_list):
+        return True
+
+    # ---- ETF/可转债接口 mock ----
+
+    async def get_cb_info(self, stock_code):
+        return {"stock_code": stock_code, "bond_name": "MockCB", "convert_price": round(random.uniform(90, 110), 2)}
+
+    async def download_cb_data(self):
+        pass
+
+    async def get_ipo_info(self, start_time="", end_time=""):
+        return []
+
+    async def get_etf_info(self):
+        return {}
+
+    async def download_etf_info(self):
+        pass
