@@ -426,7 +426,7 @@ class TDXMockAdapter(MarketDataAdapter):
 
     # ---- Subscription Methods ----
 
-    async def subscribe_hq(self, stock_list: list[str]) -> None:
+    async def subscribe_hq(self, stock_list: list[str], callback: Any = None) -> None:
         """订阅行情."""
         self._subscribed_stocks.update(stock_list)
 

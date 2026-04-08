@@ -76,7 +76,6 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
         心跳: {"type": "ping"}
         订阅: {"type": "subscribe", "stocks": ["600519.SH", "000001.SZ"]}
     """
-    await websocket.accept()
     await tdx.main.ws_manager.connect(websocket, client_id)
 
     adapter = _get_adapter()
