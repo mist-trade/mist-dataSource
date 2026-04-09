@@ -47,11 +47,14 @@ async def test_qmt_mock_adapter():
     )
     assert "Close" in data
 
-    # Test trading methods (mock)
-    order_id = await adapter.order_stock("SH600519", 0, 100, 0, 1800.0)
-    assert isinstance(order_id, int)
+    # Test new data methods
+    tick = await adapter.get_full_tick(["600000.SH"])
+    assert isinstance(tick, dict)
 
-    positions = await adapter.query_positions()
-    assert isinstance(positions, list)
+    sector_list = await adapter.get_sector_list()
+    assert isinstance(sector_list, list)
+
+    period_list = await adapter.get_period_list()
+    assert isinstance(period_list, list)
 
     await adapter.shutdown()

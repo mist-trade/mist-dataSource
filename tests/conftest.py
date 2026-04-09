@@ -43,7 +43,21 @@ async def tdx_client() -> AsyncGenerator[AsyncClient, None]:
 @pytest.fixture
 async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async HTTP client for testing QMT API."""
-    async with AsyncClient(
-        transport=ASGITransport(app=qmt_app), base_url="http://test"
-    ) as client:
-        yield client
+    import qmt.main
+    from src.adapter import create_qmt_adapter
+
+    # Initialize the adapter in the qmt.main module
+    qmt.main.qmt_adapter = create_qmt_adapter(
+        path="", account_id=""
+    )
+    await qmt.main.qmt_adapter.initialize()
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=qmt_app), base_url="http://test"
+        ) as client:
+            yield client
+    finally:
+        if qmt.main.qmt_adapter:
+            await qmt.main.qmt_adapter.shutdown()
+            qmt.main.qmt_adapter = None
