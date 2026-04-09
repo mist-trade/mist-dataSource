@@ -1,71 +1,267 @@
 """QMT 行情数据 REST API 路由.
 
-提供板块股票列表查询和历史行情数据获取的 HTTP 接口.
-对应 QMT SDK: xtquant.xtdata (get_stock_list_in_sector, get_market_data)
+提供板块股票列表、历史行情、下载、交易日历等 HTTP 接口.
+对应 QMT SDK: xtquant.xtdata
 """
 
 from fastapi import APIRouter, HTTPException, Query
-
-import qmt.main
+from pydantic import BaseModel
 
 router = APIRouter()
 
 
-@router.get("/stocks")
-async def get_stock_list(sector: str = "沪深300"):
-    """获取板块股票列表.
+def _get_adapter():
+    import qmt.main
+    return qmt.main.qmt_adapter
 
-    对应 QMT SDK: xtdata.get_stock_list_in_sector(sector_name)
 
-    Args:
-        sector: 板块名称，默认 "沪深300"
+class DownloadHistoryDataRequest(BaseModel):
+    stock_code: str
+    period: str = "1d"
+    start_time: str = ""
+    end_time: str = ""
+    incrementally: bool | None = None
 
-    Returns:
-        {"stocks": [...], "count": int}
-    """
-    adapter = qmt.main.qmt_adapter
+
+class BatchDownloadRequest(BaseModel):
+    stock_list: list[str]
+    period: str = "1d"
+    start_time: str = ""
+    end_time: str = ""
+
+
+# 1. GET /stock-list-in-sector
+@router.get("/stock-list-in-sector")
+async def get_stock_list_in_sector(
+    sector: str = Query("沪深A股", description="板块名称"),
+):
+    adapter = _get_adapter()
     if not adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        stocks = await adapter.get_stock_list_in_sector(sector)
+        return {"stocks": stocks, "count": len(stocks)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
-    stocks = await adapter.get_stock_list_in_sector(sector)
-    return {"stocks": stocks, "count": len(stocks)}
 
-
+# 2. GET /market-data
 @router.get("/market-data")
 async def get_market_data(
-    stocks: str = Query(..., description="逗号分隔的股票代码，如 000001.SZ,600000.SH"),
-    fields: str = Query("close", description="逗号分隔的字段名，如 close,open,volume"),
-    period: str = Query("1d", description="K线周期: tick,1m,5m,15m,30m,1h,1d,1w,1mon"),
-    start_time: str = Query("", description="起始时间，格式 YYYYMMDD"),
-    end_time: str = Query("", description="结束时间，格式 YYYYMMDD"),
-    dividend_type: str = Query("none", description="除权方式: none,front,back,front_ratio,back_ratio"),
+    stocks: str = Query(..., description="逗号分隔的股票代码"),
+    fields: str = Query("close", description="逗号分隔的字段名"),
+    period: str = Query("1d", description="K线周期"),
+    start_time: str = Query("", description="起始时间"),
+    end_time: str = Query("", description="结束时间"),
+    dividend_type: str = Query("none", description="复权类型"),
+    count: int = Query(-1, description="数据个数"),
+    fill_data: bool = Query(True, description="是否填充空缺"),
 ):
-    """获取历史行情数据.
-
-    对应 QMT SDK: xtdata.get_market_data(field_list, stock_list, period, ...)
-
-    支持的字段: time,open,high,low,close,volume,amount,settelementPrice,openInterest,preClose,suspendFlag.
-    支持的周期: "tick","1m","5m","15m","30m","1h","1d","1w","1mon","1q","1hy","1y".
-
-    Returns:
-        {"data": dict}
-    """
-    adapter = qmt.main.qmt_adapter
+    adapter = _get_adapter()
     if not adapter:
         raise HTTPException(status_code=503, detail="Adapter not initialized")
-
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
-
     try:
         data = await adapter.get_market_data(
-            stock_list=stock_list,
-            fields=field_list,
-            period=period,
-            start_time=start_time,
-            end_time=end_time,
+            stock_list=stock_list, fields=field_list, period=period,
+            start_time=start_time, end_time=end_time,
+            dividend_type=dividend_type, count=count, fill_data=fill_data,
+        )
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 3. GET /local-data
+@router.get("/local-data")
+async def get_local_data(
+    stocks: str = Query(..., description="逗号分隔的股票代码"),
+    fields: str = Query("close", description="逗号分隔的字段名"),
+    period: str = Query("1d", description="K线周期"),
+    start_time: str = Query("", description="起始时间"),
+    end_time: str = Query("", description="结束时间"),
+    dividend_type: str = Query("none", description="复权类型"),
+    count: int = Query(-1, description="数据个数"),
+    fill_data: bool = Query(True, description="是否填充空缺"),
+):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    stock_list = [s.strip() for s in stocks.split(",")]
+    field_list = [f.strip() for f in fields.split(",")]
+    try:
+        data = await adapter.get_local_data(
+            stock_list=stock_list, fields=field_list, period=period,
+            start_time=start_time, end_time=end_time,
+            dividend_type=dividend_type, count=count, fill_data=fill_data,
+        )
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 4. GET /full-tick
+@router.get("/full-tick")
+async def get_full_tick(
+    codes: str = Query(..., description="逗号分隔的代码或市场代码"),
+):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    code_list = [c.strip() for c in codes.split(",")]
+    try:
+        data = await adapter.get_full_tick(code_list)
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 5. GET /full-kline
+@router.get("/full-kline")
+async def get_full_kline(
+    stocks: str = Query(..., description="逗号分隔的股票代码"),
+    fields: str = Query("", description="逗号分隔的字段名"),
+    period: str = Query("1m", description="K线周期"),
+    start_time: str = Query("", description="起始时间"),
+    end_time: str = Query("", description="结束时间"),
+    count: int = Query(1, description="数据个数"),
+    dividend_type: str = Query("none", description="复权类型"),
+):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    stock_list = [s.strip() for s in stocks.split(",")]
+    field_list = [f.strip() for f in fields.split(",")] if fields else None
+    try:
+        data = await adapter.get_full_kline(
+            stock_list=stock_list, period=period, fields=field_list,
+            start_time=start_time, end_time=end_time, count=count,
             dividend_type=dividend_type,
         )
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 6. GET /divid-factors
+@router.get("/divid-factors")
+async def get_divid_factors(
+    stock_code: str = Query(..., description="股票代码"),
+    start_time: str = Query("", description="起始时间"),
+    end_time: str = Query("", description="结束时间"),
+):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        data = await adapter.get_divid_factors(stock_code, start_time, end_time)
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 7. POST /download-history-data
+@router.post("/download-history-data")
+async def download_history_data(request: DownloadHistoryDataRequest):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        await adapter.download_history_data(
+            request.stock_code, request.period,
+            request.start_time, request.end_time, request.incrementally,
+        )
+        return {"data": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 8. POST /download-history-data2
+@router.post("/download-history-data2")
+async def download_history_data2(request: BatchDownloadRequest):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        await adapter.download_history_data2(
+            request.stock_list, request.period,
+            request.start_time, request.end_time,
+        )
+        return {"data": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 9. GET /trading-dates
+@router.get("/trading-dates")
+async def get_trading_dates(
+    market: str = Query("SH", description="市场代码"),
+    start_time: str = Query("", description="起始时间"),
+    end_time: str = Query("", description="结束时间"),
+    count: int = Query(-1, description="数据个数"),
+):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        data = await adapter.get_trading_dates(market, start_time, end_time, count)
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 10. GET /trading-calendar
+@router.get("/trading-calendar")
+async def get_trading_calendar(
+    market: str = Query("SH", description="市场代码"),
+    start_time: str = Query("", description="起始时间"),
+    end_time: str = Query("", description="结束时间"),
+):
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        data = await adapter.get_trading_calendar(market, start_time, end_time)
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 11. GET /holidays
+@router.get("/holidays")
+async def get_holidays():
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        data = await adapter.get_holidays()
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 12. POST /download-holiday-data
+@router.post("/download-holiday-data")
+async def download_holiday_data():
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        await adapter.download_holiday_data()
+        return {"data": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# 13. GET /period-list
+@router.get("/period-list")
+async def get_period_list():
+    adapter = _get_adapter()
+    if not adapter:
+        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    try:
+        data = await adapter.get_period_list()
         return {"data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
