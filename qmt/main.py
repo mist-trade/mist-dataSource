@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Mist DataSource - QMT Adapter",
-    description="miniQMT 数据源适配器 - 提供行情接口",
+    description="miniQMT 数据源适配器 - 行情、合约、财务、板块、ETF、交易",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -83,8 +83,16 @@ async def health():
     }
 
 
+from qmt.routes.etf import router as etf_router
+from qmt.routes.financial import router as financial_router
 from qmt.routes.market import router as market_router
+from qmt.routes.sector import router as sector_router
+from qmt.routes.stock import router as stock_router
 from qmt.routes.ws import router as ws_router
 
-app.include_router(market_router, prefix="/api/qmt", tags=["Market"])
+app.include_router(market_router, prefix="/api/qmt/market", tags=["Market"])
+app.include_router(stock_router, prefix="/api/qmt/stock", tags=["Stock"])
+app.include_router(financial_router, prefix="/api/qmt/financial", tags=["Financial"])
+app.include_router(sector_router, prefix="/api/qmt/sector", tags=["Sector"])
+app.include_router(etf_router, prefix="/api/qmt/etf", tags=["ETF"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
