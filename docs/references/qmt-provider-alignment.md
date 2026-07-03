@@ -41,6 +41,11 @@ contract, the same way it targets TDX.
 | User-sector mutations | `create_sector`, `add_sector`, `remove_sector`, related methods | Admin/operator-only. Requires a separate admin spec before product exposure. |
 | Trading/account methods | `order_stock`, `query_stock_asset`, related stubs | Outside datasource boundary. Requires a separate trading service/design. |
 
+QMT sector mutation signatures intentionally follow xtdata native shape
+(`parent_node`, `sector_name`, `overwrite`). They are not the same as TDX
+legacy `create_sector(block_code, block_name)`, and neither signature is part
+of the provider-neutral `/v1` product contract.
+
 ## Runtime Startup
 
 QMT service startup remains optional in runtime checks. `QMT_SDK_PATH` and the

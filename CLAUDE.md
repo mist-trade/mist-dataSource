@@ -50,31 +50,22 @@ def _get_adapter(request: Request):
     return request.app.state.tdx_adapter
 ```
 
-Services use singleton pattern (e.g., `tdx_service = TDXService()` in `tdx/services/`).
+Routes do not import process globals from `tdx.main` or `qmt.main`; use the
+shared route dependency helpers and `app.state` instead.
 
 ### Adapter Pattern (`src/adapter/`)
 
-`base.py` defines `MarketDataAdapter` abstract base class with 70+ methods:
+`base.py` defines `MarketDataAdapter`, which only defines the lifecycle abstract
+methods:
 
-**Required abstract methods** (must implement):
 - `initialize()` - Initialize SDK connection
 - `shutdown()` - Close SDK connection
-- `get_stock_list(market)` - Get all stocks in market
-- `get_stock_list_in_sector(block_code, block_type, list_type)` - Get stocks by sector
-- `get_market_data(stock_list, fields, period, start_time, end_time, **kwargs)` - Historical K-line data
-- `subscribe_quote(stock_list)` - AsyncIterator for real-time quotes
 
-**Optional methods** (raise `NotImplementedError` by default):
-- Market data: `get_market_snapshot`, `get_full_tick`, `get_divid_factors`, `get_trading_dates`, `get_gb_info`, `refresh_cache`, `refresh_kline`, `download_file`, `get_local_data`
-- Instrument info: `get_instrument_detail`, `get_instrument_type`, `get_stock_info`
-- Financial: `get_financial_data`, `download_financial_data`, `get_financial_data_by_date`
-- Sectors: `get_sector_list`, `download_sector_data`, `get_index_weight`, `download_index_weight`
-- User sectors: `get_user_sector`, `create_sector`, `delete_sector`, `rename_sector`
-- ETF: `get_kzz_info`, `get_ipo_info`, `get_trackzs_etf_info`
-- Subscription: `subscribe_hq`, `unsubscribe_hq`, `get_subscribe_list`
-- Trading: `order_stock`, `cancel_order_stock`, `query_stock_orders`, `query_stock_positions`, `query_stock_asset`
-- Formula: `formula_zb`, `formula_exp`, `formula_xg`
-- Client comm: `exec_to_tdx`, `send_message`, `print_to_tdx`
+Provider-specific methods live on narrower Protocols in `src/adapter/base.py`
+(`TdxDataAdapter`, `QmtDataAdapter`) and on the concrete TDX/QMT adapters. Do
+not add a giant shared ABC for provider APIs with different native signatures;
+keep normalized HTTP contracts in the route/provider layer and provider quirks
+inside each adapter.
 
 Factory functions in `__init__.py` (`create_tdx_adapter`, `create_qmt_adapter`) return real or mock adapters based on `settings.is_production` (controlled by `APP_ENV` env var).
 
@@ -101,10 +92,10 @@ Messages use `WSMessage` pydantic model (`src/ws/protocol.py`): `{type, data, ti
 
 ```
 src/core/          config.py (pydantic-settings), exceptions.py, logging.py
-src/adapter/       base.py (MarketDataAdapter ABC), factory in __init__.py, tdx/, qmt/, mock/
+src/adapter/       base.py (lifecycle ABC + provider Protocols), factory in __init__.py, tdx/, qmt/, mock/
 src/ws/            protocol.py (WSMessage), manager.py (ConnectionManager)
-tdx/               main.py, config.py, routes/{market,stock,financial,value,sector,etf,client,ws}.py, services/tdx_service.py
-qmt/               main.py, config.py, routes/{market,ws}.py, services/qmt_service.py
+tdx/               main.py, config.py, routes/{dependencies,legacy,v1,ws}.py
+qmt/               main.py, config.py, routes/{dependencies,market,ws}.py
 tests/             conftest.py (httpx ASGI fixtures that auto-init adapters), unit/, integration/
 ```
 

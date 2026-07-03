@@ -362,9 +362,9 @@ class TDXMockAdapter(MarketDataAdapter):
         # Return fixed user sector stocks
         return ["600519.SH", "000001.SZ", "601318.SH"]
 
-    async def create_sector(self, name: str, stocks: list[str]) -> None:
+    async def create_sector(self, block_code: str = "", block_name: str = "") -> dict[str, Any]:
         """创建自定义板块."""
-        pass
+        return {"block_code": block_code, "block_name": block_name}
 
     async def delete_sector(self, name: str) -> None:
         """删除自定义板块."""

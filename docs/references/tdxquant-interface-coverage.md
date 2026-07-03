@@ -10,7 +10,8 @@ the market datasource boundary.
 Legacy `/api/tdx/*` routes are migration-only compatibility surfaces; product
 callers use `/v1` normalized routes or the datasource WebSocket contract. New
 product integrations must not add dependencies on old bare-dict route
-responses.
+responses. Legacy route responses emit a `Deprecation` header. The Deprecation
+header and OpenAPI deprecated flag let consumers detect the migration boundary.
 
 Related references:
 

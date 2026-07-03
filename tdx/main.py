@@ -4,10 +4,11 @@
 对应 TDX SDK: tqcenter.tq (通过 MarketDataAdapter 适配器层调用)
 """
 
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.adapter import create_tdx_adapter
@@ -36,6 +37,10 @@ tdx_collector: Any | None = None
 tdx_subscription_client: Any | None = None
 ws_manager = ConnectionManager()
 tdx_runtime: TdxRuntime | None = None
+LEGACY_TDX_API_DEPRECATION_HEADERS = {
+    "Deprecation": "true",
+    "Link": '</v1/bars/query>; rel="successor-version"',
+}
 _tdx_provider_owned_by_main: TdxDatasourceProvider | None = None
 _tdx_adapter_owned_by_main: TdxDataAdapter | None = None
 _tdx_bridge_owned_by_main: Any | None = None
@@ -177,6 +182,18 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def add_legacy_tdx_deprecation_headers(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    response = await call_next(request)
+    if request.url.path.startswith("/api/tdx/"):
+        for header, value in LEGACY_TDX_API_DEPRECATION_HEADERS.items():
+            response.headers[header] = value
+    return response
+
+
 @app.get("/health")
 async def health():
     """健康检查端点.
@@ -196,11 +213,11 @@ async def health():
 
 
 app.include_router(v1_router, tags=["V1"])
-app.include_router(market_router, prefix="/api/tdx", tags=["Market"])
-app.include_router(stock_router, prefix="/api/tdx", tags=["Stock"])
-app.include_router(financial_router, prefix="/api/tdx", tags=["Financial"])
-app.include_router(value_router, prefix="/api/tdx", tags=["Value"])
-app.include_router(sector_router, prefix="/api/tdx", tags=["Sector"])
-app.include_router(etf_router, prefix="/api/tdx", tags=["ETF"])
-app.include_router(client_router, prefix="/api/tdx", tags=["Client"])
+app.include_router(market_router, prefix="/api/tdx", tags=["Market"], deprecated=True)
+app.include_router(stock_router, prefix="/api/tdx", tags=["Stock"], deprecated=True)
+app.include_router(financial_router, prefix="/api/tdx", tags=["Financial"], deprecated=True)
+app.include_router(value_router, prefix="/api/tdx", tags=["Value"], deprecated=True)
+app.include_router(sector_router, prefix="/api/tdx", tags=["Sector"], deprecated=True)
+app.include_router(etf_router, prefix="/api/tdx", tags=["ETF"], deprecated=True)
+app.include_router(client_router, prefix="/api/tdx", tags=["Client"], deprecated=True)
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])

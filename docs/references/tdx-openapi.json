@@ -1394,6 +1394,7 @@
   "paths": {
     "/api/tdx/bkjy-value": {
       "get": {
+        "deprecated": true,
         "description": "获取板块交易数据.\n\n对应 TDX SDK: tq.get_bkjy_value(stock_list, field_list, start_time, end_time)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_bkjy_value_api_tdx_bkjy_value_get",
         "parameters": [
@@ -1472,6 +1473,7 @@
     },
     "/api/tdx/bkjy-value-by-date": {
       "get": {
+        "deprecated": true,
         "description": "获取指定日期板块交易数据.\n\n对应 TDX SDK: tq.get_bkjy_value_by_date(stock_list, field_list, year, mmdd)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_bkjy_value_by_date_api_tdx_bkjy_value_by_date_get",
         "parameters": [
@@ -1549,6 +1551,7 @@
     },
     "/api/tdx/clear-sector": {
       "post": {
+        "deprecated": true,
         "description": "清空自定义板块成份股.\n\n对应 TDX SDK: tq.clear_sector(block_code)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "clear_sector_api_tdx_clear_sector_post",
         "requestBody": {
@@ -1589,6 +1592,7 @@
     },
     "/api/tdx/create-sector": {
       "post": {
+        "deprecated": true,
         "description": "创建自定义板块.\n\n对应 TDX SDK: tq.create_sector(block_code, block_name)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "create_sector_api_tdx_create_sector_post",
         "requestBody": {
@@ -1629,6 +1633,7 @@
     },
     "/api/tdx/delete-sector": {
       "post": {
+        "deprecated": true,
         "description": "删除自定义板块.\n\n对应 TDX SDK: tq.delete_sector(block_code)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "delete_sector_api_tdx_delete_sector_post",
         "requestBody": {
@@ -1669,6 +1674,7 @@
     },
     "/api/tdx/divid-factors": {
       "get": {
+        "deprecated": true,
         "description": "获取除权除息数据.\n\n对应 TDX SDK: tq.get_divid_factors(stock_code, start_time, end_time)\n\nReturns:\n    {\"data\": Any}",
         "operationId": "get_divid_factors_api_tdx_divid_factors_get",
         "parameters": [
@@ -1736,6 +1742,7 @@
     },
     "/api/tdx/download-file": {
       "post": {
+        "deprecated": true,
         "description": "下载特定数据文件.\n\n对应 TDX SDK: tq.download_file(stock_code, down_time, down_type)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "download_file_api_tdx_download_file_post",
         "parameters": [
@@ -1804,6 +1811,7 @@
     },
     "/api/tdx/exec-to-tdx": {
       "post": {
+        "deprecated": true,
         "description": "调用客户端功能接口.\n\n对应 TDX SDK: tq.exec_to_tdx(cmd, param)\n\n此接口可以触发通达信客户端的各种功能，如打开股票图表等.\n\nArgs:\n    payload: 包含cmd和param的请求体\n\nReturns:\n    {\"data\": dict}",
         "operationId": "exec_to_tdx_api_tdx_exec_to_tdx_post",
         "requestBody": {
@@ -1844,6 +1852,7 @@
     },
     "/api/tdx/financial-data": {
       "get": {
+        "deprecated": true,
         "description": "获取专业财务数据.\n\n对应 TDX SDK: tq.get_financial_data(stock_list, field_list, start_time, end_time, report_type)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_financial_data_api_tdx_financial_data_get",
         "parameters": [
@@ -1934,6 +1943,7 @@
     },
     "/api/tdx/financial-data-by-date": {
       "get": {
+        "deprecated": true,
         "description": "获取指定日期专业财务数据.\n\n对应 TDX SDK: tq.get_financial_data_by_date(stock_list, field_list, year, mmdd)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_financial_data_by_date_api_tdx_financial_data_by_date_get",
         "parameters": [
@@ -2011,6 +2021,7 @@
     },
     "/api/tdx/gb-info": {
       "get": {
+        "deprecated": true,
         "description": "获取股本数据.\n\n对应 TDX SDK: tq.get_gb_info(stock_code, date_list, count)\n\nReturns:\n    {\"data\": list[dict]}",
         "operationId": "get_gb_info_api_tdx_gb_info_get",
         "parameters": [
@@ -2078,6 +2089,7 @@
     },
     "/api/tdx/gp-one-data": {
       "get": {
+        "deprecated": true,
         "description": "获取股票单个数据.\n\n对应 TDX SDK: tq.get_gp_one_data(stock_list, field_list)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_gp_one_data_api_tdx_gp_one_data_get",
         "parameters": [
@@ -2132,6 +2144,7 @@
     },
     "/api/tdx/gpjy-value": {
       "get": {
+        "deprecated": true,
         "description": "获取股票交易数据.\n\n对应 TDX SDK: tq.get_gpjy_value(stock_list, field_list, start_time, end_time)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_gpjy_value_api_tdx_gpjy_value_get",
         "parameters": [
@@ -2210,6 +2223,7 @@
     },
     "/api/tdx/gpjy-value-by-date": {
       "get": {
+        "deprecated": true,
         "description": "获取指定日期股票交易数据.\n\n对应 TDX SDK: tq.get_gpjy_value_by_date(stock_list, field_list, year, mmdd)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_gpjy_value_by_date_api_tdx_gpjy_value_by_date_get",
         "parameters": [
@@ -2287,6 +2301,7 @@
     },
     "/api/tdx/ipo-info": {
       "get": {
+        "deprecated": true,
         "description": "获取新股申购信息.\n\n对应 TDX SDK: tq.get_ipo_info(ipo_type, ipo_date)\n\nReturns:\n    {\"data\": list[dict]}",
         "operationId": "get_ipo_info_api_tdx_ipo_info_get",
         "parameters": [
@@ -2343,6 +2358,7 @@
     },
     "/api/tdx/kzz-info": {
       "get": {
+        "deprecated": true,
         "description": "获取可转债信息.\n\n对应 TDX SDK: tq.get_kzz_info(stock_code, field_list)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_kzz_info_api_tdx_kzz_info_get",
         "parameters": [
@@ -2398,6 +2414,7 @@
     },
     "/api/tdx/market-data": {
       "get": {
+        "deprecated": true,
         "description": "获取历史行情数据.\n\n对应 TDX SDK: tq.get_market_data(field_list, stock_list, period, start_time, end_time, ...)\n\n支持的字段: Date, Time, Open, High, Low, Close, Volume, Amount, ForwardFactor.\n支持的周期: \"1d\"(日线), \"1m\"(分钟线), \"5m\"(五分钟线).\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_market_data_api_tdx_market_data_get",
         "parameters": [
@@ -2501,6 +2518,7 @@
     },
     "/api/tdx/market-snapshot": {
       "get": {
+        "deprecated": true,
         "description": "获取实时行情快照.\n\n对应 TDX SDK: tq.get_market_snapshot(stock_code, field_list)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_market_snapshot_api_tdx_market_snapshot_get",
         "parameters": [
@@ -2556,6 +2574,7 @@
     },
     "/api/tdx/more-info": {
       "get": {
+        "deprecated": true,
         "description": "获取更多信息.\n\n对应 TDX SDK: tq.get_more_info(stock_code, field_list)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_more_info_api_tdx_more_info_get",
         "parameters": [
@@ -2611,6 +2630,7 @@
     },
     "/api/tdx/refresh-cache": {
       "post": {
+        "deprecated": true,
         "description": "刷新行情缓存.\n\n对应 TDX SDK: tq.refresh_cache(market, force)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "refresh_cache_api_tdx_refresh_cache_post",
         "parameters": [
@@ -2667,6 +2687,7 @@
     },
     "/api/tdx/refresh-kline": {
       "post": {
+        "deprecated": true,
         "description": "刷新K线缓存.\n\n对应 TDX SDK: tq.refresh_kline(stock_list, period)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "refresh_kline_api_tdx_refresh_kline_post",
         "parameters": [
@@ -2723,6 +2744,7 @@
     },
     "/api/tdx/relation": {
       "get": {
+        "deprecated": true,
         "description": "获取股票所属板块.\n\n对应 TDX SDK: tq.get_relation(stock_code)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_relation_api_tdx_relation_get",
         "parameters": [
@@ -2766,6 +2788,7 @@
     },
     "/api/tdx/rename-sector": {
       "post": {
+        "deprecated": true,
         "description": "重命名自定义板块.\n\n对应 TDX SDK: tq.rename_sector(block_code, block_name)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "rename_sector_api_tdx_rename_sector_post",
         "requestBody": {
@@ -2806,6 +2829,7 @@
     },
     "/api/tdx/scjy-value": {
       "get": {
+        "deprecated": true,
         "description": "获取市场交易数据.\n\n对应 TDX SDK: tq.get_scjy_value(field_list, start_time, end_time)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_scjy_value_api_tdx_scjy_value_get",
         "parameters": [
@@ -2873,6 +2897,7 @@
     },
     "/api/tdx/scjy-value-by-date": {
       "get": {
+        "deprecated": true,
         "description": "获取指定日期市场交易数据.\n\n对应 TDX SDK: tq.get_scjy_value_by_date(field_list, year, mmdd)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_scjy_value_by_date_api_tdx_scjy_value_by_date_get",
         "parameters": [
@@ -2939,6 +2964,7 @@
     },
     "/api/tdx/sector-list": {
       "get": {
+        "deprecated": true,
         "description": "获取A股板块代码列表.\n\n对应 TDX SDK: tq.get_sector_list(list_type)\n\nReturns:\n    {\"data\": list}",
         "operationId": "get_sector_list_api_tdx_sector_list_get",
         "parameters": [
@@ -2983,6 +3009,7 @@
     },
     "/api/tdx/send-user-block": {
       "post": {
+        "deprecated": true,
         "description": "发送自定义板块到通达信终端.\n\n对应 TDX SDK: tq.send_user_block(block_code, stocks)\n\nNote: 此接口需要额外的stocks参数，这里使用简化的SectorRequest模型.",
         "operationId": "send_user_block_api_tdx_send_user_block_post",
         "requestBody": {
@@ -3023,6 +3050,7 @@
     },
     "/api/tdx/stock-info": {
       "get": {
+        "deprecated": true,
         "description": "获取股票基本信息.\n\n对应 TDX SDK: tq.get_stock_info(stock_code)\n\nReturns:\n    {\"data\": dict}",
         "operationId": "get_stock_info_api_tdx_stock_info_get",
         "parameters": [
@@ -3066,6 +3094,7 @@
     },
     "/api/tdx/stock-list": {
       "get": {
+        "deprecated": true,
         "description": "获取指定市场股票列表.\n\n对应 TDX SDK: tq.get_stock_list(market)\n\nArgs:\n    market: 市场代码，默认 \"0\"\n\nReturns:\n    {\"stocks\": [...], \"count\": int}",
         "operationId": "get_stock_list_api_tdx_stock_list_get",
         "parameters": [
@@ -3110,6 +3139,7 @@
     },
     "/api/tdx/stock-list-in-sector": {
       "get": {
+        "deprecated": true,
         "description": "获取板块股票列表.\n\n对应 TDX SDK: tq.get_stock_list_in_sector(block_code, block_type, list_type)\n\nArgs:\n    block_code: 板块代码或名称，默认 \"通达信88\"\n    block_type: 板块类型，默认 0\n    list_type: 返回类型，默认 0\n\nReturns:\n    {\"stocks\": [...], \"count\": int}",
         "operationId": "get_stock_list_in_sector_api_tdx_stock_list_in_sector_get",
         "parameters": [
@@ -3178,6 +3208,7 @@
     },
     "/api/tdx/trackzs-etf-info": {
       "get": {
+        "deprecated": true,
         "description": "获取跟踪指数的ETF信息.\n\n对应 TDX SDK: tq.get_trackzs_etf_info(zs_code)\n\nReturns:\n    {\"data\": list[dict]}",
         "operationId": "get_trackzs_etf_info_api_tdx_trackzs_etf_info_get",
         "parameters": [
@@ -3221,6 +3252,7 @@
     },
     "/api/tdx/trading-dates": {
       "get": {
+        "deprecated": true,
         "description": "获取交易日列表.\n\n对应 TDX SDK: tq.get_trading_dates(market, start_time, end_time, count)\n\nReturns:\n    {\"data\": list[str]}",
         "operationId": "get_trading_dates_api_tdx_trading_dates_get",
         "parameters": [
@@ -3301,6 +3333,7 @@
     },
     "/api/tdx/user-sectors": {
       "get": {
+        "deprecated": true,
         "description": "获取自定义板块列表.\n\n对应 TDX SDK: tq.get_user_sector()\n\nReturns:\n    {\"data\": list}",
         "operationId": "get_user_sectors_api_tdx_user_sectors_get",
         "responses": {

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from httpx import ASGITransport, AsyncClient
+
 from tdx.main import app
 
 
@@ -89,6 +91,22 @@ def test_tdx_route_packages_separate_legacy_v1_and_websocket_boundaries() -> Non
     assert websocket_modules == {"tdx.routes.ws"}
     assert all(module.startswith("tdx.routes.legacy.") for module in legacy_modules)
     assert all(module.startswith("tdx.routes.v1") for module in normalized_modules)
+
+
+def test_legacy_tdx_routes_are_marked_deprecated_in_openapi() -> None:
+    openapi = app.openapi()
+
+    assert openapi["paths"]["/api/tdx/market-data"]["get"]["deprecated"] is True
+    assert "deprecated" not in openapi["paths"]["/v1/bars/query"]["post"]
+
+
+async def test_legacy_tdx_routes_emit_deprecation_headers() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/tdx/market-data")
+
+    assert response.headers["Deprecation"] == "true"
+    assert response.headers["Link"] == '</v1/bars/query>; rel="successor-version"'
 
 
 def test_tdx_websocket_route_stays_outside_rest_route_packages() -> None:

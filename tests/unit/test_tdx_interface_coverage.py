@@ -80,6 +80,7 @@ def test_qmt_alignment_reference_is_linked_from_coverage_matrix() -> None:
     assert "First parity target set" in qmt_text
     assert "`/api/qmt/*`" in qmt_text
     assert "`/v1`" in qmt_text
+    assert "QMT sector mutation signatures intentionally follow xtdata" in qmt_text
     for family in [
         "bars",
         "snapshots",
@@ -98,3 +99,4 @@ def test_old_tdx_routes_are_documented_as_migration_only() -> None:
     assert "`/api/tdx/*`" in text
     assert "migration-only" in text
     assert "product callers use `/v1`" in text
+    assert "Deprecation header" in text

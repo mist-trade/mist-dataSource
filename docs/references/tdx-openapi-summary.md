@@ -12,7 +12,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Bkjy Value
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/bkjy-value-by-date
 
@@ -21,7 +21,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Bkjy Value By Date
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/clear-sector
 
@@ -30,7 +30,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Clear Sector
 - Request Body: `SectorRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/create-sector
 
@@ -39,7 +39,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Create Sector
 - Request Body: `SectorRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/delete-sector
 
@@ -48,7 +48,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Delete Sector
 - Request Body: `SectorRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/divid-factors
 
@@ -57,7 +57,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Divid Factors
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/download-file
 
@@ -66,7 +66,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Download File
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=false); down_time (query, string, required=false); down_type (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/exec-to-tdx
 
@@ -75,7 +75,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Exec To Tdx
 - Request Body: `ExecRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/financial-data
 
@@ -84,7 +84,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Financial Data
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false); report_type (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/financial-data-by-date
 
@@ -93,7 +93,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Financial Data By Date
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/gb-info
 
@@ -102,7 +102,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Gb Info
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true); date_list (query, string, required=false); count (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/gp-one-data
 
@@ -111,7 +111,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Gp One Data
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/gpjy-value
 
@@ -120,7 +120,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Gpjy Value
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/gpjy-value-by-date
 
@@ -129,7 +129,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Gpjy Value By Date
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/ipo-info
 
@@ -138,7 +138,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Ipo Info
 - Request Body: `-`
 - Parameters: ipo_type (query, integer, required=false); ipo_date (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/kzz-info
 
@@ -147,7 +147,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Kzz Info
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true); fields (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/market-data
 
@@ -156,7 +156,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Market Data
 - Request Body: `-`
 - Parameters: stocks (query, string, required=true); fields (query, string, required=false); period (query, string, required=false); start_time (query, string, required=false); end_time (query, string, required=false); dividend_type (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/market-snapshot
 
@@ -165,7 +165,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Market Snapshot
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true); fields (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/more-info
 
@@ -174,7 +174,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get More Info
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true); fields (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/refresh-cache
 
@@ -183,7 +183,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Refresh Cache
 - Request Body: `-`
 - Parameters: market (query, string, required=false); force (query, boolean, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/refresh-kline
 
@@ -192,7 +192,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Refresh Kline
 - Request Body: `-`
 - Parameters: stock_list (query, string, required=false); period (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/relation
 
@@ -201,7 +201,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Relation
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/rename-sector
 
@@ -210,7 +210,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Rename Sector
 - Request Body: `SectorRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/scjy-value
 
@@ -219,7 +219,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Scjy Value
 - Request Body: `-`
 - Parameters: fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/scjy-value-by-date
 
@@ -228,7 +228,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Scjy Value By Date
 - Request Body: `-`
 - Parameters: fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/sector-list
 
@@ -237,7 +237,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Sector List
 - Request Body: `-`
 - Parameters: list_type (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /api/tdx/send-user-block
 
@@ -246,7 +246,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Send User Block
 - Request Body: `SectorRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/stock-info
 
@@ -255,7 +255,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Stock Info
 - Request Body: `-`
 - Parameters: stock_code (query, string, required=true)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/stock-list
 
@@ -264,7 +264,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Stock List
 - Request Body: `-`
 - Parameters: market (query, string, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/stock-list-in-sector
 
@@ -273,7 +273,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Stock List In Sector
 - Request Body: `-`
 - Parameters: block_code (query, string, required=false); block_type (query, integer, required=false); list_type (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/trackzs-etf-info
 
@@ -282,7 +282,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Trackzs Etf Info
 - Request Body: `-`
 - Parameters: zs_code (query, string, required=true)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/trading-dates
 
@@ -291,7 +291,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get Trading Dates
 - Request Body: `-`
 - Parameters: market (query, string, required=false); start_time (query, string, required=false); end_time (query, string, required=false); count (query, integer, required=false)
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## GET /api/tdx/user-sectors
 
@@ -300,7 +300,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Get User Sectors
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: {}
+- Responses: 200: -
 
 ## GET /health
 
@@ -309,7 +309,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Health
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: {}
+- Responses: 200: -
 
 ## GET /providers
 
@@ -318,7 +318,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Providers
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: {}
+- Responses: 200: -
 
 ## POST /v1/bars/query
 
@@ -327,7 +327,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Bars
 - Request Body: `TdxBarQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/calendar/trading-dates/query
 
@@ -336,7 +336,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Trading Dates
 - Request Body: `TdxTradingDatesQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/finance/financial-data/by-date/query
 
@@ -345,7 +345,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Financial Data By Date
 - Request Body: `TdxFinancialDataByDateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/finance/financial-data/query
 
@@ -354,7 +354,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Financial Data
 - Request Body: `TdxFinancialDataQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/finance/single-data/query
 
@@ -363,7 +363,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Single Finance Data
 - Request Body: `TdxSingleFinanceValueQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/batch/exp/execute
 
@@ -372,7 +372,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Execute Formula Batch Exp
 - Request Body: `TdxFormulaBatchExecutionRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/batch/xg/execute
 
@@ -381,7 +381,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Execute Formula Batch Xg
 - Request Body: `TdxFormulaBatchExecutionRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/batch/zb/execute
 
@@ -390,7 +390,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Execute Formula Batch Zb
 - Request Body: `TdxFormulaBatchExecutionRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/call
 
@@ -399,7 +399,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Call Formula
 - Request Body: `FormulaCallRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/data/format/query
 
@@ -408,7 +408,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Formula Format Data
 - Request Body: `TdxFormulaFormatDataRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/data/query
 
@@ -417,7 +417,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Formula Data
 - Request Body: `TdxFormulaGetDataRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/data/set
 
@@ -426,7 +426,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Set Formula Data
 - Request Body: `TdxFormulaSetDataRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/data/set-info
 
@@ -435,7 +435,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Set Formula Data Info
 - Request Body: `TdxFormulaSetDataInfoRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/exp/execute
 
@@ -444,7 +444,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Execute Formula Exp
 - Request Body: `TdxFormulaExecutionRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/metadata/info/query
 
@@ -453,7 +453,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Formula Metadata Info
 - Request Body: `TdxFormulaMetadataInfoQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/metadata/query
 
@@ -462,7 +462,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Formula Metadata
 - Request Body: `TdxFormulaMetadataQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/xg/execute
 
@@ -471,7 +471,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Execute Formula Xg
 - Request Body: `TdxFormulaExecutionRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/formulas/zb/execute
 
@@ -480,7 +480,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Execute Formula Zb
 - Request Body: `TdxFormulaExecutionRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/instruments/convertible-bonds/query
 
@@ -489,7 +489,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Convertible Bonds
 - Request Body: `TdxConvertibleBondInfoQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/instruments/tracking-etfs/query
 
@@ -498,7 +498,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Tracking Etfs
 - Request Body: `TdxTrackingEtfsQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/price-volume/query
 
@@ -507,7 +507,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Price Volume
 - Request Body: `TdxPriceVolumeQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/raw/tdx/call
 
@@ -516,7 +516,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Raw Tdx Call
 - Request Body: `RawTdxCallRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reference/dividend-factors/query
 
@@ -525,7 +525,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Dividend Factors
 - Request Body: `TdxDividendFactorsQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reference/ipo/query
 
@@ -534,7 +534,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Ipo Info
 - Request Body: `TdxIpoInfoQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reference/relations/query
 
@@ -543,7 +543,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Security Relations
 - Request Body: `TdxSecurityRelationsQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reference/share-capital/query
 
@@ -552,7 +552,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Share Capital
 - Request Body: `TdxShareCapitalQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reports/market-trade/by-date/query
 
@@ -561,7 +561,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Market Trade Aggregate By Date
 - Request Body: `TdxMarketTradeAggregateByDateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reports/market-trade/query
 
@@ -570,7 +570,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Market Trade Aggregate
 - Request Body: `TdxMarketTradeAggregateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reports/sector-trade/by-date/query
 
@@ -579,7 +579,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Sector Trade Aggregate By Date
 - Request Body: `TdxSectorTradeAggregateByDateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reports/sector-trade/query
 
@@ -588,7 +588,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Sector Trade Aggregate
 - Request Body: `TdxSectorTradeAggregateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reports/stock-trade/by-date/query
 
@@ -597,7 +597,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Stock Trade Aggregate By Date
 - Request Body: `TdxStockTradeAggregateByDateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/reports/stock-trade/query
 
@@ -606,7 +606,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Stock Trade Aggregate
 - Request Body: `TdxStockTradeAggregateQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/sectors/list/query
 
@@ -615,7 +615,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Sector List
 - Request Body: `TdxSectorListQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/sectors/query
 
@@ -624,7 +624,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Sectors
 - Request Body: `SectorQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/securities/info/query
 
@@ -633,7 +633,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Security Info
 - Request Body: `TdxSecurityInfoQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/securities/query
 
@@ -642,7 +642,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Securities
 - Request Body: `TdxSecuritiesQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## POST /v1/snapshots/query
 
@@ -651,7 +651,7 @@ Generated from `tdx.main:app.openapi()`.
 - Summary: Query Snapshots
 - Request Body: `TdxSnapshotQueryRequest`
 - Parameters: -
-- Responses: 200: {}; 422: HTTPValidationError
+- Responses: 200: -; 422: HTTPValidationError
 
 ## Schemas
 

@@ -11,6 +11,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from src.adapter.mock.tdx_mock import TDXMockAdapter
 from src.adapter.qmt.client import QMTAdapter
 from src.adapter.tdx.client import TDXAdapter
 
@@ -71,9 +72,6 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
     qmt_client_source = (PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py").read_text(
         encoding="utf-8"
     )
-    tdx_service_source = (PROJECT_ROOT / "tdx" / "services" / "tdx_service.py").read_text(
-        encoding="utf-8"
-    )
     tdx_bridge_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_bridge.py").read_text(
         encoding="utf-8"
     )
@@ -87,10 +85,22 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
     assert "ConfigurationError" not in core_init_source
     assert "print(" not in tdx_client_source
     assert "get_logger" in tdx_client_source
-    assert "_serialize_result" not in tdx_service_source
     assert "if list_type == 0" not in qmt_client_source
     assert "def _dedupe_stable" not in tdx_bridge_source
     assert "def _dedupe_normalized" not in tdx_subscription_source
+
+
+def test_legacy_service_layers_are_removed() -> None:
+    assert not list((PROJECT_ROOT / "tdx" / "services").glob("*.py"))
+    assert not list((PROJECT_ROOT / "qmt" / "services").glob("*.py"))
+
+
+def test_tdx_create_sector_signature_matches_mock_adapter() -> None:
+    real_signature = inspect.signature(TDXAdapter.create_sector)
+    mock_signature = inspect.signature(TDXMockAdapter.create_sector)
+
+    assert list(real_signature.parameters) == ["self", "block_code", "block_name"]
+    assert list(mock_signature.parameters) == ["self", "block_code", "block_name"]
 
 
 def test_ci_reports_live_test_collection_without_running_live_sdk() -> None:
@@ -175,6 +185,15 @@ def test_tdx_routes_document_app_state_dependency_model() -> None:
 
     assert "app.state" in docs
     assert "import tdx.main" not in docs
+
+
+def test_claude_adapter_pattern_matches_current_base_adapter_contract() -> None:
+    docs = (PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "70+ methods" not in docs
+    assert "lifecycle abstract" in docs
+    assert "`initialize()`" in docs
+    assert "`shutdown()`" in docs
 
 
 def test_routes_share_adapter_dependency_helpers() -> None:
