@@ -7,14 +7,9 @@
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from tdx.routes.dependencies import get_tdx_adapter
+from tdx.routes.dependencies import require_tdx_adapter
 
 router = APIRouter()
-
-
-def _get_adapter(request: Request):
-    """获取 TDX 适配器实例."""
-    return get_tdx_adapter(request)
 
 
 class SectorRequest(BaseModel):
@@ -35,9 +30,7 @@ async def get_sector_list(
     Returns:
         {"data": list}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.get_sector_list(list_type)
@@ -55,9 +48,7 @@ async def get_user_sectors(request: Request):
     Returns:
         {"data": list}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.get_user_sector()
@@ -75,9 +66,7 @@ async def create_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.create_sector(payload.block_code, payload.block_name)
@@ -95,9 +84,7 @@ async def delete_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.delete_sector(payload.block_code)
@@ -115,9 +102,7 @@ async def rename_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.rename_sector(payload.block_code, payload.block_name)
@@ -135,9 +120,7 @@ async def clear_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.clear_sector(payload.block_code)
@@ -154,9 +137,7 @@ async def send_user_block(payload: SectorRequest, request: Request):
 
     Note: 此接口需要额外的stocks参数，这里使用简化的SectorRequest模型.
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         # 注意：实际实现需要扩展请求模型以包含stocks列表

@@ -27,6 +27,11 @@ qmt_adapter: QmtDataAdapter | None = None
 ws_manager = ConnectionManager()
 
 
+def _sync_app_state(target_app: FastAPI) -> None:
+    target_app.state.qmt_adapter = qmt_adapter
+    target_app.state.ws_manager = ws_manager
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """应用生命周期管理器.
@@ -45,9 +50,12 @@ async def lifespan(_app: FastAPI):
         path=settings.qmt.path, account_id=settings.qmt.account_id
     )
     await qmt_adapter.initialize()
+    _sync_app_state(_app)
     yield
     if qmt_adapter:
         await qmt_adapter.shutdown()
+    qmt_adapter = None
+    _sync_app_state(_app)
 
 
 app = FastAPI(

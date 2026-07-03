@@ -3,15 +3,14 @@
 对应 QMT SDK: xtquant.xtdata (get_financial_data, download_financial_data, download_financial_data2)
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from qmt.routes.dependencies import require_qmt_adapter
+
 router = APIRouter()
-
-
-def _get_adapter():
-    import qmt.main
-    return qmt.main.qmt_adapter
 
 
 class DownloadFinancialDataRequest(BaseModel):
@@ -33,10 +32,8 @@ async def get_financial_data(
     start_time: str = Query("", description="起始时间"),
     end_time: str = Query("", description="结束时间"),
     report_type: str = Query("report_time", description="报表筛选方式"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     stock_list = [s.strip() for s in stocks.split(",")]
     table_list = [t.strip() for t in tables.split(",")]
     try:
@@ -49,10 +46,10 @@ async def get_financial_data(
 
 
 @router.post("/download-financial-data")
-async def download_financial_data(request: DownloadFinancialDataRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_financial_data(
+    request: DownloadFinancialDataRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         await adapter.download_financial_data(request.stock_list, request.table_list)
         return {"data": "ok"}
@@ -61,10 +58,10 @@ async def download_financial_data(request: DownloadFinancialDataRequest):
 
 
 @router.post("/download-financial-data2")
-async def download_financial_data2(request: DownloadFinancialData2Request):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_financial_data2(
+    request: DownloadFinancialData2Request,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         await adapter.download_financial_data2(
             request.stock_list, request.table_list,

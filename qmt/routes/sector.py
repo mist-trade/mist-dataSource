@@ -3,15 +3,14 @@
 对应 QMT SDK: xtquant.xtdata (板块相关接口)
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from qmt.routes.dependencies import require_qmt_adapter
+
 router = APIRouter()
-
-
-def _get_adapter():
-    import qmt.main
-    return qmt.main.qmt_adapter
 
 
 class CreateSectorFolderRequest(BaseModel):
@@ -41,10 +40,7 @@ class ResetSectorRequest(BaseModel):
 
 
 @router.get("/sector-list")
-async def get_sector_list():
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def get_sector_list(adapter: Any = Depends(require_qmt_adapter)):
     try:
         data = await adapter.get_sector_list()
         return {"data": data}
@@ -53,10 +49,7 @@ async def get_sector_list():
 
 
 @router.post("/download-sector-data")
-async def download_sector_data():
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_sector_data(adapter: Any = Depends(require_qmt_adapter)):
     try:
         await adapter.download_sector_data()
         return {"data": "ok"}
@@ -67,10 +60,8 @@ async def download_sector_data():
 @router.get("/index-weight")
 async def get_index_weight(
     index_code: str = Query(..., description="指数代码"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     try:
         data = await adapter.get_index_weight(index_code)
         return {"data": data}
@@ -79,10 +70,7 @@ async def get_index_weight(
 
 
 @router.post("/download-index-weight")
-async def download_index_weight():
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_index_weight(adapter: Any = Depends(require_qmt_adapter)):
     try:
         await adapter.download_index_weight()
         return {"data": "ok"}
@@ -91,10 +79,10 @@ async def download_index_weight():
 
 
 @router.post("/create-sector-folder")
-async def create_sector_folder(request: CreateSectorFolderRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def create_sector_folder(
+    request: CreateSectorFolderRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         data = await adapter.create_sector_folder(
             request.parent_node, request.folder_name, request.overwrite,
@@ -105,10 +93,10 @@ async def create_sector_folder(request: CreateSectorFolderRequest):
 
 
 @router.post("/create-sector")
-async def create_sector(request: CreateSectorRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def create_sector(
+    request: CreateSectorRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         data = await adapter.create_sector(
             request.parent_node, request.sector_name, request.overwrite,
@@ -119,10 +107,10 @@ async def create_sector(request: CreateSectorRequest):
 
 
 @router.post("/add-sector")
-async def add_sector(request: StockListSectorRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def add_sector(
+    request: StockListSectorRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         await adapter.add_sector(request.sector_name, request.stock_list)
         return {"data": "ok"}
@@ -131,10 +119,10 @@ async def add_sector(request: StockListSectorRequest):
 
 
 @router.post("/remove-stock-from-sector")
-async def remove_stock_from_sector(request: StockListSectorRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def remove_stock_from_sector(
+    request: StockListSectorRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         data = await adapter.remove_stock_from_sector(request.sector_name, request.stock_list)
         return {"data": data}
@@ -143,10 +131,10 @@ async def remove_stock_from_sector(request: StockListSectorRequest):
 
 
 @router.post("/remove-sector")
-async def remove_sector(request: SectorNameRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def remove_sector(
+    request: SectorNameRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         await adapter.remove_sector(request.sector_name)
         return {"data": "ok"}
@@ -155,10 +143,10 @@ async def remove_sector(request: SectorNameRequest):
 
 
 @router.post("/reset-sector")
-async def reset_sector(request: ResetSectorRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def reset_sector(
+    request: ResetSectorRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         data = await adapter.reset_sector(request.sector_name, request.stock_list)
         return {"data": data}

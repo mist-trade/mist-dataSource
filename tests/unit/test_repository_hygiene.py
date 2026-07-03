@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
+import stat
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +38,58 @@ def test_conftest_does_not_define_custom_event_loop_fixture() -> None:
     }
 
     assert "event_loop" not in function_names
+
+
+def test_ci_and_precommit_run_pyright() -> None:
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    precommit = (PROJECT_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+    assert "uv run pyright" in workflow
+    assert "id: pyright" in precommit
+    assert "uv run pyright" in precommit
+
+
+def test_ci_reports_live_test_collection_without_running_live_sdk() -> None:
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "-m live" in workflow
+    assert "--collect-only" in workflow
+
+
+def test_shell_scripts_use_strict_mode() -> None:
+    for relative_path in (
+        "scripts/start_all.sh",
+        "scripts/stop_all.sh",
+        "scripts/health_check.sh",
+    ):
+        source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+        assert "set -euo pipefail" in source, relative_path
+
+
+def test_health_check_exits_nonzero_when_any_instance_is_unhealthy(tmp_path: Path) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_curl = fake_bin / "curl"
+    fake_curl.write_text("#!/bin/sh\nexit 22\n", encoding="utf-8")
+    fake_curl.chmod(fake_curl.stat().st_mode | stat.S_IXUSR)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "health_check.sh")],
+        check=False,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "NOT RESPONDING" in result.stdout
 
 
 def test_tdx_routes_do_not_import_tdx_main_for_runtime_singletons() -> None:
@@ -72,6 +127,22 @@ def test_tdx_routes_document_app_state_dependency_model() -> None:
 
     assert "app.state" in docs
     assert "import tdx.main" not in docs
+
+
+def test_routes_share_adapter_dependency_helpers() -> None:
+    route_roots = (PROJECT_ROOT / "tdx" / "routes", PROJECT_ROOT / "qmt" / "routes")
+    offenders: list[str] = []
+
+    for route_root in route_roots:
+        for route_file in sorted(route_root.glob("*.py")):
+            if route_file.name in {"dependencies.py", "__init__.py"}:
+                continue
+            tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == "_get_adapter":
+                    offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
+
+    assert offenders == []
 
 
 def test_tdx_provider_uses_shared_native_key_normalization_and_configured_timeouts() -> None:

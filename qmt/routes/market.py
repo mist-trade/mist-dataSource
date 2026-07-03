@@ -4,15 +4,14 @@
 对应 QMT SDK: xtquant.xtdata
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from qmt.routes.dependencies import require_qmt_adapter
+
 router = APIRouter()
-
-
-def _get_adapter():
-    import qmt.main
-    return qmt.main.qmt_adapter
 
 
 class DownloadHistoryDataRequest(BaseModel):
@@ -34,10 +33,8 @@ class BatchDownloadRequest(BaseModel):
 @router.get("/stock-list-in-sector")
 async def get_stock_list_in_sector(
     sector: str = Query("沪深A股", description="板块名称"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     try:
         stocks = await adapter.get_stock_list_in_sector(sector)
         return {"stocks": stocks, "count": len(stocks)}
@@ -56,10 +53,8 @@ async def get_market_data(
     dividend_type: str = Query("none", description="复权类型"),
     count: int = Query(-1, description="数据个数"),
     fill_data: bool = Query(True, description="是否填充空缺"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
     try:
@@ -84,10 +79,8 @@ async def get_local_data(
     dividend_type: str = Query("none", description="复权类型"),
     count: int = Query(-1, description="数据个数"),
     fill_data: bool = Query(True, description="是否填充空缺"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
     try:
@@ -105,10 +98,8 @@ async def get_local_data(
 @router.get("/full-tick")
 async def get_full_tick(
     codes: str = Query(..., description="逗号分隔的代码或市场代码"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     code_list = [c.strip() for c in codes.split(",")]
     try:
         data = await adapter.get_full_tick(code_list)
@@ -127,10 +118,8 @@ async def get_full_kline(
     end_time: str = Query("", description="结束时间"),
     count: int = Query(1, description="数据个数"),
     dividend_type: str = Query("none", description="复权类型"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")] if fields else None
     try:
@@ -150,10 +139,8 @@ async def get_divid_factors(
     stock_code: str = Query(..., description="股票代码"),
     start_time: str = Query("", description="起始时间"),
     end_time: str = Query("", description="结束时间"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     try:
         data = await adapter.get_divid_factors(stock_code, start_time, end_time)
         return {"data": data}
@@ -163,10 +150,10 @@ async def get_divid_factors(
 
 # 7. POST /download-history-data
 @router.post("/download-history-data")
-async def download_history_data(request: DownloadHistoryDataRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_history_data(
+    request: DownloadHistoryDataRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         await adapter.download_history_data(
             request.stock_code, request.period,
@@ -179,10 +166,10 @@ async def download_history_data(request: DownloadHistoryDataRequest):
 
 # 8. POST /download-history-data2
 @router.post("/download-history-data2")
-async def download_history_data2(request: BatchDownloadRequest):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_history_data2(
+    request: BatchDownloadRequest,
+    adapter: Any = Depends(require_qmt_adapter),
+):
     try:
         await adapter.download_history_data2(
             request.stock_list, request.period,
@@ -200,10 +187,8 @@ async def get_trading_dates(
     start_time: str = Query("", description="起始时间"),
     end_time: str = Query("", description="结束时间"),
     count: int = Query(-1, description="数据个数"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     try:
         data = await adapter.get_trading_dates(market, start_time, end_time, count)
         return {"data": data}
@@ -217,10 +202,8 @@ async def get_trading_calendar(
     market: str = Query("SH", description="市场代码"),
     start_time: str = Query("", description="起始时间"),
     end_time: str = Query("", description="结束时间"),
+    adapter: Any = Depends(require_qmt_adapter),
 ):
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
     try:
         data = await adapter.get_trading_calendar(market, start_time, end_time)
         return {"data": data}
@@ -230,10 +213,7 @@ async def get_trading_calendar(
 
 # 11. GET /holidays
 @router.get("/holidays")
-async def get_holidays():
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def get_holidays(adapter: Any = Depends(require_qmt_adapter)):
     try:
         data = await adapter.get_holidays()
         return {"data": data}
@@ -243,10 +223,7 @@ async def get_holidays():
 
 # 12. POST /download-holiday-data
 @router.post("/download-holiday-data")
-async def download_holiday_data():
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def download_holiday_data(adapter: Any = Depends(require_qmt_adapter)):
     try:
         await adapter.download_holiday_data()
         return {"data": "ok"}
@@ -256,10 +233,7 @@ async def download_holiday_data():
 
 # 13. GET /period-list
 @router.get("/period-list")
-async def get_period_list():
-    adapter = _get_adapter()
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+async def get_period_list(adapter: Any = Depends(require_qmt_adapter)):
     try:
         data = await adapter.get_period_list()
         return {"data": data}

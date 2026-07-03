@@ -7,14 +7,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from tdx.routes.dependencies import get_tdx_adapter
+from tdx.routes.dependencies import require_tdx_adapter
 
 router = APIRouter()
-
-
-def _get_adapter(request: Request):
-    """获取 TDX 适配器实例."""
-    return get_tdx_adapter(request)
 
 
 class ExecRequest(BaseModel):
@@ -37,9 +32,7 @@ async def exec_to_tdx(payload: ExecRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.exec_to_tdx(payload.cmd, payload.param)

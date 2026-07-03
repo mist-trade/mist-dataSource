@@ -6,14 +6,9 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from tdx.routes.dependencies import get_tdx_adapter
+from tdx.routes.dependencies import require_tdx_adapter
 
 router = APIRouter()
-
-
-def _get_adapter(request: Request):
-    """获取 TDX 适配器实例."""
-    return get_tdx_adapter(request)
 
 
 @router.get("/kzz-info")
@@ -29,9 +24,7 @@ async def get_kzz_info(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
@@ -55,9 +48,7 @@ async def get_ipo_info(
     Returns:
         {"data": list[dict]}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.get_ipo_info(ipo_type, ipo_date)
@@ -78,9 +69,7 @@ async def get_trackzs_etf_info(
     Returns:
         {"data": list[dict]}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.get_trackzs_etf_info(zs_code)

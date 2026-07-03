@@ -6,14 +6,9 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from tdx.routes.dependencies import get_tdx_adapter
+from tdx.routes.dependencies import require_tdx_adapter
 
 router = APIRouter()
-
-
-def _get_adapter(request: Request):
-    """获取 TDX 适配器实例."""
-    return get_tdx_adapter(request)
 
 
 @router.get("/stock-list-in-sector")
@@ -35,9 +30,7 @@ async def get_stock_list_in_sector(
     Returns:
         {"stocks": [...], "count": int}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stocks = await adapter.get_stock_list_in_sector(block_code, block_type, list_type)
     return {"stocks": stocks, "count": len(stocks)}
@@ -63,9 +56,7 @@ async def get_market_data(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
@@ -97,9 +88,7 @@ async def get_market_snapshot(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
@@ -125,9 +114,7 @@ async def get_trading_dates(
     Returns:
         {"data": list[str]}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.get_trading_dates(market, start_time, end_time, count)
@@ -150,9 +137,7 @@ async def get_divid_factors(
     Returns:
         {"data": Any}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.get_divid_factors(stock_code, start_time, end_time)
@@ -175,9 +160,7 @@ async def get_gb_info(
     Returns:
         {"data": list[dict]}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     dates = [d.strip() for d in date_list.split(",")] if date_list else []
 
@@ -201,9 +184,7 @@ async def refresh_cache(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.refresh_cache(market, force)
@@ -225,9 +206,7 @@ async def refresh_kline(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stocks = [s.strip() for s in stock_list.split(",")] if stock_list else []
 
@@ -252,9 +231,7 @@ async def download_file(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     try:
         data = await adapter.download_file(stock_code, down_time, down_type)

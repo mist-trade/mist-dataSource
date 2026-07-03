@@ -43,6 +43,7 @@ async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
     qmt.main.qmt_adapter = create_qmt_adapter(
         path="", account_id=""
     )
+    qmt_app.state.qmt_adapter = qmt.main.qmt_adapter
     await qmt.main.qmt_adapter.initialize()
 
     try:
@@ -54,3 +55,4 @@ async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
         if qmt.main.qmt_adapter:
             await qmt.main.qmt_adapter.shutdown()
             qmt.main.qmt_adapter = None
+            qmt_app.state.qmt_adapter = None

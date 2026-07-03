@@ -6,14 +6,9 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from tdx.routes.dependencies import get_tdx_adapter
+from tdx.routes.dependencies import require_tdx_adapter
 
 router = APIRouter()
-
-
-def _get_adapter(request: Request):
-    """获取 TDX 适配器实例."""
-    return get_tdx_adapter(request)
 
 
 @router.get("/bkjy-value")
@@ -31,9 +26,7 @@ async def get_bkjy_value(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
@@ -60,9 +53,7 @@ async def get_bkjy_value_by_date(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
@@ -89,9 +80,7 @@ async def get_gpjy_value(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
@@ -118,9 +107,7 @@ async def get_gpjy_value_by_date(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
@@ -146,9 +133,7 @@ async def get_scjy_value(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")]
 
@@ -173,9 +158,7 @@ async def get_scjy_value_by_date(
     Returns:
         {"data": dict}
     """
-    adapter = _get_adapter(request)
-    if not adapter:
-        raise HTTPException(status_code=503, detail="Adapter not initialized")
+    adapter = require_tdx_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")]
 

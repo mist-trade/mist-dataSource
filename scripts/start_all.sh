@@ -1,7 +1,7 @@
 #!/bin/bash
 # macOS 启动全部实例
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -18,7 +18,7 @@ fi
 
 # Function to check if port is in use
 check_port() {
-    if lsof -Pi :$1 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if lsof -Pi :"$1" -sTCP:LISTEN -t >/dev/null 2>&1; then
         echo "Port $1 is already in use. Please stop the existing service first."
         return 1
     fi
