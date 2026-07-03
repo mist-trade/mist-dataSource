@@ -4,9 +4,9 @@
 对应 TDX SDK: tqcenter.tq (get_kzz_info, get_ipo_info, get_trackzs_etf_info)
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import require_tdx_adapter
+from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
 
 router = APIRouter()
 
@@ -28,11 +28,8 @@ async def get_kzz_info(
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
-    try:
-        data = await adapter.get_kzz_info(stock_code, field_list)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_kzz_info(stock_code, field_list))
+    return {"data": data}
 
 
 @router.get("/ipo-info")
@@ -50,11 +47,8 @@ async def get_ipo_info(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.get_ipo_info(ipo_type, ipo_date)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_ipo_info(ipo_type, ipo_date))
+    return {"data": data}
 
 
 @router.get("/trackzs-etf-info")
@@ -71,8 +65,5 @@ async def get_trackzs_etf_info(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.get_trackzs_etf_info(zs_code)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_trackzs_etf_info(zs_code))
+    return {"data": data}

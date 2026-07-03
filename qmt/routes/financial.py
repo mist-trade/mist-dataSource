@@ -5,10 +5,10 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from qmt.routes.dependencies import require_qmt_adapter
+from qmt.routes.dependencies import call_qmt_adapter, require_qmt_adapter
 
 router = APIRouter()
 
@@ -36,13 +36,10 @@ async def get_financial_data(
 ):
     stock_list = [s.strip() for s in stocks.split(",")]
     table_list = [t.strip() for t in tables.split(",")]
-    try:
-        data = await adapter.get_financial_data(
-            stock_list, table_list, start_time, end_time, report_type,
-        )
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_qmt_adapter(
+        adapter.get_financial_data(stock_list, table_list, start_time, end_time, report_type)
+    )
+    return {"data": data}
 
 
 @router.post("/download-financial-data")
@@ -50,11 +47,8 @@ async def download_financial_data(
     request: DownloadFinancialDataRequest,
     adapter: Any = Depends(require_qmt_adapter),
 ):
-    try:
-        await adapter.download_financial_data(request.stock_list, request.table_list)
-        return {"data": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    await call_qmt_adapter(adapter.download_financial_data(request.stock_list, request.table_list))
+    return {"data": "ok"}
 
 
 @router.post("/download-financial-data2")
@@ -62,11 +56,12 @@ async def download_financial_data2(
     request: DownloadFinancialData2Request,
     adapter: Any = Depends(require_qmt_adapter),
 ):
-    try:
-        await adapter.download_financial_data2(
-            request.stock_list, request.table_list,
-            request.start_time, request.end_time,
+    await call_qmt_adapter(
+        adapter.download_financial_data2(
+            request.stock_list,
+            request.table_list,
+            request.start_time,
+            request.end_time,
         )
-        return {"data": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    )
+    return {"data": "ok"}

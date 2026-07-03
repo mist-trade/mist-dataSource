@@ -29,6 +29,7 @@ def test_qmt_ws_ping_returns_timestamped_pong(monkeypatch):
 
     with TestClient(app) as client:
         monkeypatch.setattr(qmt.main, "qmt_adapter", FakeQmtAdapter())
+        app.state.qmt_adapter = qmt.main.qmt_adapter
         with client.websocket_connect("/ws/quote/qmt-client") as ws:
             ws.send_json({"type": "ping"})
             payload = ws.receive_json()
@@ -44,6 +45,7 @@ def test_qmt_ws_adapter_unavailable_uses_canonical_error(monkeypatch):
 
     with TestClient(app) as client:
         monkeypatch.setattr(qmt.main, "qmt_adapter", None)
+        app.state.qmt_adapter = None
         with client.websocket_connect("/ws/quote/qmt-client") as ws:
             ws.send_json({"type": "subscribe", "stocks": ["600519.SH"]})
             payload = ws.receive_json()
@@ -61,6 +63,7 @@ def test_qmt_ws_subscription_ack_uses_data_payload(monkeypatch):
     adapter = FakeQmtAdapter()
     with TestClient(app) as client:
         monkeypatch.setattr(qmt.main, "qmt_adapter", adapter)
+        app.state.qmt_adapter = adapter
         with client.websocket_connect("/ws/quote/qmt-client") as ws:
             ws.send_json({"type": "subscribe", "stocks": ["600519.SH"]})
             payload = ws.receive_json()

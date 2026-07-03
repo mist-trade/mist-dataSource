@@ -4,9 +4,9 @@
 对应 TDX SDK: tqcenter.tq (get_bkjy_value, get_gpjy_value, get_scjy_value 等)
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import require_tdx_adapter
+from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
 
 router = APIRouter()
 
@@ -31,11 +31,10 @@ async def get_bkjy_value(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_bkjy_value(stock_list, field_list, start_time, end_time)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(
+        adapter.get_bkjy_value(stock_list, field_list, start_time, end_time)
+    )
+    return {"data": data}
 
 
 @router.get("/bkjy-value-by-date")
@@ -58,11 +57,10 @@ async def get_bkjy_value_by_date(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_bkjy_value_by_date(stock_list, field_list, year, mmdd)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(
+        adapter.get_bkjy_value_by_date(stock_list, field_list, year, mmdd)
+    )
+    return {"data": data}
 
 
 @router.get("/gpjy-value")
@@ -85,11 +83,10 @@ async def get_gpjy_value(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_gpjy_value(stock_list, field_list, start_time, end_time)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(
+        adapter.get_gpjy_value(stock_list, field_list, start_time, end_time)
+    )
+    return {"data": data}
 
 
 @router.get("/gpjy-value-by-date")
@@ -112,11 +109,10 @@ async def get_gpjy_value_by_date(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_gpjy_value_by_date(stock_list, field_list, year, mmdd)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(
+        adapter.get_gpjy_value_by_date(stock_list, field_list, year, mmdd)
+    )
+    return {"data": data}
 
 
 @router.get("/scjy-value")
@@ -137,11 +133,8 @@ async def get_scjy_value(
 
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_scjy_value(field_list, start_time, end_time)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_scjy_value(field_list, start_time, end_time))
+    return {"data": data}
 
 
 @router.get("/scjy-value-by-date")
@@ -162,8 +155,5 @@ async def get_scjy_value_by_date(
 
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_scjy_value_by_date(field_list, year, mmdd)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_scjy_value_by_date(field_list, year, mmdd))
+    return {"data": data}

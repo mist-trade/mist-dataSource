@@ -164,7 +164,10 @@ class TDXAdapter(MarketDataAdapter):
         if self._tq is None:
             raise AdapterError("TDX adapter not initialized")
         method = getattr(self._tq, method_name)
-        return await asyncio.to_thread(method, *args, **kwargs)
+        try:
+            return await asyncio.to_thread(method, *args, **kwargs)
+        except Exception as e:
+            raise AdapterError(f"TDX SDK call {method_name} failed: {e}") from e
 
     async def get_stock_list(self, market: str = "0") -> list[str]:
         """获取市场股票列表.
@@ -173,7 +176,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_stock_list", market)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get stock list: {e}") from e
 
     async def get_stock_list_in_sector(self, block_code: str = "通达信88", block_type: int = 0, list_type: int = 0) -> list[str]:
@@ -188,7 +191,7 @@ class TDXAdapter(MarketDataAdapter):
                 block_type,
                 list_type,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get stock list in sector: {e}") from e
 
     async def get_market_data(
@@ -232,7 +235,7 @@ class TDXAdapter(MarketDataAdapter):
                     column_names=stock_list,
                 )
             return result
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get market data: {e}") from e
 
     async def subscribe_quote(self, stock_list: list[str]) -> dict[str, Any]:
@@ -259,7 +262,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             await self._call_tq("send_user_block", block_code, stocks, show=True)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to send user block: {e}") from e
 
     # ---- Market Data Methods ----
@@ -282,7 +285,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_market_snapshot", stock_code, field_list or [])
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get market snapshot: {e}") from e
 
     async def get_divid_factors(
@@ -305,7 +308,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_divid_factors", stock_code, start_time, end_time)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get dividend factors: {e}") from e
 
     async def get_gb_info(
@@ -328,7 +331,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_gb_info", stock_code, date_list or [], count)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get gb info: {e}") from e
 
     async def get_trading_dates(self, market: str = "SH", start_time: str = "", end_time: str = "", count: int = -1) -> list[str]:
@@ -347,7 +350,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_trading_dates", market, start_time, end_time, count)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get trading dates: {e}") from e
 
     async def refresh_cache(self, market: str = "AG", force: bool = False) -> dict[str, Any]:
@@ -364,7 +367,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("refresh_cache", market, force)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to refresh cache: {e}") from e
 
     async def refresh_kline(self, stock_list: list[str] | None = None, period: str = "1d") -> dict[str, Any]:
@@ -381,7 +384,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("refresh_kline", stock_list or [], period)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to refresh kline: {e}") from e
 
     async def download_file(self, stock_code: str = "", down_time: str = "", down_type: int = 1) -> dict[str, Any]:
@@ -399,7 +402,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("download_file", stock_code, down_time, down_type)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download file: {e}") from e
 
     # ---- Stock Info Methods ----
@@ -417,7 +420,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_stock_info", stock_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get stock info: {e}") from e
 
     async def get_more_info(self, stock_code: str = "", field_list: list[str] | None = None) -> dict[str, Any]:
@@ -434,7 +437,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_more_info", stock_code, field_list or [])
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get more info: {e}") from e
 
     async def get_relation(self, stock_code: str = "") -> dict[str, Any]:
@@ -450,7 +453,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_relation", stock_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get relation: {e}") from e
 
     # ---- Financial and Value Methods ----
@@ -488,7 +491,7 @@ class TDXAdapter(MarketDataAdapter):
                 end_time,
                 report_type,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get financial data: {e}") from e
 
     async def get_financial_data_by_date(
@@ -517,7 +520,7 @@ class TDXAdapter(MarketDataAdapter):
                 year,
                 mmdd,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get financial data by date: {e}") from e
 
     async def get_gp_one_data(self, stock_list: list[str], field_list: list[str]) -> dict[str, Any]:
@@ -534,7 +537,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_gp_one_data", stock_list, field_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get gp one data: {e}") from e
 
     async def get_bkjy_value(
@@ -563,7 +566,7 @@ class TDXAdapter(MarketDataAdapter):
                 start_time,
                 end_time,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get bkjy value: {e}") from e
 
     async def get_bkjy_value_by_date(
@@ -592,7 +595,7 @@ class TDXAdapter(MarketDataAdapter):
                 year,
                 mmdd,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get bkjy value by date: {e}") from e
 
     async def get_gpjy_value(
@@ -621,7 +624,7 @@ class TDXAdapter(MarketDataAdapter):
                 start_time,
                 end_time,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get gpjy value: {e}") from e
 
     async def get_gpjy_value_by_date(
@@ -650,7 +653,7 @@ class TDXAdapter(MarketDataAdapter):
                 year,
                 mmdd,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get gpjy value by date: {e}") from e
 
     async def get_scjy_value(self, field_list: list[str], start_time: str = "", end_time: str = "") -> dict[str, Any]:
@@ -668,7 +671,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_scjy_value", field_list, start_time, end_time)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get scjy value: {e}") from e
 
     async def get_scjy_value_by_date(self, field_list: list[str], year: int = 0, mmdd: int = 0) -> dict[str, Any]:
@@ -686,7 +689,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_scjy_value_by_date", field_list, year, mmdd)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get scjy value by date: {e}") from e
 
     # ---- Sector Management Methods ----
@@ -704,7 +707,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_sector_list", list_type)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get sector list: {e}") from e
 
     async def get_user_sector(self) -> list[Any]:
@@ -717,7 +720,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_user_sector")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get user sector: {e}") from e
 
     # TODO: 以下板块管理方法待后续实现
@@ -797,7 +800,7 @@ class TDXAdapter(MarketDataAdapter):
             if field_list is None:
                 field_list = []
             return await self._call_tq("get_cb_info", stock_code, field_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get cb info: {e}") from e
 
     async def get_ipo_info(self, ipo_type: int = 0, ipo_date: int = 0) -> list[dict[str, Any]]:
@@ -814,7 +817,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_ipo_info", ipo_type, ipo_date)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get ipo info: {e}") from e
 
     async def get_trackzs_etf_info(self, zs_code: str = "") -> list[dict[str, Any]]:
@@ -830,7 +833,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_trackzs_etf_info", zs_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get trackzs etf info: {e}") from e
 
     # ---- Subscription Methods ----
@@ -853,7 +856,7 @@ class TDXAdapter(MarketDataAdapter):
                 stock_list=stock_list,
                 callback=callback,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to subscribe hq: {e}") from e
 
     async def unsubscribe_hq(self, stock_list: list[str] | None = None) -> dict[str, Any]:
@@ -871,7 +874,7 @@ class TDXAdapter(MarketDataAdapter):
             if stock_list is None:
                 stock_list = []
             return await self._call_tq("unsubscribe_hq", stock_list=stock_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to unsubscribe hq: {e}") from e
 
     async def get_subscribe_list(self) -> list[str]:
@@ -884,7 +887,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("get_subscribe_hq_stock_list")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get subscribe list: {e}") from e
 
     # ---- Client Control ----
@@ -903,7 +906,7 @@ class TDXAdapter(MarketDataAdapter):
         """
         try:
             return await self._call_tq("exec_to_tdx", cmd, param)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to exec to tdx: {e}") from e
 
     # ---- Trading Methods (TODO) ----

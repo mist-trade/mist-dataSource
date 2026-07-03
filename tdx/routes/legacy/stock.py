@@ -4,9 +4,9 @@
 对应 TDX SDK: tqcenter.tq (get_stock_info, get_more_info, get_relation)
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import require_tdx_adapter
+from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
 
 router = APIRouter()
 
@@ -28,11 +28,8 @@ async def get_stock_list(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        stocks = await adapter.get_stock_list(market)
-        return {"stocks": stocks, "count": len(stocks)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    stocks = await call_tdx_adapter(adapter.get_stock_list(market))
+    return {"stocks": stocks, "count": len(stocks)}
 
 
 @router.get("/stock-info")
@@ -49,11 +46,8 @@ async def get_stock_info(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.get_stock_info(stock_code)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_stock_info(stock_code))
+    return {"data": data}
 
 
 @router.get("/more-info")
@@ -73,11 +67,8 @@ async def get_more_info(
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
-    try:
-        data = await adapter.get_more_info(stock_code, field_list)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_more_info(stock_code, field_list))
+    return {"data": data}
 
 
 @router.get("/relation")
@@ -94,8 +85,5 @@ async def get_relation(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.get_relation(stock_code)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_relation(stock_code))
+    return {"data": data}

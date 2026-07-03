@@ -107,6 +107,23 @@ def test_tdx_routes_do_not_import_tdx_main_for_runtime_singletons() -> None:
     assert offenders == []
 
 
+def test_qmt_routes_do_not_import_qmt_main_for_runtime_singletons() -> None:
+    route_files = sorted((PROJECT_ROOT / "qmt" / "routes").rglob("*.py"))
+
+    offenders: list[str] = []
+    for route_file in route_files:
+        if route_file.name == "__init__.py":
+            continue
+        tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import) and any(alias.name == "qmt.main" for alias in node.names):
+                offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
+            if isinstance(node, ast.ImportFrom) and node.module == "qmt.main":
+                offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
+
+    assert offenders == []
+
+
 def test_tdx_routes_document_app_state_dependency_model() -> None:
     docs = (PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
@@ -126,6 +143,58 @@ def test_routes_share_adapter_dependency_helpers() -> None:
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef) and node.name == "_get_adapter":
                     offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
+
+    assert offenders == []
+
+
+def test_rest_routes_use_shared_adapter_error_wrappers() -> None:
+    route_roots = (
+        PROJECT_ROOT / "tdx" / "routes" / "legacy",
+        PROJECT_ROOT / "qmt" / "routes",
+    )
+    offenders: list[str] = []
+
+    for route_root in route_roots:
+        for route_file in sorted(route_root.rglob("*.py")):
+            if route_file.name in {"dependencies.py", "__init__.py", "ws.py"}:
+                continue
+            tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ExceptHandler):
+                    continue
+                if isinstance(node.type, ast.Name) and node.type.id == "Exception":
+                    offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
+
+    assert offenders == []
+
+
+def test_adapter_sdk_error_wrapping_is_centralized() -> None:
+    allowed_handlers = {
+        ("src/adapter/tdx/client.py", "_heartbeat_loop"),
+        ("src/adapter/tdx/client.py", "initialize"),
+        ("src/adapter/tdx/client.py", "_call_tq"),
+        ("src/adapter/qmt/client.py", "initialize"),
+        ("src/adapter/qmt/client.py", "_call_xtdata"),
+    }
+    adapter_files = (
+        PROJECT_ROOT / "src" / "adapter" / "tdx" / "client.py",
+        PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py",
+    )
+    offenders: list[tuple[str, str]] = []
+
+    for adapter_file in adapter_files:
+        relative_path = str(adapter_file.relative_to(PROJECT_ROOT))
+        tree = ast.parse(adapter_file.read_text(encoding="utf-8"), filename=str(adapter_file))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            for child in ast.walk(node):
+                if not isinstance(child, ast.ExceptHandler):
+                    continue
+                if isinstance(child.type, ast.Name) and child.type.id == "Exception":
+                    handler = (relative_path, node.name)
+                    if handler not in allowed_handlers:
+                        offenders.append(handler)
 
     assert offenders == []
 

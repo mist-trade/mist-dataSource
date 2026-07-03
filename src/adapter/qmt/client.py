@@ -89,9 +89,8 @@ class QMTAdapter(MarketDataAdapter):
         try:
             return await asyncio.to_thread(method, *args, **kwargs)
         except Exception as e:
-            if error_message is None:
-                raise
-            raise AdapterError(f"{error_message}: {e}") from e
+            message = error_message or f"QMT SDK call {method_name} failed"
+            raise AdapterError(f"{message}: {e}") from e
 
     # ---- 行情接口 (xtdata) ----
 
@@ -114,7 +113,7 @@ class QMTAdapter(MarketDataAdapter):
             else:
                 # QMT doesn't support list_type=1 natively, return codes only
                 return await self._call_xtdata("get_stock_list_in_sector", block_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get stock list in sector: {e}") from e
 
     async def get_market_data(
@@ -153,10 +152,8 @@ class QMTAdapter(MarketDataAdapter):
                 fill_data=fill_data,
                 error_message="Failed to get market data",
             )
-        except Exception as e:
-            if isinstance(e, AdapterError):
-                raise
-            raise AdapterError(f"Failed to get market data: {e}") from e
+        except AdapterError:
+            raise
 
     async def subscribe_quote(self, stock_list: list[str]) -> AsyncIterator[dict[str, Any]]:
         """订阅单股实时行情.
@@ -218,13 +215,13 @@ class QMTAdapter(MarketDataAdapter):
                 start_time=start_time, end_time=end_time, count=count,
                 dividend_type=dividend_type, fill_data=fill_data,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get local data: {e}") from e
 
     async def get_full_tick(self, code_list: list[str]) -> dict[str, Any]:
         try:
             return await self._call_xtdata("get_full_tick", code_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get full tick: {e}") from e
 
     async def get_full_kline(
@@ -244,7 +241,7 @@ class QMTAdapter(MarketDataAdapter):
                 start_time=start_time, end_time=end_time, count=count,
                 dividend_type=dividend_type,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get full kline: {e}") from e
 
     async def get_divid_factors(
@@ -255,7 +252,7 @@ class QMTAdapter(MarketDataAdapter):
     ) -> dict[str, Any]:
         try:
             return await self._call_xtdata("get_divid_factors", stock_code, start_time, end_time)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get divid factors: {e}") from e
 
     async def download_history_data(
@@ -275,7 +272,7 @@ class QMTAdapter(MarketDataAdapter):
                 end_time,
                 incrementally,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download history data: {e}") from e
 
     async def download_history_data2(
@@ -287,7 +284,7 @@ class QMTAdapter(MarketDataAdapter):
     ) -> None:
         try:
             await self._call_xtdata("download_history_data2", stock_list, period, start_time, end_time)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to batch download history data: {e}") from e
 
     async def get_trading_dates(
@@ -299,7 +296,7 @@ class QMTAdapter(MarketDataAdapter):
     ) -> list[str]:
         try:
             return await self._call_xtdata("get_trading_dates", market, start_time, end_time, count)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get trading dates: {e}") from e
 
     async def get_trading_calendar(
@@ -310,25 +307,25 @@ class QMTAdapter(MarketDataAdapter):
     ) -> list[str]:
         try:
             return await self._call_xtdata("get_trading_calendar", market, start_time, end_time)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get trading calendar: {e}") from e
 
     async def get_holidays(self) -> list[str]:
         try:
             return await self._call_xtdata("get_holidays")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get holidays: {e}") from e
 
     async def download_holiday_data(self) -> None:
         try:
             await self._call_xtdata("download_holiday_data")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download holiday data: {e}") from e
 
     async def get_period_list(self) -> list[str]:
         try:
             return await self._call_xtdata("get_period_list")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get period list: {e}") from e
 
     # ---- 合约信息接口 (xtdata) ----
@@ -340,13 +337,13 @@ class QMTAdapter(MarketDataAdapter):
     ) -> dict[str, Any] | None:
         try:
             return await self._call_xtdata("get_instrument_detail", stock_code, iscomplete)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get instrument detail: {e}") from e
 
     async def get_instrument_type(self, stock_code: str) -> dict[str, Any] | None:
         try:
             return await self._call_xtdata("get_instrument_type", stock_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get instrument type: {e}") from e
 
     # ---- 财务数据接口 (xtdata) ----
@@ -368,7 +365,7 @@ class QMTAdapter(MarketDataAdapter):
                 end_time,
                 report_type,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get financial data: {e}") from e
 
     async def download_financial_data(
@@ -378,7 +375,7 @@ class QMTAdapter(MarketDataAdapter):
     ) -> None:
         try:
             await self._call_xtdata("download_financial_data", stock_list, table_list or [])
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download financial data: {e}") from e
 
     async def download_financial_data2(
@@ -396,7 +393,7 @@ class QMTAdapter(MarketDataAdapter):
                 start_time,
                 end_time,
             )
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to batch download financial data: {e}") from e
 
     # ---- 板块管理接口 (xtdata) ----
@@ -404,25 +401,25 @@ class QMTAdapter(MarketDataAdapter):
     async def get_sector_list(self) -> list[str]:
         try:
             return await self._call_xtdata("get_sector_list")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get sector list: {e}") from e
 
     async def download_sector_data(self) -> None:
         try:
             await self._call_xtdata("download_sector_data")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download sector data: {e}") from e
 
     async def get_index_weight(self, index_code: str) -> dict[str, Any]:
         try:
             return await self._call_xtdata("get_index_weight", index_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get index weight: {e}") from e
 
     async def download_index_weight(self) -> None:
         try:
             await self._call_xtdata("download_index_weight")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download index weight: {e}") from e
 
     async def create_sector_folder(
@@ -433,7 +430,7 @@ class QMTAdapter(MarketDataAdapter):
     ) -> str:
         try:
             return await self._call_xtdata("create_sector_folder", parent_node, folder_name, overwrite)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to create sector folder: {e}") from e
 
     async def create_sector(
@@ -444,31 +441,31 @@ class QMTAdapter(MarketDataAdapter):
     ) -> str:
         try:
             return await self._call_xtdata("create_sector", parent_node, sector_name, overwrite)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to create sector: {e}") from e
 
     async def add_sector(self, sector_name: str, stock_list: list[str]) -> None:
         try:
             await self._call_xtdata("add_sector", sector_name, stock_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to add sector: {e}") from e
 
     async def remove_stock_from_sector(self, sector_name: str, stock_list: list[str]) -> bool:
         try:
             return await self._call_xtdata("remove_stock_from_sector", sector_name, stock_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to remove stock from sector: {e}") from e
 
     async def remove_sector(self, sector_name: str) -> None:
         try:
             await self._call_xtdata("remove_sector", sector_name)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to remove sector: {e}") from e
 
     async def reset_sector(self, sector_name: str, stock_list: list[str]) -> bool:
         try:
             return await self._call_xtdata("reset_sector", sector_name, stock_list)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to reset sector: {e}") from e
 
     # ---- ETF/可转债接口 (xtdata) ----
@@ -476,13 +473,13 @@ class QMTAdapter(MarketDataAdapter):
     async def get_cb_info(self, stock_code: str) -> dict[str, Any]:
         try:
             return await self._call_xtdata("get_cb_info", stock_code)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get cb info: {e}") from e
 
     async def download_cb_data(self) -> None:
         try:
             await self._call_xtdata("download_cb_data")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download cb data: {e}") from e
 
     async def get_ipo_info(
@@ -492,19 +489,19 @@ class QMTAdapter(MarketDataAdapter):
     ) -> list[dict[str, Any]]:
         try:
             return await self._call_xtdata("get_ipo_info", start_time, end_time)
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get ipo info: {e}") from e
 
     async def get_etf_info(self) -> list[dict[str, Any]]:
         try:
             return await self._call_xtdata("get_etf_info")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to get etf info: {e}") from e
 
     async def download_etf_info(self) -> None:
         try:
             await self._call_xtdata("download_etf_info")
-        except Exception as e:
+        except AdapterError as e:
             raise AdapterError(f"Failed to download etf info: {e}") from e
 
     # ---- 交易存根 (XtTrader，待后续实现) ----

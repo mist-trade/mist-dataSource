@@ -4,10 +4,10 @@
 对应 TDX SDK: tqcenter.tq (exec_to_tdx)
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from tdx.routes.dependencies import require_tdx_adapter
+from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
 
 router = APIRouter()
 
@@ -35,8 +35,5 @@ async def exec_to_tdx(payload: ExecRequest, request: Request):
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.exec_to_tdx(payload.cmd, payload.param)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.exec_to_tdx(payload.cmd, payload.param))
+    return {"data": data}

@@ -4,9 +4,9 @@
 对应 TDX SDK: tqcenter.tq (get_financial_data, get_financial_data_by_date, get_gp_one_data)
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import require_tdx_adapter
+from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
 
 router = APIRouter()
 
@@ -34,13 +34,10 @@ async def get_financial_data(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_financial_data(
-            stock_list, field_list, start_time, end_time, report_type
-        )
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(
+        adapter.get_financial_data(stock_list, field_list, start_time, end_time, report_type)
+    )
+    return {"data": data}
 
 
 @router.get("/financial-data-by-date")
@@ -63,11 +60,10 @@ async def get_financial_data_by_date(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_financial_data_by_date(stock_list, field_list, year, mmdd)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(
+        adapter.get_financial_data_by_date(stock_list, field_list, year, mmdd)
+    )
+    return {"data": data}
 
 
 @router.get("/gp-one-data")
@@ -88,8 +84,5 @@ async def get_gp_one_data(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_gp_one_data(stock_list, field_list)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_gp_one_data(stock_list, field_list))
+    return {"data": data}

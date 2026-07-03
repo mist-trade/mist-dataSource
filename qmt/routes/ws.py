@@ -19,7 +19,7 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-import qmt.main
+from qmt.routes.dependencies import get_qmt_adapter, get_ws_manager
 from src.ws.protocol import WSMessage, ws_error, ws_pong, ws_subscription_ack
 
 router = APIRouter()
@@ -45,7 +45,8 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
         心跳: {"type": "ping"}
         订阅: {"type": "subscribe", "stocks": ["000001.SZ", "600000.SH"]}
     """
-    await qmt.main.ws_manager.connect(websocket, client_id)
+    ws_manager = get_ws_manager(websocket)
+    await ws_manager.connect(websocket, client_id)
 
     try:
         while True:
@@ -56,7 +57,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
                 await websocket.send_text(ws_pong(provider="qmt").to_json())
             elif message.get("type") == "subscribe":
                 stocks = message.get("stocks", [])
-                adapter = qmt.main.qmt_adapter
+                adapter = get_qmt_adapter(websocket)
                 if not adapter:
                     await websocket.send_text(
                         ws_error(
@@ -81,12 +82,12 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
 
                 async for quote_data in adapter.subscribe_quote(stocks):
                     msg = WSMessage(type="quote", data=quote_data)
-                    await qmt.main.ws_manager.broadcast(msg)
+                    await ws_manager.broadcast(msg)
 
     except WebSocketDisconnect:
-        await qmt.main.ws_manager.disconnect(client_id)
+        await ws_manager.disconnect(client_id)
     except Exception as e:
-        await qmt.main.ws_manager.disconnect(client_id)
+        await ws_manager.disconnect(client_id)
         try:
             error_msg = ws_error(
                 provider="qmt",

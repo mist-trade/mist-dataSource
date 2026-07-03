@@ -5,9 +5,9 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
-from qmt.routes.dependencies import require_qmt_adapter
+from qmt.routes.dependencies import call_qmt_adapter, require_qmt_adapter
 
 router = APIRouter()
 
@@ -18,11 +18,8 @@ async def get_instrument_detail(
     iscomplete: bool = Query(False, description="是否返回完整字段"),
     adapter: Any = Depends(require_qmt_adapter),
 ):
-    try:
-        data = await adapter.get_instrument_detail(stock_code, iscomplete)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_qmt_adapter(adapter.get_instrument_detail(stock_code, iscomplete))
+    return {"data": data}
 
 
 @router.get("/instrument-type")
@@ -30,8 +27,5 @@ async def get_instrument_type(
     stock_code: str = Query(..., description="合约代码，如 600000.SH"),
     adapter: Any = Depends(require_qmt_adapter),
 ):
-    try:
-        data = await adapter.get_instrument_type(stock_code)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_qmt_adapter(adapter.get_instrument_type(stock_code))
+    return {"data": data}

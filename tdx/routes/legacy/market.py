@@ -4,9 +4,9 @@
 对应 TDX SDK: tqcenter.tq (get_stock_list_in_sector, get_market_data)
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import require_tdx_adapter
+from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
 
 router = APIRouter()
 
@@ -61,8 +61,8 @@ async def get_market_data(
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    try:
-        data = await adapter.get_market_data(
+    data = await call_tdx_adapter(
+        adapter.get_market_data(
             stock_list=stock_list,
             fields=field_list,
             period=period,
@@ -70,9 +70,8 @@ async def get_market_data(
             end_time=end_time,
             dividend_type=dividend_type,
         )
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    )
+    return {"data": data}
 
 
 @router.get("/market-snapshot")
@@ -92,11 +91,8 @@ async def get_market_snapshot(
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
-    try:
-        data = await adapter.get_market_snapshot(stock_code, field_list)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_market_snapshot(stock_code, field_list))
+    return {"data": data}
 
 
 @router.get("/trading-dates")
@@ -116,11 +112,8 @@ async def get_trading_dates(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.get_trading_dates(market, start_time, end_time, count)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_trading_dates(market, start_time, end_time, count))
+    return {"data": data}
 
 
 @router.get("/divid-factors")
@@ -139,11 +132,8 @@ async def get_divid_factors(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.get_divid_factors(stock_code, start_time, end_time)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_divid_factors(stock_code, start_time, end_time))
+    return {"data": data}
 
 
 @router.get("/gb-info")
@@ -164,11 +154,8 @@ async def get_gb_info(
 
     dates = [d.strip() for d in date_list.split(",")] if date_list else []
 
-    try:
-        data = await adapter.get_gb_info(stock_code, dates, count)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.get_gb_info(stock_code, dates, count))
+    return {"data": data}
 
 
 @router.post("/refresh-cache")
@@ -186,11 +173,8 @@ async def refresh_cache(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.refresh_cache(market, force)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.refresh_cache(market, force))
+    return {"data": data}
 
 
 @router.post("/refresh-kline")
@@ -210,11 +194,8 @@ async def refresh_kline(
 
     stocks = [s.strip() for s in stock_list.split(",")] if stock_list else []
 
-    try:
-        data = await adapter.refresh_kline(stocks, period)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.refresh_kline(stocks, period))
+    return {"data": data}
 
 
 @router.post("/download-file")
@@ -233,8 +214,5 @@ async def download_file(
     """
     adapter = require_tdx_adapter(request)
 
-    try:
-        data = await adapter.download_file(stock_code, down_time, down_type)
-        return {"data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    data = await call_tdx_adapter(adapter.download_file(stock_code, down_time, down_type))
+    return {"data": data}
