@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any, cast
 
@@ -14,6 +14,20 @@ def normalize_symbol(code: str) -> str:
         stock_code, market = value.split(".", 1)
         return f"{stock_code}.{market}"
     return value
+
+
+def dedupe_stable(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def dedupe_normalized_symbols(symbols: Iterable[str]) -> list[str]:
+    return dedupe_stable(normalize_symbol(symbol) for symbol in symbols)
 
 
 def to_tdx_code(symbol: str) -> str:
@@ -176,7 +190,9 @@ def _dataframe_row_for_symbol(field_value: Any, candidate_keys: tuple[str, ...])
     return {}
 
 
-def _symbol_values_from_symbol_wrapper(native: dict[str, Any], candidate_keys: tuple[str, ...]) -> dict[str, Any] | None:
+def _symbol_values_from_symbol_wrapper(
+    native: dict[str, Any], candidate_keys: tuple[str, ...]
+) -> dict[str, Any] | None:
     for key in candidate_keys:
         values = native.get(key)
         if isinstance(values, dict):
@@ -190,7 +206,9 @@ def _symbol_values_from_symbol_wrapper(native: dict[str, Any], candidate_keys: t
     return None
 
 
-def _symbol_values_from_value_wrapper(native: dict[str, Any], candidate_keys: tuple[str, ...]) -> dict[str, Any] | None:
+def _symbol_values_from_value_wrapper(
+    native: dict[str, Any], candidate_keys: tuple[str, ...]
+) -> dict[str, Any] | None:
     value_wrapper = _get_native_value(native, "value")
     if not isinstance(value_wrapper, dict):
         return None

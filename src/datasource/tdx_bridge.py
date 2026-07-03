@@ -8,6 +8,7 @@ from typing import Any
 
 from src.datasource.contracts import BEIJING_TZ
 from src.datasource.tdx_models import TdxBar
+from src.datasource.tdx_normalization import dedupe_stable
 from src.ws.protocol import ws_error, ws_ready
 
 
@@ -72,7 +73,7 @@ class TdxBridge:
             self.active_subscriptions = []
 
     def plan_sync(self, symbols: Iterable[str]) -> SubscriptionPlan:
-        desired = _dedupe_stable(symbols)
+        desired = dedupe_stable(symbols)
         if len(desired) > self._max_subscriptions:
             self.last_error_code = "TDX_SUBSCRIBE_LIMIT_EXCEEDED"
             return SubscriptionPlan(
@@ -94,7 +95,7 @@ class TdxBridge:
         )
 
     def mark_active(self, symbols: Iterable[str]) -> None:
-        self.active_subscriptions = _dedupe_stable(symbols)
+        self.active_subscriptions = dedupe_stable(symbols)
         self.subscription_state_known = True
         self.last_error_code = None
 
@@ -186,16 +187,6 @@ class TdxBridge:
             retryable=retryable,
             details=details,
         ).model_dump(exclude_none=True)
-
-
-def _dedupe_stable(symbols: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for symbol in symbols:
-        if symbol not in seen:
-            seen.add(symbol)
-            result.append(symbol)
-    return result
 
 
 def _now_beijing() -> str:

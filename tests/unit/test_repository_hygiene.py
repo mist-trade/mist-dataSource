@@ -7,6 +7,7 @@ import inspect
 import os
 import stat
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,49 @@ def test_ci_and_precommit_run_pyright() -> None:
     assert "uv run pyright" in workflow
     assert "id: pyright" in precommit
     assert "uv run pyright" in precommit
+
+
+def test_precommit_ruff_version_matches_lockfile() -> None:
+    lock = tomllib.loads((PROJECT_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    ruff_version = next(
+        package["version"] for package in lock["package"] if package["name"] == "ruff"
+    )
+    precommit = (PROJECT_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+    assert f"rev: v{ruff_version}" in precommit
+
+
+def test_p3_datasource_shape_cleanup_contracts() -> None:
+    exceptions_source = (PROJECT_ROOT / "src" / "core" / "exceptions.py").read_text(
+        encoding="utf-8"
+    )
+    core_init_source = (PROJECT_ROOT / "src" / "core" / "__init__.py").read_text(encoding="utf-8")
+    tdx_client_source = (PROJECT_ROOT / "src" / "adapter" / "tdx" / "client.py").read_text(
+        encoding="utf-8"
+    )
+    qmt_client_source = (PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py").read_text(
+        encoding="utf-8"
+    )
+    tdx_service_source = (PROJECT_ROOT / "tdx" / "services" / "tdx_service.py").read_text(
+        encoding="utf-8"
+    )
+    tdx_bridge_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_bridge.py").read_text(
+        encoding="utf-8"
+    )
+    tdx_subscription_source = (
+        PROJECT_ROOT / "src" / "datasource" / "tdx_subscription.py"
+    ).read_text(encoding="utf-8")
+
+    assert "class ConnectionError" not in exceptions_source
+    assert "class ConfigurationError" not in exceptions_source
+    assert "ConnectionError" not in core_init_source
+    assert "ConfigurationError" not in core_init_source
+    assert "print(" not in tdx_client_source
+    assert "get_logger" in tdx_client_source
+    assert "_serialize_result" not in tdx_service_source
+    assert "if list_type == 0" not in qmt_client_source
+    assert "def _dedupe_stable" not in tdx_bridge_source
+    assert "def _dedupe_normalized" not in tdx_subscription_source
 
 
 def test_ci_reports_live_test_collection_without_running_live_sdk() -> None:
@@ -116,7 +160,9 @@ def test_qmt_routes_do_not_import_qmt_main_for_runtime_singletons() -> None:
             continue
         tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import) and any(alias.name == "qmt.main" for alias in node.names):
+            if isinstance(node, ast.Import) and any(
+                alias.name == "qmt.main" for alias in node.names
+            ):
                 offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
             if isinstance(node, ast.ImportFrom) and node.module == "qmt.main":
                 offenders.append(str(route_file.relative_to(PROJECT_ROOT)))

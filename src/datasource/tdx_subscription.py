@@ -9,7 +9,7 @@ from typing import Any, cast
 from src.core.config import settings
 from src.core.logging import get_logger
 from src.datasource.tdx_bridge import TdxBridge
-from src.datasource.tdx_normalization import normalize_symbol
+from src.datasource.tdx_normalization import dedupe_normalized_symbols, normalize_symbol
 
 TDX_SUBSCRIBE_LIMIT_EXCEEDED = "TDX_SUBSCRIBE_LIMIT_EXCEEDED"
 logger = get_logger(__name__)
@@ -35,9 +35,9 @@ class TdxSubscriptionClient:
         self._lock = asyncio.Lock()
 
     async def subscribe(self, symbols: Iterable[str]) -> dict[str, Any]:
-        requested = _dedupe_normalized(symbols)
+        requested = dedupe_normalized_symbols(symbols)
         async with self._lock:
-            desired = _dedupe_normalized([*self.bridge.active_subscriptions, *requested])
+            desired = dedupe_normalized_symbols([*self.bridge.active_subscriptions, *requested])
             if len(desired) > self.max_subscriptions:
                 self.bridge.last_error_code = TDX_SUBSCRIBE_LIMIT_EXCEEDED
                 return {
@@ -75,7 +75,7 @@ class TdxSubscriptionClient:
             }
 
     async def sync(self, symbols: Iterable[str]) -> dict[str, Any]:
-        desired = _dedupe_normalized(symbols)
+        desired = dedupe_normalized_symbols(symbols)
         async with self._lock:
             if len(desired) > self.max_subscriptions:
                 self.bridge.last_error_code = TDX_SUBSCRIBE_LIMIT_EXCEEDED
@@ -125,7 +125,7 @@ class TdxSubscriptionClient:
                 to_unsubscribe = list(self.bridge.active_subscriptions)
                 desired: list[str] = []
             else:
-                requested = set(_dedupe_normalized(symbols))
+                requested = set(dedupe_normalized_symbols(symbols))
                 to_unsubscribe = [
                     symbol for symbol in self.bridge.active_subscriptions if symbol in requested
                 ]
@@ -228,17 +228,6 @@ class TdxSubscriptionClient:
             payload.get("ErrorId"),
         )
         self.collector.mark_dirty_from_callback(payload)
-
-
-def _dedupe_normalized(symbols: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for symbol in symbols:
-        normalized = normalize_symbol(symbol)
-        if normalized not in seen:
-            seen.add(normalized)
-            result.append(normalized)
-    return result
 
 
 def _parse_quote_payload(payload: Any) -> dict[str, Any] | None:

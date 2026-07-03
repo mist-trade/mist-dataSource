@@ -8,31 +8,10 @@
 2. 组合多个 adapter 调用的复合业务逻辑
 """
 
-from typing import Any, cast
+from typing import Any
 
 import tdx.main
 from src.core.exceptions import AdapterError
-
-
-def _serialize_result(result: Any) -> Any:
-    """递归序列化结果中的 DataFrames.
-
-    Args:
-        result: adapter 返回的结果，可能是 dict, list, 或 DataFrame
-
-    Returns:
-        JSON-serializable 的数据结构
-    """
-    if isinstance(result, dict):
-        return {
-            str(key): _serialize_result(value)
-            for key, value in cast(dict[Any, Any], result).items()
-        }
-    if isinstance(result, list):
-        return [_serialize_result(item) for item in cast(list[Any], result)]
-    if hasattr(result, "to_dict"):
-        return result.to_dict(orient="records")
-    return result
 
 
 class TDXService:

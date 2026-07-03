@@ -101,18 +101,18 @@ class QMTAdapter(MarketDataAdapter):
         """
         raise NotImplementedError("get_stock_list not implemented for QMT")
 
-    async def get_stock_list_in_sector(self, block_code: str = "沪深300", block_type: int = 0, list_type: int = 0) -> list[str]:
+    async def get_stock_list_in_sector(
+        self, block_code: str = "沪深300", block_type: int = 0, list_type: int = 0
+    ) -> list[str]:
         """获取板块股票列表.
 
         对应 QMT SDK: xtdata.get_stock_list_in_sector(sector_name)
         """
         _ = block_type
         try:
-            if list_type == 0:
-                return await self._call_xtdata("get_stock_list_in_sector", block_code)
-            else:
-                # QMT doesn't support list_type=1 natively, return codes only
-                return await self._call_xtdata("get_stock_list_in_sector", block_code)
+            # QMT doesn't support list_type variants natively; return codes only.
+            _ = list_type
+            return await self._call_xtdata("get_stock_list_in_sector", block_code)
         except AdapterError as e:
             raise AdapterError(f"Failed to get stock list in sector: {e}") from e
 
@@ -211,9 +211,14 @@ class QMTAdapter(MarketDataAdapter):
             fill_data = kwargs.get("fill_data", True)
             return await self._call_xtdata(
                 "get_local_data",
-                field_list=fields, stock_list=stock_list, period=period,
-                start_time=start_time, end_time=end_time, count=count,
-                dividend_type=dividend_type, fill_data=fill_data,
+                field_list=fields,
+                stock_list=stock_list,
+                period=period,
+                start_time=start_time,
+                end_time=end_time,
+                count=count,
+                dividend_type=dividend_type,
+                fill_data=fill_data,
             )
         except AdapterError as e:
             raise AdapterError(f"Failed to get local data: {e}") from e
@@ -237,8 +242,12 @@ class QMTAdapter(MarketDataAdapter):
         try:
             return await self._call_xtdata(
                 "get_full_kline",
-                field_list=fields or [], stock_list=stock_list, period=period,
-                start_time=start_time, end_time=end_time, count=count,
+                field_list=fields or [],
+                stock_list=stock_list,
+                period=period,
+                start_time=start_time,
+                end_time=end_time,
+                count=count,
                 dividend_type=dividend_type,
             )
         except AdapterError as e:
@@ -283,7 +292,9 @@ class QMTAdapter(MarketDataAdapter):
         end_time: str = "",
     ) -> None:
         try:
-            await self._call_xtdata("download_history_data2", stock_list, period, start_time, end_time)
+            await self._call_xtdata(
+                "download_history_data2", stock_list, period, start_time, end_time
+            )
         except AdapterError as e:
             raise AdapterError(f"Failed to batch download history data: {e}") from e
 
@@ -429,7 +440,9 @@ class QMTAdapter(MarketDataAdapter):
         overwrite: bool = True,
     ) -> str:
         try:
-            return await self._call_xtdata("create_sector_folder", parent_node, folder_name, overwrite)
+            return await self._call_xtdata(
+                "create_sector_folder", parent_node, folder_name, overwrite
+            )
         except AdapterError as e:
             raise AdapterError(f"Failed to create sector folder: {e}") from e
 
