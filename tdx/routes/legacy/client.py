@@ -14,6 +14,7 @@ router = APIRouter()
 
 class ExecRequest(BaseModel):
     """执行命令请求模型."""
+
     cmd: str = ""
     param: str = ""
 

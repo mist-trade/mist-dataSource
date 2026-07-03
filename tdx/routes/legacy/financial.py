@@ -18,7 +18,9 @@ async def get_financial_data(
     fields: str = Query(..., description="逗号分隔的字段名，如 FN193,FN194"),
     start_time: str = Query("", description="起始时间，格式 YYYYMMDD"),
     end_time: str = Query("", description="结束时间，格式 YYYYMMDD"),
-    report_type: str = Query("announce_time", description="报表筛选方式: announce_time/report_time"),
+    report_type: str = Query(
+        "announce_time", description="报表筛选方式: announce_time/report_time"
+    ),
 ):
     """获取专业财务数据.
 
@@ -33,7 +35,9 @@ async def get_financial_data(
     field_list = [f.strip() for f in fields.split(",")]
 
     try:
-        data = await adapter.get_financial_data(stock_list, field_list, start_time, end_time, report_type)
+        data = await adapter.get_financial_data(
+            stock_list, field_list, start_time, end_time, report_type
+        )
         return {"data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

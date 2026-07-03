@@ -41,9 +41,7 @@ def test_conftest_does_not_define_custom_event_loop_fixture() -> None:
 
 
 def test_ci_and_precommit_run_pyright() -> None:
-    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     precommit = (PROJECT_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
     assert "uv run pyright" in workflow
@@ -52,9 +50,7 @@ def test_ci_and_precommit_run_pyright() -> None:
 
 
 def test_ci_reports_live_test_collection_without_running_live_sdk() -> None:
-    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert "-m live" in workflow
     assert "--collect-only" in workflow
@@ -93,23 +89,12 @@ def test_health_check_exits_nonzero_when_any_instance_is_unhealthy(tmp_path: Pat
 
 
 def test_tdx_routes_do_not_import_tdx_main_for_runtime_singletons() -> None:
-    route_files = [
-        PROJECT_ROOT / "tdx" / "routes" / filename
-        for filename in (
-            "client.py",
-            "etf.py",
-            "financial.py",
-            "market.py",
-            "sector.py",
-            "stock.py",
-            "v1.py",
-            "value.py",
-            "ws.py",
-        )
-    ]
+    route_files = sorted((PROJECT_ROOT / "tdx" / "routes").rglob("*.py"))
 
     offenders: list[str] = []
     for route_file in route_files:
+        if route_file.name == "__init__.py":
+            continue
         tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import) and any(
@@ -134,7 +119,7 @@ def test_routes_share_adapter_dependency_helpers() -> None:
     offenders: list[str] = []
 
     for route_root in route_roots:
-        for route_file in sorted(route_root.glob("*.py")):
+        for route_file in sorted(route_root.rglob("*.py")):
             if route_file.name in {"dependencies.py", "__init__.py"}:
                 continue
             tree = ast.parse(route_file.read_text(encoding="utf-8"), filename=str(route_file))
@@ -149,14 +134,19 @@ def test_tdx_provider_uses_shared_native_key_normalization_and_configured_timeou
     provider_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_provider.py").read_text(
         encoding="utf-8"
     )
+    formula_normalizer_source = (
+        PROJECT_ROOT / "src" / "datasource" / "tdx" / "normalizers" / "formula.py"
+    ).read_text(encoding="utf-8")
 
     assert '.replace("_", "").replace(" ", "").lower()' not in provider_source
     assert "timeout_ms: int = 10000" not in provider_source
-    assert 'payload.get("timeoutMs", 10000)' not in provider_source
-    assert "settings.tdx.formula_timeout_ms" in provider_source
+    assert 'payload.get("timeoutMs", 10000)' not in formula_normalizer_source
+    assert "settings.tdx.formula_timeout_ms" in formula_normalizer_source
 
 
-def _assert_selected_adapter_methods_are_typed(adapter_cls: type, required_methods: tuple[str, ...]) -> None:
+def _assert_selected_adapter_methods_are_typed(
+    adapter_cls: type, required_methods: tuple[str, ...]
+) -> None:
     for method_name in required_methods:
         signature = inspect.signature(getattr(adapter_cls, method_name))
         assert signature.return_annotation is not inspect.Signature.empty, method_name
@@ -196,8 +186,8 @@ def test_qmt_adapter_selected_provider_methods_are_typed() -> None:
             "get_full_kline",
             "get_divid_factors",
             "get_trading_dates",
-        "get_financial_data",
-        "get_sector_list",
+            "get_financial_data",
+            "get_sector_list",
             "get_cb_info",
             "get_ipo_info",
             "get_etf_info",

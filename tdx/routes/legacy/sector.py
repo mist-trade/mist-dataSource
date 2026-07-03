@@ -14,6 +14,7 @@ router = APIRouter()
 
 class SectorRequest(BaseModel):
     """板块请求模型."""
+
     block_code: str = ""
     block_name: str = ""
 

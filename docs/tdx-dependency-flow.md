@@ -24,8 +24,8 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 | 调用链 | 涉及路由 | 路径 | 底层依赖 |
 |--------|---------|------|---------|
-| **① 旧式 REST** | `/api/tdx/*`（33 个端点） | `route → adapter` | `tqcenter.tq`（进程内 SDK） |
-| **② 新式契约 REST** | `/v1/*` | `route → provider → http_client` | HTTP/JSON-RPC（httpx） |
+| **① 旧式 REST** | `/api/tdx/*`（33 个端点，`tdx/routes/legacy/*`） | `route → adapter` | `tqcenter.tq`（进程内 SDK） |
+| **② 新式契约 REST** | `/v1/*`（`tdx/routes/v1/*`） | `route → provider → http_client` | HTTP/JSON-RPC（httpx） |
 | **③ 实时 WebSocket** | `/ws/quote/{client_id}` | `route → subscription(+adapter) + bridge + collector` | 订阅走 tq SDK，快照拉取走 HTTP |
 
 **核心结论：**
@@ -43,6 +43,7 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 ### 不变的部分
 
 - **三条调用链的拓扑完全不变**：`/api/tdx/*` 仍走 adapter，`/v1/*` 仍走 provider→HTTP，`/ws/*` 仍走 subscription+adapter。
+- **旧/新 REST 文件边界已经分离**：旧式 adapter REST 位于 `tdx/routes/legacy/*`，normalized REST 位于 `tdx/routes/v1/*`，WebSocket 仍位于 `tdx/routes/ws.py`。
 - **`tdx_service` 仍是孤儿**：grep 全仓库确认零引用，未挂到 `app.state`（见 [第 11 节](#11-孤儿代码与遗留说明)）。
 - **WS 订阅链路三组件**（subscription / bridge / collector）协作关系不变。
 - **`main.py` lifespan 启动/关闭顺序、`app.state` 键集合**不变。
@@ -51,9 +52,9 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 | 变化 | 影响范围 | 性质 |
 |---|---|---|
-| **路由依赖注入重构** | `tdx/routes/*` 与 `qmt/routes/*` 全部路由 | 纯形式重构：`_get_adapter` + 内联 `if not adapter: 503` → `require_tdx_adapter`（集中抛 503）。**调用链不变** |
+| **路由依赖注入重构** | `tdx/routes/legacy/*`、`tdx/routes/v1/*` 与 `qmt/routes/*` 全部路由 | 纯形式重构：`_get_adapter` + 内联 `if not adapter: 503` → `require_tdx_adapter`（集中抛 503）。**调用链不变** |
 | **`tdx/routes/dependencies.py` 新增 `require_tdx_adapter`** | 依赖层 | 见 [第 4 节](#4-调用链对照表) |
-| **provider 大幅扩展（~30KB → 48KB / 1415 行）** | `src/datasource/tdx_provider.py` | 新增大量查询方法 + 完整公式系列（`format/set/get_formula_*`、`execute_formula[_batch]`、`get_formula_list/info`）。方法表见 [第 6.2 节](#62-provider-方法清单全部走-http不碰-adaptertq) |
+| **provider 拆分为 facade + operations/normalizers** | `src/datasource/tdx_provider.py`、`src/datasource/tdx/operations/*`、`src/datasource/tdx/normalizers/*` | `TdxDatasourceProvider` 保持外部 facade，HTTP/RPC 参数映射进入 operation 模块，native shape 归一化进入 normalizer 模块。方法表见 [第 6.2 节](#62-provider-方法清单全部走-http不碰-adaptertq) |
 | **新增 `capabilities.py`** | `src/datasource/capabilities.py` | provider 能力清单，供 `/providers` 端点用。详见 [第 7 节](#7-能力清单capabilitiespy) |
 
 ---
@@ -62,9 +63,13 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 | 层 | 文件 | 职责 | 是否依赖 tq SDK |
 |---|---|---|---|
-| **路由层** | `tdx/routes/*.py` | HTTP / WebSocket 端点 | 间接（①③）/ 不间接（②） |
+| **路由层** | `tdx/routes/legacy/*.py` | 旧式 HTTP 端点（`/api/tdx/*`） | 间接（①） |
+| | `tdx/routes/v1/*.py` | normalized HTTP 端点（`/v1/*` + `/providers`） | 不间接（②） |
+| | `tdx/routes/ws.py` | WebSocket 端点 | 间接（③） |
 | **服务层** | `tdx/services/tdx_service.py` | 复合业务（**孤儿，未接线**） | 依赖 adapter |
-| **datasource 层** | `src/datasource/tdx_provider.py` | HTTP 通道数据访问 | 否（走 httpx） |
+| **datasource 层** | `src/datasource/tdx_provider.py` | provider facade / public import boundary | 否（走 httpx） |
+| | `src/datasource/tdx/operations/*.py` | provider capability operation modules | 否（走 httpx） |
+| | `src/datasource/tdx/normalizers/*.py` | TDX native shape normalization | 否 |
 | | `src/datasource/tdx_http_client.py` | HTTP/JSON-RPC 客户端 | 否（走 httpx） |
 | | `src/datasource/tdx_subscription.py` | WS 订阅协调器 | 是（调 `adapter.subscribe_hq`） |
 | | `src/datasource/tdx_bridge.py` | 订阅内存状态容器 | 否（纯内存） |
@@ -82,14 +87,14 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 | 路由文件 | 前缀 | 调用链 | 依赖注入函数 |
 |---|---|---|---|
-| `market.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `stock.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `financial.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `value.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `sector.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `etf.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `client.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `v1.py` | `/`（路径含 `/v1/`） | `route → provider → http_client` | `get_tdx_provider` |
+| `legacy/market.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/stock.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/financial.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/value.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/sector.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/etf.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/client.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `v1/product.py` | `/`（路径含 `/v1/`） | `route → provider → http_client` | `get_tdx_provider` |
 | `ws.py` | `/ws` | `route → subscription_client(+adapter) + bridge + collector` | `get_ws_manager` / `get_tdx_bridge` / `get_tdx_subscription_client` |
 
 > `tdx/routes/dependencies.py` 提供 6 个 getter：
@@ -206,14 +211,14 @@ def create_tdx_adapter() -> TdxDataAdapter:
 
 ## 7. 能力清单（capabilities.py）
 
-`src/datasource/capabilities.py` 是这一轮**新增**的文件，定义 provider 自描述能力清单，供 `GET /providers` 端点（`v1.py`）返回。它**不参与数据调用**，纯元数据。
+`src/datasource/capabilities.py` 定义 provider 自描述能力清单，供 `GET /providers` 端点（`tdx/routes/v1/product.py`）返回。它**不参与数据调用**，纯元数据。
 
 ### 7.1 数据结构
 
 | 模型 | 用途 |
 |---|---|
-| `ProviderCapabilityUnsupported` | 异常：provider 不支持某能力时抛，被 `v1.py` 的 `_call_provider` 捕获转成错误信封 |
-| `ProviderCapability` | 单项能力：`family` / `status(supported\|planned\|unsupported)` / `stability` / `providerMethods` / `unsupportedReason` |
+| `ProviderCapabilityUnsupported` | 异常：provider 不支持某能力时抛，被 `tdx/routes/v1/product.py` 的 `_call_provider` 捕获转成错误信封 |
+| `ProviderCapability` | 单项能力：`family` / `status(supported\|planned\|unsupported)` / `stability` / `providerMethods` / `nativeMethods` / `unsupportedReason` |
 | `ProviderManifest` | 单个 provider 的清单：`id` / `name` / `status` / `capabilities[]` |
 
 ### 7.2 两个能力字典
@@ -223,17 +228,25 @@ def create_tdx_adapter() -> TdxDataAdapter:
 
 `build_provider_manifests(*, tdx_status)` 据此构造 TDX + QMT 两个 `ProviderManifest`。
 
-### 7.3 ⚠️ 易误读点：`providerMethods` 字段语义
+### 7.3 `providerMethods` 与 `nativeMethods` 字段语义
 
-`TDX_CAPABILITY_STATUSES` 里每个能力条目的 `providerMethods` 字段（第三元），列出的全是 **tq SDK 底层方法名**，例如：
+`ProviderCapability.providerMethods` 现在表示 normalized provider facade 上的可调用方法名，例如：
 
 ```python
-"bars":             (..., ["get_market_data"], ...),
-"snapshots":        (..., ["get_market_snapshot"], ...),
-"websocket-subscriptions": (..., ["subscribe_hq", "unsubscribe_hq", "get_subscribe_hq_stock_list"], ...),
+"bars":      providerMethods=["get_bars", "collect_recent_bars"]
+"snapshots": providerMethods=["get_snapshots"]
+"raw-diagnostics": providerMethods=["raw_call"]
 ```
 
-但 `/v1/*` 路由实际调的是 **provider 方法名**（`get_bars` / `get_snapshots` / `subscribe`），与清单字段**不对应**。这个清单描述的是"该能力族在底层由哪些 tq 原生方法支撑"，而非"provider 暴露哪些方法"。读这份清单时注意区分两层命名。
+`ProviderCapability.nativeMethods` 表示该能力背后的 TDX/QMT 原生方法名，例如：
+
+```python
+"bars":             nativeMethods=["get_market_data"]
+"snapshots":        nativeMethods=["get_market_snapshot"]
+"websocket-subscriptions": nativeMethods=["subscribe_hq", "unsubscribe_hq", "get_subscribe_hq_stock_list"]
+```
+
+`TDX_CAPABILITY_STATUSES` / `QMT_CAPABILITY_STATUSES` 的第三列仍记录 native backing methods；`TDX_PROVIDER_METHODS` / `QMT_PROVIDER_METHODS` 记录 facade/provider 方法名。读 `/providers` 响应时应按这两个字段区分产品方法与底层 provider 能力。
 
 ---
 

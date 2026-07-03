@@ -33,6 +33,7 @@ class ProviderCapability(DatasourceModel):
     status: CapabilityStatus
     stability: str
     provider_methods: list[str] = Field(default_factory=list, alias="providerMethods")
+    native_methods: list[str] = Field(default_factory=list, alias="nativeMethods")
     unsupported_reason: str | None = Field(default=None, alias="unsupportedReason")
 
 
@@ -159,6 +160,61 @@ TDX_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str |
     ),
 }
 
+TDX_PROVIDER_METHODS: dict[str, list[str]] = {
+    "bars": ["get_bars", "collect_recent_bars"],
+    "snapshots": ["get_snapshots"],
+    "price-volume": ["get_price_volume"],
+    "benchmarks": [],
+    "calendar": ["get_trading_dates"],
+    "securities": ["get_securities"],
+    "security-info": ["get_security_info"],
+    "security-search": [],
+    "security-relations": ["get_security_relations"],
+    "sector-list": ["get_sector_list"],
+    "sector-members": ["get_sector_members"],
+    "ipo-info": ["get_ipo_info"],
+    "share-capital": ["get_share_capital", "get_share_capital_by_date"],
+    "dividend-factors": ["get_dividend_factors"],
+    "convertible-bonds": ["get_convertible_bond_info"],
+    "etf-info": ["get_tracking_etfs"],
+    "reference-data": [],
+    "instrument-data": [],
+    "finance-report": [
+        "get_financial_data",
+        "get_financial_data_by_date",
+        "get_single_finance_values",
+        "get_stock_trade_aggregate",
+        "get_sector_trade_aggregate",
+        "get_market_trade_aggregate",
+    ],
+    "financial-data": ["get_financial_data", "get_financial_data_by_date"],
+    "single-finance-value": ["get_single_finance_values"],
+    "stock-trade-aggregate": [
+        "get_stock_trade_aggregate",
+        "get_stock_trade_aggregate_by_date",
+    ],
+    "sector-trade-aggregate": [
+        "get_sector_trade_aggregate",
+        "get_sector_trade_aggregate_by_date",
+    ],
+    "market-trade-aggregate": [
+        "get_market_trade_aggregate",
+        "get_market_trade_aggregate_by_date",
+    ],
+    "formulas": ["execute_formula", "execute_formula_batch", "call_formula"],
+    "formula-data": [
+        "format_formula_data",
+        "set_formula_data",
+        "set_formula_data_info",
+        "get_formula_data",
+    ],
+    "formula-metadata": ["get_formula_list", "get_formula_info"],
+    "formula-execution": ["execute_formula"],
+    "formula-batch-execution": ["execute_formula_batch"],
+    "raw-diagnostics": ["raw_call"],
+    "websocket-subscriptions": [],
+}
+
 QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str | None]] = {
     "bars": ("planned", "planned", ["get_market_data"], None),
     "snapshots": ("planned", "planned", ["get_full_tick"], None),
@@ -172,17 +228,42 @@ QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str |
         ["get_instrument_detail", "get_instrument_type"],
         None,
     ),
-    "security-search": ("unsupported", "planned", [], "QMT security search mapping is not verified"),
-    "security-relations": ("unsupported", "planned", [], "QMT security relation mapping is not verified"),
+    "security-search": (
+        "unsupported",
+        "planned",
+        [],
+        "QMT security search mapping is not verified",
+    ),
+    "security-relations": (
+        "unsupported",
+        "planned",
+        [],
+        "QMT security relation mapping is not verified",
+    ),
     "sector-list": ("planned", "planned", ["get_sector_list"], None),
     "sector-members": ("planned", "planned", ["get_stock_list_in_sector"], None),
     "ipo-info": ("unsupported", "planned", [], "QMT IPO mapping is not verified"),
     "share-capital": ("unsupported", "planned", [], "QMT share-capital mapping is not verified"),
-    "dividend-factors": ("unsupported", "planned", [], "QMT dividend-factor mapping is not verified"),
-    "convertible-bonds": ("unsupported", "planned", [], "QMT convertible-bond mapping is not verified"),
+    "dividend-factors": (
+        "unsupported",
+        "planned",
+        [],
+        "QMT dividend-factor mapping is not verified",
+    ),
+    "convertible-bonds": (
+        "unsupported",
+        "planned",
+        [],
+        "QMT convertible-bond mapping is not verified",
+    ),
     "etf-info": ("unsupported", "planned", [], "QMT ETF mapping is not verified"),
     "reference-data": ("unsupported", "planned", [], "QMT reference-data mapping is not verified"),
-    "instrument-data": ("unsupported", "planned", [], "QMT instrument-data mapping is not verified"),
+    "instrument-data": (
+        "unsupported",
+        "planned",
+        [],
+        "QMT instrument-data mapping is not verified",
+    ),
     "finance-report": ("unsupported", "planned", [], "QMT finance/report mapping is not verified"),
     "financial-data": ("unsupported", "planned", [], "QMT financial-data mapping is not verified"),
     "single-finance-value": (
@@ -238,6 +319,13 @@ QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str |
     ),
 }
 
+QMT_PROVIDER_METHODS: dict[str, list[str]] = {
+    family: methods
+    for family, methods in TDX_PROVIDER_METHODS.items()
+    if family != "raw-diagnostics"
+}
+QMT_PROVIDER_METHODS["raw-diagnostics"] = []
+
 
 def build_provider_manifests(*, tdx_status: str) -> list[ProviderManifest]:
     return [
@@ -245,32 +333,41 @@ def build_provider_manifests(*, tdx_status: str) -> list[ProviderManifest]:
             id="tdx",
             name="TDX",
             status=tdx_status,
-            capabilities=_capabilities_from_statuses(TDX_CAPABILITY_STATUSES),
+            capabilities=_capabilities_from_statuses(
+                TDX_CAPABILITY_STATUSES,
+                provider_methods_by_family=TDX_PROVIDER_METHODS,
+            ),
         ),
         ProviderManifest(
             id="qmt",
             name="QMT",
             status="disabled",
-            capabilities=_capabilities_from_statuses(QMT_CAPABILITY_STATUSES),
+            capabilities=_capabilities_from_statuses(
+                QMT_CAPABILITY_STATUSES,
+                provider_methods_by_family=QMT_PROVIDER_METHODS,
+            ),
         ),
     ]
 
 
 def _capabilities_from_statuses(
     statuses: dict[str, tuple[CapabilityStatus, str, list[str], str | None]],
+    *,
+    provider_methods_by_family: dict[str, list[str]],
 ) -> list[ProviderCapability]:
     return [
         ProviderCapability(
             family=family,
             status=status,
             stability=stability,
-            providerMethods=provider_methods,
+            providerMethods=provider_methods_by_family.get(family, []),
+            nativeMethods=native_methods,
             unsupportedReason=unsupported_reason,
         )
         for family, (
             status,
             stability,
-            provider_methods,
+            native_methods,
             unsupported_reason,
         ) in statuses.items()
     ]

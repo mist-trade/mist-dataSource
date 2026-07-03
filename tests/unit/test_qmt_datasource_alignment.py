@@ -29,15 +29,18 @@ def test_qmt_manifest_records_first_parity_target_set() -> None:
         if manifest.id == "qmt"
     )
     qmt_capabilities = {
-        capability.family: capability.model_dump()
-        for capability in qmt_manifest.capabilities
+        capability.family: capability.model_dump() for capability in qmt_manifest.capabilities
     }
 
     for family, expected_methods in FIRST_QMT_PARITY_TARGETS.items():
         capability = qmt_capabilities[family]
         assert capability["status"] == "planned"
         assert capability["unsupportedReason"] is None
-        assert expected_methods <= set(capability["providerMethods"])
+        assert expected_methods <= set(capability["nativeMethods"])
+        assert capability["providerMethods"]
+
+    assert "get_bars" in qmt_capabilities["bars"]["providerMethods"]
+    assert "get_market_data" not in qmt_capabilities["bars"]["providerMethods"]
 
 
 def test_qmt_manifest_keeps_unverified_capabilities_explicit() -> None:

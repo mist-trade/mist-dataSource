@@ -9,7 +9,7 @@ from starlette.requests import Request
 from src.datasource.tdx_http_client import TdxHttpError
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
 from tdx.main import app
-from tdx.routes import v1 as tdx_v1_routes
+from tdx.routes.v1 import product as tdx_v1_routes
 
 
 class FakeTdxProvider:
@@ -688,6 +688,18 @@ async def test_providers_returns_tdx_and_qmt_capability_manifests(
     assert tdx_families["market-trade-aggregate"] == "supported"
     assert "report-data" not in tdx_families
     assert tdx_families["formula-data"] == "supported"
+
+    tdx_capabilities = {
+        capability["family"]: capability for capability in providers["tdx"]["capabilities"]
+    }
+    qmt_capabilities = {
+        capability["family"]: capability for capability in providers["qmt"]["capabilities"]
+    }
+    assert "get_bars" in tdx_capabilities["bars"]["providerMethods"]
+    assert "get_market_data" in tdx_capabilities["bars"]["nativeMethods"]
+    assert "get_market_data" not in tdx_capabilities["bars"]["providerMethods"]
+    assert "get_market_data" in qmt_capabilities["bars"]["nativeMethods"]
+    assert "nativeMethods" in tdx_capabilities["raw-diagnostics"]
     assert tdx_families["formula-metadata"] == "supported"
     assert tdx_families["formula-execution"] == "supported"
     assert tdx_families["formula-batch-execution"] == "supported"
