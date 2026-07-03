@@ -1,0 +1,16 @@
+{
+  "capturedAt": "2026-06-29T15:00:03+08:00",
+  "captureSource": "tdx get_market_snapshot live smoke fixture",
+  "symbol": "600519.SH",
+  "nativePayload": {
+    "Code": "600519.SH",
+    "Now": "1418.0",
+    "Open": "1416.0",
+    "Max": "1426.5",
+    "Min": "1406.0",
+    "LastClose": "1414.0",
+    "Volume": "3138308",
+    "Amount": "4446039416.0",
+    "asof": "2026-06-29T15:00:00+08:00"
+  }
+}
