@@ -123,7 +123,8 @@ def test_qmt_alignment_reference_records_current_path_and_first_targets() -> Non
     assert "`/api/qmt/*`" in text
     assert "`/v1`" in text
     assert "QMT live startup remains disabled" in text
-    assert "registers one `run_time`" in text
+    assert "WebSocket duplex is a first-class Windows spike candidate" in text
+    assert "fire outside trading hours" in text
     assert "`handlebar` K-line events or `subscribe` quote callbacks" in text
 
 

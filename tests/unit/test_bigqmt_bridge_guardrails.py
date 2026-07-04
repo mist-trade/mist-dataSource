@@ -68,6 +68,15 @@ def test_spike_script_is_the_only_qmt_builtin_script_allowed_to_probe_runtime_fe
     assert bridge_imports.isdisjoint({"threading", "multiprocessing", "subprocess"})
 
 
+def test_spike_script_records_run_time_and_websocket_evidence() -> None:
+    source = SPIKE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "mist_qmt_spike_tick" in source
+    assert ".run_time(" in source
+    assert "tickCount" in source
+    assert "websocketDuplex" in source
+
+
 def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() -> None:
     forbidden_method_names = {
         "cancel_order",

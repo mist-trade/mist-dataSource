@@ -1,6 +1,7 @@
 """Integration tests for the full-QMT command bridge route surface."""
 
 import pytest
+from fastapi.testclient import TestClient
 
 import qmt.main
 from src.datasource.qmt.command_gateway import QmtCommandGateway
@@ -50,3 +51,22 @@ async def test_qmt_bridge_health_reports_gateway_state(qmt_client):
 
     assert response.status_code == 200
     assert response.json()["ownerId"] == "bridge-health"
+
+
+def test_qmt_bridge_websocket_accepts_probe_messages():
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_command_gateway = gateway
+
+    with (
+        TestClient(qmt.main.app) as client,
+        client.websocket_connect("/qmt/bridge/ws?ownerId=bridge-ws") as websocket,
+    ):
+        ready = websocket.receive_json()
+        websocket.send_json({"type": "ping", "id": "probe-1"})
+        pong = websocket.receive_json()
+
+    assert ready["type"] == "bridge.ready"
+    assert ready["ownerId"] == "bridge-ws"
+    assert pong == {"type": "pong", "id": "probe-1", "ownerId": "bridge-ws"}
+    assert gateway.health()["ownerId"] == "bridge-ws"

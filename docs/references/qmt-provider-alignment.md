@@ -12,14 +12,18 @@ evidence validates the runtime.
 
 - Production QMT access through the old local SDK adapter path is removed.
 - `qmt/builtin_bridge/mist_qmt_bridge.py` is the default full-QMT built-in
-  Python script. It uses standard-library HTTP polling and one serial command
-  lane.
+  Python scaffold. It currently uses standard-library HTTP polling and one
+  serial command lane, but production transport remains spike-gated.
 - The bridge must run as one normal QMT built-in strategy script. Do not enable
   the editor's separate-process option for the production bridge, because it
   changes the runtime boundary away from the controlled built-in script model.
-- The bridge polling loop is driven by `run_time`. It must not depend on
-  `handlebar` K-line events or `subscribe` quote callbacks, because external
-  datasource commands are time-polled work rather than market-event work.
+- WebSocket duplex is a first-class Windows spike candidate. QMT must initiate
+  the outbound connection to the datasource gateway; after that, the datasource
+  may push command messages over the same connection.
+- The current bridge scaffold is driven by `run_time` so the spike can prove
+  whether timer callbacks fire outside trading hours. Production must not rely
+  on `run_time` until that evidence is captured. It also must not depend on
+  `handlebar` K-line events or `subscribe` quote callbacks for command intake.
 - `qmt/builtin_bridge/mist_qmt_spike.py` is the Windows evidence script for
   library/network capability and process/execution-model checks.
 - `src/adapter/mock/qmt_mock.py` remains the macOS/Linux development fixture for
@@ -57,16 +61,22 @@ QMT live startup remains disabled in runtime checks until both Windows spikes
 are captured. The default bridge model is:
 
 1. Mist datasource command gateway runs outside QMT.
-2. A single normal full-QMT built-in Python script registers one `run_time`
-   callback and polls the gateway through localhost.
+2. A single normal full-QMT built-in Python script owns one outbound command
+   channel to the gateway.
 3. The bridge executes one command lane serially.
 4. The datasource exposes only normalized `/v1` and WebSocket contracts to
    backend consumers.
 
-WebSocket, third-party packages, local port listening, threads, processes,
-subprocesses, and QMT editor separate-process execution are outside the default
-production bridge. The first live bridge should remain a single script with one
-owner and one serial command lane.
+The open transport question is HTTP polling versus WebSocket duplex. WebSocket
+can become the production transport only if the Windows spike proves QMT can
+keep a normal single-script WebSocket client connected, exchange messages
+bidirectionally, recover cleanly, and avoid blocking QMT. The timer question is
+separate: if WebSocket still needs a pump callback, `run_time` must be proven to
+fire outside trading hours before production can depend on it.
+
+Third-party packages, local port listening, threads, processes, subprocesses,
+and QMT editor separate-process execution remain outside the default production
+bridge unless separate evidence and design work approves them.
 
 ## Verification Owners
 

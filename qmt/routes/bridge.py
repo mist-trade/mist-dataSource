@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.datasource.qmt.command_gateway import (
@@ -36,12 +36,16 @@ class ResultRequest(BridgeModel):
     error: dict[str, Any] | None = None
 
 
-def get_gateway(request: Request) -> QmtCommandGateway:
-    gateway = getattr(request.app.state, "qmt_command_gateway", None)
+def _get_gateway_from_state(state: Any) -> QmtCommandGateway:
+    gateway = getattr(state, "qmt_command_gateway", None)
     if gateway is None:
         gateway = QmtCommandGateway()
-        request.app.state.qmt_command_gateway = gateway
+        state.qmt_command_gateway = gateway
     return gateway
+
+
+def get_gateway(request: Request) -> QmtCommandGateway:
+    return _get_gateway_from_state(request.app.state)
 
 
 @router.post("/owner")
@@ -103,3 +107,59 @@ async def bridge_health(request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
     gateway.expire_timed_out()
     return gateway.health()
+
+
+@router.websocket("/ws")
+async def bridge_websocket(websocket: WebSocket) -> None:
+    owner_id = websocket.query_params.get("ownerId") or "qmt-bridge-ws"
+    gateway = _get_gateway_from_state(websocket.app.state)
+    await websocket.accept()
+    try:
+        gateway.register_owner(owner_id)
+    except QmtBridgeOwnershipError as exc:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "code": "QMT_BRIDGE_OWNER_CONFLICT",
+                "message": str(exc),
+                "retryable": False,
+            }
+        )
+        await websocket.close(code=4409)
+        return
+
+    await websocket.send_json({"type": "bridge.ready", "ownerId": owner_id})
+    try:
+        while True:
+            message = await websocket.receive_json()
+            message_type = str(message.get("type", ""))
+            gateway.heartbeat(owner_id)
+            if message_type == "ping":
+                await websocket.send_json(
+                    {
+                        "type": "pong",
+                        "id": message.get("id"),
+                        "ownerId": owner_id,
+                    }
+                )
+                continue
+            if message_type == "hello":
+                await websocket.send_json(
+                    {
+                        "type": "hello.ack",
+                        "id": message.get("id"),
+                        "ownerId": owner_id,
+                    }
+                )
+                continue
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "id": message.get("id"),
+                    "code": "QMT_BRIDGE_WS_UNSUPPORTED_MESSAGE",
+                    "message": "Unsupported QMT bridge websocket message",
+                    "retryable": False,
+                }
+            )
+    except WebSocketDisconnect:
+        return

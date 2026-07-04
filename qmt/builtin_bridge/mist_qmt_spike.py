@@ -6,12 +6,15 @@ provider support. It intentionally probes imports and runtime features that the
 production bridge is forbidden to use.
 """
 
+import base64
+import contextlib
 import importlib
 import json
 import multiprocessing
 import os
 import socket
 import sqlite3
+import struct
 import subprocess
 import sys
 import threading
@@ -27,26 +30,51 @@ class SpikeState:
 STATE = SpikeState()
 STATE.output_path = "mist_qmt_spike_output.json"
 STATE.results = {}
+STATE.run_time_ticks = 0
+STATE.first_tick_at = ""
+STATE.last_tick_at = ""
+STATE.run_time_schedule = {"ok": False, "error": "", "startTime": ""}
+STATE.websocket_probe_done = False
 
 
 def init(ContextInfo):
-    _ = ContextInfo
-    run_spike(ContextInfo)
+    start_time = time.strftime("%Y-%m-%d %H:%M:%S")
+    STATE.run_time_schedule = {"ok": False, "error": "", "startTime": start_time}
+    try:
+        ContextInfo.run_time("mist_qmt_spike_tick", "1nSecond", start_time)
+        STATE.run_time_schedule["ok"] = True
+    except Exception as exc:
+        STATE.run_time_schedule["error"] = str(exc)
+    run_spike(ContextInfo, "init")
 
 
 def handlebar(ContextInfo):
     _ = ContextInfo
 
 
-def run_spike(ContextInfo):
+def mist_qmt_spike_tick(ContextInfo):
+    _record_run_time_tick()
+    if not STATE.websocket_probe_done:
+        STATE.results["websocketDuplex"] = _probe_websocket_duplex()
+        STATE.websocket_probe_done = True
+    _write_results(STATE.results)
+    if STATE.run_time_ticks <= 5 or STATE.run_time_ticks % 30 == 0:
+        print(json.dumps(STATE.results, sort_keys=True))
+    _ = ContextInfo
+
+
+def run_spike(ContextInfo, phase):
     results = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "phase": phase,
         "pythonVersion": sys.version,
         "pid": os.getpid(),
         "imports": _probe_imports(),
         "sqlite": _probe_sqlite(),
         "network": _probe_network(),
         "processModel": _probe_process_model(),
+        "runTime": _run_time_result(),
+        "websocketDuplex": {"ok": False, "phase": "pending-run-time-tick"},
         "nativeApi": _probe_native_api(ContextInfo),
     }
     STATE.results = results
@@ -88,7 +116,7 @@ def _probe_sqlite():
 def _probe_network():
     results = {}
     try:
-        urllib.request.urlopen("http://127.0.0.1:9012/health", timeout=1).read()
+        urllib.request.urlopen("http://127.0.0.1:9012/qmt/bridge/health", timeout=1).read()
         results["outboundLocalHttp"] = {"ok": True, "error": ""}
     except Exception as exc:
         results["outboundLocalHttp"] = {"ok": False, "error": str(exc)}
@@ -149,6 +177,170 @@ def _probe_process_model():
     except Exception as exc:
         results["subprocess"] = {"ok": False, "error": str(exc)}
     return results
+
+
+def _record_run_time_tick():
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    STATE.run_time_ticks += 1
+    if not STATE.first_tick_at:
+        STATE.first_tick_at = now
+    STATE.last_tick_at = now
+    STATE.results["runTime"] = _run_time_result()
+
+
+def _run_time_result():
+    return {
+        "schedule": STATE.run_time_schedule,
+        "tickCount": STATE.run_time_ticks,
+        "firstTickAt": STATE.first_tick_at,
+        "lastTickAt": STATE.last_tick_at,
+        "outsideTradingWindowHint": _outside_trading_window_hint(),
+    }
+
+
+def _outside_trading_window_hint():
+    local = time.localtime()
+    if local.tm_wday >= 5:
+        return True
+    hhmm = local.tm_hour * 100 + local.tm_min
+    return not ((930 <= hhmm <= 1130) or (1300 <= hhmm <= 1500))
+
+
+def _probe_websocket_duplex():
+    results = {
+        "websocketClient": {"ok": False, "error": "not-run"},
+        "stdlibRawWebSocket": {"ok": False, "error": "not-run"},
+    }
+    results["websocketClient"] = _probe_websocket_client_package()
+    results["stdlibRawWebSocket"] = _probe_stdlib_websocket()
+    results["ok"] = (
+        results["websocketClient"].get("ok", False)
+        or results["stdlibRawWebSocket"].get("ok", False)
+    )
+    return results
+
+
+def _probe_websocket_client_package():
+    try:
+        websocket = importlib.import_module("websocket")
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    connection = None
+    try:
+        url = "ws://127.0.0.1:9012/qmt/bridge/ws?ownerId=qmt-spike-ws-client-" + str(os.getpid())
+        connection = websocket.create_connection(url, timeout=2)
+        ready = connection.recv()
+        connection.send(json.dumps({"type": "ping", "id": "spike-websocket-client"}))
+        pong = connection.recv()
+        return {"ok": True, "ready": ready, "pong": pong}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
+    finally:
+        if connection is not None:
+            with contextlib.suppress(Exception):
+                connection.close()
+
+
+def _probe_stdlib_websocket():
+    sock = None
+    try:
+        owner_id = "qmt-spike-stdlib-ws-" + str(os.getpid())
+        path = "/qmt/bridge/ws?ownerId=" + owner_id
+        sock = socket.create_connection(("127.0.0.1", 9012), timeout=2)
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        request = (
+            "GET " + path + " HTTP/1.1\r\n"
+            "Host: 127.0.0.1:9012\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: " + key + "\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "\r\n"
+        )
+        sock.sendall(request.encode("ascii"))
+        response_bytes = sock.recv(4096)
+        marker = b"\r\n\r\n"
+        marker_index = response_bytes.find(marker)
+        if marker_index < 0:
+            return {"ok": False, "error": "websocket handshake response missing header terminator"}
+        headers = response_bytes[:marker_index].decode("latin1", "ignore")
+        buffer = response_bytes[marker_index + len(marker):]
+        if " 101 " not in headers:
+            return {"ok": False, "error": "websocket handshake did not return 101", "headers": headers}
+        ready, buffer = _recv_ws_text_frame(sock, buffer)
+        _send_ws_text_frame(sock, json.dumps({"type": "ping", "id": "spike-stdlib"}))
+        pong, _buffer = _recv_ws_text_frame(sock, buffer)
+        return {"ok": True, "ready": ready, "pong": pong}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
+    finally:
+        if sock is not None:
+            with contextlib.suppress(Exception):
+                sock.close()
+
+
+def _recv_ws_text_frame(sock, buffer):
+    while len(buffer) < 2:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise Exception("websocket closed before frame header")
+        buffer += chunk
+    first = buffer[0]
+    second = buffer[1]
+    opcode = first & 15
+    masked = (second & 128) != 0
+    length = second & 127
+    index = 2
+    if length == 126:
+        while len(buffer) < index + 2:
+            buffer += sock.recv(4096)
+        length = struct.unpack("!H", buffer[index:index + 2])[0]
+        index += 2
+    elif length == 127:
+        while len(buffer) < index + 8:
+            buffer += sock.recv(4096)
+        length = struct.unpack("!Q", buffer[index:index + 8])[0]
+        index += 8
+    mask = b""
+    if masked:
+        while len(buffer) < index + 4:
+            buffer += sock.recv(4096)
+        mask = buffer[index:index + 4]
+        index += 4
+    while len(buffer) < index + length:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise Exception("websocket closed before frame payload")
+        buffer += chunk
+    payload = buffer[index:index + length]
+    remaining = buffer[index + length:]
+    if masked:
+        payload = bytes(byte ^ mask[offset % 4] for offset, byte in enumerate(payload))
+    if opcode == 8:
+        raise Exception("websocket close frame received")
+    if opcode != 1:
+        raise Exception("websocket non-text frame received: " + str(opcode))
+    return payload.decode("utf-8", "ignore"), remaining
+
+
+def _send_ws_text_frame(sock, text):
+    payload = text.encode("utf-8")
+    mask = os.urandom(4)
+    header = bytearray([129])
+    length = len(payload)
+    if length < 126:
+        header.append(128 | length)
+    elif length <= 65535:
+        header.append(128 | 126)
+        header.extend(struct.pack("!H", length))
+    else:
+        header.append(128 | 127)
+        header.extend(struct.pack("!Q", length))
+    header.extend(mask)
+    masked_payload = bytearray()
+    for offset, byte in enumerate(payload):
+        masked_payload.append(byte ^ mask[offset % 4])
+    sock.sendall(bytes(header) + bytes(masked_payload))
 
 
 def _probe_native_api(ContextInfo):
