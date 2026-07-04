@@ -70,3 +70,45 @@ def test_qmt_bridge_websocket_accepts_probe_messages():
     assert ready["ownerId"] == "bridge-ws"
     assert pong == {"type": "pong", "id": "probe-1", "ownerId": "bridge-ws"}
     assert gateway.health()["ownerId"] == "bridge-ws"
+
+
+def test_qmt_bridge_websocket_spike_mode_pushes_commands_and_accepts_results():
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_command_gateway = gateway
+
+    with (
+        TestClient(qmt.main.app) as client,
+        client.websocket_connect(
+            "/qmt/bridge/ws?ownerId=bridge-ws-spike&mode=spike-command-loop"
+        ) as websocket,
+    ):
+        ready = websocket.receive_json()
+        health_command = websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "bridge.result",
+                "id": health_command["id"],
+                "ok": True,
+                "result": {"ownerId": "bridge-ws-spike"},
+            }
+        )
+        market_command = websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "bridge.result",
+                "id": market_command["id"],
+                "ok": True,
+                "result": {"000001.SZ": {"close": [10.0]}},
+            }
+        )
+        done = websocket.receive_json()
+
+    assert ready == {"type": "bridge.ready", "ownerId": "bridge-ws-spike"}
+    assert health_command["type"] == "bridge.command"
+    assert health_command["method"] == "health"
+    assert market_command["type"] == "bridge.command"
+    assert market_command["method"] == "get_market_data_ex"
+    assert market_command["params"]["symbols"] == ["000001.SZ"]
+    assert done["type"] == "bridge.done"
+    assert done["commandCount"] == 2

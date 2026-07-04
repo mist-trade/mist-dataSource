@@ -35,6 +35,8 @@ STATE.first_tick_at = ""
 STATE.last_tick_at = ""
 STATE.run_time_schedule = {"ok": False, "error": "", "startTime": ""}
 STATE.websocket_probe_done = False
+STATE.websocket_command_loop_done = False
+STATE.websocket_loop_seconds = 60
 
 
 def init(ContextInfo):
@@ -46,6 +48,14 @@ def init(ContextInfo):
     except Exception as exc:
         STATE.run_time_schedule["error"] = str(exc)
     run_spike(ContextInfo, "init")
+    if not STATE.websocket_command_loop_done:
+        STATE.results["websocketCommandLoop"] = _probe_websocket_command_loop(
+            ContextInfo,
+            STATE.websocket_loop_seconds,
+        )
+        STATE.websocket_command_loop_done = True
+        _write_results(STATE.results)
+        print(json.dumps(STATE.results, sort_keys=True))
 
 
 def handlebar(ContextInfo):
@@ -75,6 +85,11 @@ def run_spike(ContextInfo, phase):
         "processModel": _probe_process_model(),
         "runTime": _run_time_result(),
         "websocketDuplex": {"ok": False, "phase": "pending-run-time-tick"},
+        "websocketCommandLoop": {
+            "ok": False,
+            "phase": "pending-init-loop",
+            "loopSeconds": STATE.websocket_loop_seconds,
+        },
         "nativeApi": _probe_native_api(ContextInfo),
     }
     STATE.results = results
@@ -279,6 +294,163 @@ def _probe_stdlib_websocket():
                 sock.close()
 
 
+def _probe_websocket_command_loop(ContextInfo, max_seconds):
+    started = time.time()
+    result = {
+        "ok": False,
+        "mode": "single-thread-bounded-blocking-loop",
+        "loopSeconds": max_seconds,
+        "startedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "finishedAt": "",
+        "pid": os.getpid(),
+        "threadCountBefore": threading.active_count(),
+        "threadCountAfter": None,
+        "ready": None,
+        "commands": [],
+        "done": None,
+        "error": "",
+    }
+    sock = None
+    buffer = b""
+    try:
+        owner_id = "qmt-spike-command-loop-" + str(os.getpid())
+        path = "/qmt/bridge/ws?ownerId=" + owner_id + "&mode=spike-command-loop"
+        sock = socket.create_connection(("127.0.0.1", 9012), timeout=2)
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        request = (
+            "GET " + path + " HTTP/1.1\r\n"
+            "Host: 127.0.0.1:9012\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: " + key + "\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "\r\n"
+        )
+        sock.sendall(request.encode("ascii"))
+        response_bytes = sock.recv(4096)
+        marker = b"\r\n\r\n"
+        marker_index = response_bytes.find(marker)
+        if marker_index < 0:
+            result["error"] = "websocket handshake response missing header terminator"
+            return result
+        headers = response_bytes[:marker_index].decode("latin1", "ignore")
+        buffer = response_bytes[marker_index + len(marker):]
+        if " 101 " not in headers:
+            result["error"] = "websocket handshake did not return 101"
+            result["headers"] = headers
+            return result
+
+        ready_text, buffer = _recv_ws_text_frame(sock, buffer)
+        result["ready"] = _json_loads(ready_text)
+        sock.settimeout(1)
+        while time.time() - started < max_seconds:
+            try:
+                text, buffer = _recv_ws_text_frame(sock, buffer)
+            except TimeoutError:
+                continue
+            message = _json_loads(text)
+            message_type = str(message.get("type", ""))
+            if message_type == "bridge.command":
+                command_result = _execute_ws_command(ContextInfo, message)
+                result["commands"].append(
+                    {
+                        "id": message.get("id"),
+                        "method": message.get("method"),
+                        "ok": command_result.get("ok", False),
+                    }
+                )
+                _send_ws_text_frame(sock, json.dumps(command_result))
+                continue
+            if message_type == "bridge.done":
+                result["done"] = message
+                result["ok"] = bool(result["commands"]) and all(
+                    command.get("ok", False) for command in result["commands"]
+                )
+                break
+            if message_type == "error":
+                result["error"] = str(message)
+                break
+            result["error"] = "unsupported websocket message: " + str(message)
+            break
+        if not result["ok"] and not result["error"]:
+            result["error"] = "websocket command loop timed out before bridge.done"
+        return result
+    except Exception as exc:
+        result["error"] = str(exc)
+        result["traceback"] = traceback.format_exc()
+        return result
+    finally:
+        result["finishedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        result["threadCountAfter"] = threading.active_count()
+        if sock is not None:
+            with contextlib.suppress(Exception):
+                sock.close()
+
+
+def _execute_ws_command(ContextInfo, message):
+    command_id = message.get("id")
+    method = str(message.get("method", ""))
+    params = message.get("params", {}) or {}
+    try:
+        if method == "health":
+            return {
+                "type": "bridge.result",
+                "id": command_id,
+                "ok": True,
+                "result": {
+                    "pid": os.getpid(),
+                    "threadCount": threading.active_count(),
+                    "runTimeTicks": STATE.run_time_ticks,
+                },
+            }
+        if method == "get_market_data_ex":
+            data = ContextInfo.get_market_data_ex(
+                params.get("fields", []),
+                params.get("symbols", []),
+                period=params.get("period", "1d"),
+                start_time=params.get("startTime", ""),
+                end_time=params.get("endTime", ""),
+                count=params.get("count", -1),
+                subscribe=False,
+            )
+            return {
+                "type": "bridge.result",
+                "id": command_id,
+                "ok": True,
+                "result": _json_safe(data),
+            }
+        return {
+            "type": "bridge.result",
+            "id": command_id,
+            "ok": False,
+            "error": {
+                "code": "QMT_SPIKE_COMMAND_UNSUPPORTED",
+                "message": "Unsupported spike command: " + method,
+                "retryable": False,
+                "details": {"method": method},
+            },
+        }
+    except Exception as exc:
+        return {
+            "type": "bridge.result",
+            "id": command_id,
+            "ok": False,
+            "error": {
+                "code": "QMT_SPIKE_COMMAND_FAILED",
+                "message": str(exc),
+                "retryable": True,
+                "details": {"method": method, "traceback": traceback.format_exc()},
+            },
+        }
+
+
+def _json_loads(text):
+    try:
+        return json.loads(text)
+    except Exception:
+        return {"type": "invalid-json", "raw": text}
+
+
 def _recv_ws_text_frame(sock, buffer):
     while len(buffer) < 2:
         chunk = sock.recv(4096)
@@ -368,6 +540,23 @@ def _probe_native_api(ContextInfo):
             "traceback": traceback.format_exc(),
         }
     return results
+
+
+def _json_safe(value):
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            result[str(key)] = _json_safe(item)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        return str(value)
 
 
 def _write_results(results):

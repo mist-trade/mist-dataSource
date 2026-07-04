@@ -33,6 +33,10 @@ explicit.
 | Outbound `127.0.0.1` HTTP | pending | |
 | WebSocket package duplex probe | pending | |
 | Standard-library raw WebSocket duplex probe | pending | |
+| WebSocket single-thread command-loop probe | pending | |
+| Datasource-pushed `health` command over WebSocket | pending | |
+| Datasource-pushed `get_market_data_ex` command over WebSocket | pending | |
+| WebSocket command results returned on same connection | pending | |
 | Local port listen attempt | pending | |
 | Long request blocks strategy loop | pending | |
 
@@ -56,6 +60,22 @@ explicit.
 | Exception recovery | pending | |
 | Repeated startup behavior | pending | |
 
+## Spike C: Local DAT Historical Bars Fast Path
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full-QMT `datadir` path configured | pending | |
+| Sample DAT file exists | pending | |
+| File size and mtime stable before read | pending | |
+| Daily bar parse sample | pending | |
+| Minute bar parse sample | pending | |
+| Normalized `/v1/bars/query` field parity | pending | |
+| `provider=qmt` returned on normalized bars | pending | |
+| Default block after 18:00 China time | pending | |
+| Configurable block time override | pending | |
+| Blocked read returns retryable error or configured bridge fallback | pending | |
+| Non-bars families do not use DAT files | pending | |
+
 ## Native API Shape Samples
 
 Record sanitized samples for the methods planned for normalized provider work:
@@ -75,8 +95,11 @@ Record sanitized samples for the methods planned for normalized provider work:
 - Bridge can listen on localhost: yes/no
 - Bridge can use threads/processes/subprocesses: yes/no
 - Bridge ran as one built-in script with editor separate-process option off: yes/no
+- WebSocket command loop can execute pushed commands in one thread: yes/no
 - Preferred bridge transport after spike: HTTP polling/WebSocket duplex/blocked
 - Bridge can rely on `run_time` outside trading hours if a pump is needed: yes/no
 - Bridge must remain single-owner serial polling: yes/no
+- Local DAT historical-bars fast path approved: yes/no
+- Local DAT reads blocked after 18:00 by default: yes/no
 - Live QMT provider enablement approved: yes/no
 - Follow-up implementation notes:

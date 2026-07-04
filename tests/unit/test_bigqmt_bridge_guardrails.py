@@ -75,6 +75,9 @@ def test_spike_script_records_run_time_and_websocket_evidence() -> None:
     assert ".run_time(" in source
     assert "tickCount" in source
     assert "websocketDuplex" in source
+    assert "websocketCommandLoop" in source
+    assert "spike-command-loop" in source
+    assert "single-thread-bounded-blocking-loop" in source
 
 
 def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() -> None:

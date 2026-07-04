@@ -20,6 +20,11 @@ evidence validates the runtime.
 - WebSocket duplex is a first-class Windows spike candidate. QMT must initiate
   the outbound connection to the datasource gateway; after that, the datasource
   may push command messages over the same connection.
+- The WebSocket spike must prove more than connectivity. In
+  `mode=spike-command-loop`, the datasource pushes a health command and a
+  `get_market_data_ex` command to the QMT script; the script executes both in
+  one bounded single-thread loop and returns structured results on the same
+  connection.
 - The current bridge scaffold is driven by `run_time` so the spike can prove
   whether timer callbacks fire outside trading hours. Production must not rely
   on `run_time` until that evidence is captured. It also must not depend on
@@ -37,7 +42,7 @@ evidence validates the runtime.
 
 | Capability family | Full-QMT method candidates | Target `/v1` contract | Status |
 | --- | --- | --- | --- |
-| `bars` | `get_market_data_ex` | `/v1/bars/query` | Spike-blocked until native shape is captured. |
+| `bars` | `get_market_data_ex`; optional configured local DAT reader for historical bars only | `/v1/bars/query` | Spike-blocked until native shape and DAT read behavior are captured. |
 | `snapshots` | `get_full_tick` | `/v1/snapshots/query` | Spike-blocked until native shape is captured. |
 | `calendar` | trading calendar functions from built-in docs | `/v1/calendar/trading-dates/query` | Spike-blocked until native shape is captured. |
 | `securities` | sector/list functions from built-in docs | `/v1/securities/query` | Spike-blocked until mapping is verified. |
@@ -69,10 +74,35 @@ are captured. The default bridge model is:
 
 The open transport question is HTTP polling versus WebSocket duplex. WebSocket
 can become the production transport only if the Windows spike proves QMT can
-keep a normal single-script WebSocket client connected, exchange messages
+keep a normal single-script WebSocket client connected, receive
+datasource-pushed commands, execute QMT native calls, return results
 bidirectionally, recover cleanly, and avoid blocking QMT. The timer question is
 separate: if WebSocket still needs a pump callback, `run_time` must be proven to
 fire outside trading hours before production can depend on it.
+
+## Local DAT Bars Fast Path
+
+Full-QMT historical downloads can be read from the local `datadir` as an
+optional bars-only fast path. This path is not a bridge replacement. It is only
+for historical `/v1/bars/query` responses after the operator has explicitly
+configured the full-QMT data directory.
+
+Default safeguards:
+
+1. `QMT_LOCAL_DAT_ENABLED` must be enabled before the reader is considered.
+2. `QMT_LOCAL_DAT_DIR` must point to the full-QMT data directory.
+3. `QMT_LOCAL_DAT_BLOCK_AFTER` defaults to `18:00` China time so reads avoid
+   the operator's evening update job.
+4. `QMT_LOCAL_DAT_ON_BLOCK` chooses `retryable_error`, `fallback_bridge`, or
+   `allow`; the default should be conservative until Windows evidence is
+   captured.
+5. The reader must stat the file before and after a short wait. If size or
+   modification time changes, the file is treated as unstable and is not
+   parsed.
+
+DAT data must normalize into the same bar contract as bridge-backed QMT bars:
+same symbol format, period, `barTime`, OHLCV fields, `amount`, `receivedAt`,
+and `provider=qmt`. Non-bars provider families must not use DAT files.
 
 Third-party packages, local port listening, threads, processes, subprocesses,
 and QMT editor separate-process execution remain outside the default production
