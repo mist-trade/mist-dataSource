@@ -123,7 +123,8 @@ def test_qmt_alignment_reference_records_current_path_and_first_targets() -> Non
     assert "`/api/qmt/*`" in text
     assert "`/v1`" in text
     assert "QMT live startup remains disabled" in text
-    assert "full-QMT built-in Python script polls the gateway" in text
+    assert "registers one `run_time`" in text
+    assert "`handlebar` K-line events or `subscribe` quote callbacks" in text
 
 
 def test_provider_neutral_public_models_do_not_use_tdx_native_field_names() -> None:

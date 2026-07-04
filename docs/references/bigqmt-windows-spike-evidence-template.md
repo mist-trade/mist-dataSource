@@ -10,7 +10,10 @@ explicit.
 - Windows host:
 - QMT version/build:
 - QMT account profile used:
+- QMT model: simulation/trading/backtest:
 - Strategy/script mode:
+- Run mechanism: run_time/handlebar/subscribe:
+- Editor separate-process option: off/on (must be off for valid bridge evidence)
 - Datasource commit:
 - Operator:
 
@@ -41,6 +44,9 @@ explicit.
 | `subprocess` attempt | pending | |
 | Two-strategy shared process check | pending | |
 | Two-strategy global-state check | pending | |
+| Editor separate-process option remains off | pending | |
+| `run_time` callback fires on configured interval | pending | |
+| Bridge does not require `handlebar` or `subscribe` events | pending | |
 | `run_time` blocking impact | pending | |
 | Long native API call impact | pending | |
 | Exception recovery | pending | |
@@ -64,6 +70,8 @@ Record sanitized samples for the methods planned for normalized provider work:
 - Bridge can use WebSocket internally: yes/no
 - Bridge can listen on localhost: yes/no
 - Bridge can use threads/processes/subprocesses: yes/no
+- Bridge ran as one built-in script with editor separate-process option off: yes/no
+- Bridge used `run_time` as the command-polling driver: yes/no
 - Bridge must remain single-owner serial polling: yes/no
 - Live QMT provider enablement approved: yes/no
 - Follow-up implementation notes:

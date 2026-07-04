@@ -12,7 +12,15 @@ ENV_EXAMPLE = PROJECT_ROOT / ".env.windows.example"
 
 def test_qmt_production_docs_do_not_recommend_miniqmt_or_xtquant() -> None:
     scanned_files = [README, QMT_ALIGNMENT, ENV_EXAMPLE]
-    forbidden = ("miniQMT", "MiniQMT", "xtquant", "XtQuant", "QMT_SDK_PATH")
+    forbidden = (
+        "miniQMT",
+        "MiniQMT",
+        "qmttools",
+        "run_strategy_file",
+        "xtquant",
+        "XtQuant",
+        "QMT_SDK_PATH",
+    )
 
     violations: list[str] = []
     for path in scanned_files:
@@ -42,6 +50,14 @@ def test_builtin_bridge_uses_only_verified_stdlib_imports() -> None:
         "xtquant",
     }
     assert imported_names.isdisjoint(forbidden_imports)
+
+
+def test_builtin_bridge_polling_uses_run_time_not_market_event_callbacks() -> None:
+    source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+
+    assert ".run_time(" in source
+    assert "def handlebar" not in source
+    assert "subscribe_quote" not in source
 
 
 def test_spike_script_is_the_only_qmt_builtin_script_allowed_to_probe_runtime_features() -> None:

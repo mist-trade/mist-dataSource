@@ -14,6 +14,12 @@ evidence validates the runtime.
 - `qmt/builtin_bridge/mist_qmt_bridge.py` is the default full-QMT built-in
   Python script. It uses standard-library HTTP polling and one serial command
   lane.
+- The bridge must run as one normal QMT built-in strategy script. Do not enable
+  the editor's separate-process option for the production bridge, because it
+  changes the runtime boundary away from the controlled built-in script model.
+- The bridge polling loop is driven by `run_time`. It must not depend on
+  `handlebar` K-line events or `subscribe` quote callbacks, because external
+  datasource commands are time-polled work rather than market-event work.
 - `qmt/builtin_bridge/mist_qmt_spike.py` is the Windows evidence script for
   library/network capability and process/execution-model checks.
 - `src/adapter/mock/qmt_mock.py` remains the macOS/Linux development fixture for
@@ -51,14 +57,16 @@ QMT live startup remains disabled in runtime checks until both Windows spikes
 are captured. The default bridge model is:
 
 1. Mist datasource command gateway runs outside QMT.
-2. A single full-QMT built-in Python script polls the gateway through localhost.
+2. A single normal full-QMT built-in Python script registers one `run_time`
+   callback and polls the gateway through localhost.
 3. The bridge executes one command lane serially.
 4. The datasource exposes only normalized `/v1` and WebSocket contracts to
    backend consumers.
 
-WebSocket, third-party packages, local port listening, threads, processes, and
-subprocesses are optional only after Windows evidence proves them safe inside
-the QMT runtime.
+WebSocket, third-party packages, local port listening, threads, processes,
+subprocesses, and QMT editor separate-process execution are outside the default
+production bridge. The first live bridge should remain a single script with one
+owner and one serial command lane.
 
 ## Verification Owners
 
