@@ -1,6 +1,6 @@
 """QMT 板块管理 REST API 路由.
 
-对应 QMT SDK: xtquant.xtdata (板块相关接口)
+对应 full-QMT bridge 板块命令。
 """
 
 from typing import Any

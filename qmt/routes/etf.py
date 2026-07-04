@@ -1,6 +1,6 @@
 """QMT ETF/可转债/IPO REST API 路由.
 
-对应 QMT SDK: xtquant.xtdata (get_cb_info, download_cb_data, get_ipo_info, get_etf_info, download_etf_info)
+对应 full-QMT bridge 参考数据命令。
 """
 
 from typing import Any

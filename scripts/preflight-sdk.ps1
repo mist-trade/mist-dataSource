@@ -76,33 +76,11 @@ $strategyFile = Join-Path $tdxSdk "mist_datasource.py"
 Write-Host "  TDX strategy identity path: $strategyFile" -ForegroundColor Yellow
 Write-Host "  Keep TDX_SDK_PATH stable. If it changes, clean stale strategy entries in TDX." -ForegroundColor Yellow
 
-$qmtSdk = Get-EnvValue $envContent "QMT_SDK_PATH"
-$qmtPath = Get-EnvValue $envContent "QMT_PATH"
-
-if (-not $qmtSdk) {
-    Write-Warn "QMT_SDK_PATH is empty; QMT service will be treated as disabled"
-    exit 0
+$qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
+if ($qmtBridgeGatewayUrl) {
+    Write-Warn "QMT full-client bridge is configured but live provider enablement requires Windows spike evidence: $qmtBridgeGatewayUrl"
+} else {
+    Write-Warn "QMT full-client bridge is not configured; QMT provider remains disabled"
 }
-
-if ($qmtPath -and -not (Test-Path $qmtPath -PathType Container)) {
-    Write-Fail "QMT_PATH does not exist: $qmtPath"
-    exit 1
-}
-if ($qmtPath) {
-    Write-Ok "QMT_PATH exists: $qmtPath"
-}
-
-if (-not (Test-Path $qmtSdk -PathType Container)) {
-    Write-Fail "QMT_SDK_PATH does not exist: $qmtSdk"
-    exit 1
-}
-Write-Ok "QMT_SDK_PATH exists: $qmtSdk"
-
-$xtquant = Join-Path $qmtSdk "xtquant"
-if (-not (Test-Path $xtquant -PathType Container)) {
-    Write-Fail "Missing xtquant package directory: $xtquant"
-    exit 1
-}
-Write-Ok "Found xtquant package"
 
 Write-Ok "SDK preflight passed"

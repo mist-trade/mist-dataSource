@@ -62,7 +62,7 @@ $runtimeChecks = Get-Content (Join-Path $ProjectDir "scripts\run-runtime-checks.
 $tdxWinswInstall = Get-Content (Join-Path $ProjectDir "scripts\winsw\install-tdx-datasource.ps1") -Raw
 $tdxWinswSmoke = Get-Content (Join-Path $ProjectDir "scripts\winsw\test-tdx-datasource.ps1") -Raw
 Assert-Match "default TDX SDK path" $windowsEnvExample "TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user"
-Assert-Match "default QMT path" $windowsEnvExample "QMT_PATH=F:/quant/qmt"
+Assert-Match "default QMT bridge gateway" $windowsEnvExample "QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9012/qmt/bridge"
 Assert-Match "TDX comment points SDK path to user directory" $windowsEnvExample "TDX_SDK_PATH points to the user directory that contains tqcenter.py."
 Assert-Match "TDX comment keeps DLL in parent directory" $windowsEnvExample "TPythClient.dll stays one level above TDX_SDK_PATH."
 Assert-Match "default uv python package index" $windowsEnvExample "UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"
@@ -170,14 +170,14 @@ Assert-Match "runtime checks support optional live quote wait" $runtimeChecks "R
 Assert-Match "runtime checks verify live quote snapshot payload" $runtimeChecks '$message.data.snapshot'
 Assert-Match "runtime checks unsubscribe after websocket smoke" $runtimeChecks '"type" = "unsubscribe"'
 if ($runtimeChecks -match [regex]::Escape('MistQMT')) {
-    throw "runtime checks must not require a QMT service until QMT SDK/login are finalized."
+    throw "runtime checks must not require a QMT service until full-QMT bridge evidence is finalized."
 }
 Write-Host "  [PASS] runtime checks do not require QMT service startup" -ForegroundColor Green
 
 Assert-Equal `
     "blank env returns empty string" `
     "" `
-    (Get-EnvValue "APP_ENV=production" "QMT_SDK_PATH")
+    (Get-EnvValue "APP_ENV=production" "QMT_BRIDGE_GATEWAY_URL")
 
 Assert-Equal `
     "uv fallback resolves packaged runtime" `

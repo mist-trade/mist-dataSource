@@ -215,18 +215,20 @@ TDX_PROVIDER_METHODS: dict[str, list[str]] = {
     "websocket-subscriptions": [],
 }
 
+QMT_SPIKE_BLOCKED_REASON = "Full-QMT bridge Windows spike evidence is required"
+
 QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str | None]] = {
-    "bars": ("planned", "planned", ["get_market_data"], None),
-    "snapshots": ("planned", "planned", ["get_full_tick"], None),
+    "bars": ("unsupported", "spike-blocked", ["get_market_data_ex"], QMT_SPIKE_BLOCKED_REASON),
+    "snapshots": ("unsupported", "spike-blocked", ["get_full_tick"], QMT_SPIKE_BLOCKED_REASON),
     "price-volume": ("unsupported", "planned", [], "QMT price-volume mapping is not verified"),
     "benchmarks": ("unsupported", "planned", [], "QMT benchmark mapping is not verified"),
-    "calendar": ("planned", "planned", ["get_trading_dates"], None),
-    "securities": ("planned", "planned", ["get_stock_list"], None),
+    "calendar": ("unsupported", "spike-blocked", ["trading_calendar"], QMT_SPIKE_BLOCKED_REASON),
+    "securities": ("unsupported", "spike-blocked", ["get_stock_list_in_sector"], QMT_SPIKE_BLOCKED_REASON),
     "security-info": (
-        "planned",
-        "planned",
-        ["get_instrument_detail", "get_instrument_type"],
-        None,
+        "unsupported",
+        "spike-blocked",
+        ["instrument_detail"],
+        QMT_SPIKE_BLOCKED_REASON,
     ),
     "security-search": (
         "unsupported",
@@ -240,8 +242,13 @@ QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str |
         [],
         "QMT security relation mapping is not verified",
     ),
-    "sector-list": ("planned", "planned", ["get_sector_list"], None),
-    "sector-members": ("planned", "planned", ["get_stock_list_in_sector"], None),
+    "sector-list": ("unsupported", "spike-blocked", ["sector_list"], QMT_SPIKE_BLOCKED_REASON),
+    "sector-members": (
+        "unsupported",
+        "spike-blocked",
+        ["get_stock_list_in_sector"],
+        QMT_SPIKE_BLOCKED_REASON,
+    ),
     "ipo-info": ("unsupported", "planned", [], "QMT IPO mapping is not verified"),
     "share-capital": ("unsupported", "planned", [], "QMT share-capital mapping is not verified"),
     "dividend-factors": (
@@ -312,10 +319,10 @@ QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str |
     ),
     "raw-diagnostics": ("unsupported", "planned", [], "Raw TDX diagnostics are TDX-only"),
     "websocket-subscriptions": (
-        "planned",
-        "planned",
+        "unsupported",
+        "spike-blocked",
         [],
-        "QMT subscription bridge is not implemented",
+        QMT_SPIKE_BLOCKED_REASON,
     ),
 }
 

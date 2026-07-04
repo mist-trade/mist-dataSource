@@ -30,9 +30,8 @@ class QMTSettings(BaseSettings):
     )
     host: str = "0.0.0.0"
     port: int = 9002
-    path: str = ""
-    account_id: str = ""
-    sdk_path: str = ""  # QMT SDK 路径, e.g. "F:/quant/qmt/Lib"
+    bridge_gateway_url: str = "http://127.0.0.1:9012/qmt/bridge"
+    bridge_spike_evidence_dir: str = ""
 
 
 class AppSettings(BaseSettings):

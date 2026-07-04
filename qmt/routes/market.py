@@ -1,7 +1,7 @@
 """QMT 行情数据 REST API 路由.
 
 提供板块股票列表、历史行情、下载、交易日历等 HTTP 接口.
-对应 QMT SDK: xtquant.xtdata
+对应 full-QMT bridge 行情命令。
 """
 
 from typing import Any

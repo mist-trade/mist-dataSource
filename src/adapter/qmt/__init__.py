@@ -1,9 +1,7 @@
-"""QMT adapter module for miniQMT integration.
+"""QMT adapter package.
 
-This module requires the xtquant SDK which is only available on Windows.
-On macOS, the mock adapter will be used instead.
+Production QMT access is implemented through the full-QMT bridge under
+``src.datasource.qmt``. The old local-SDK adapter path has been removed.
 """
 
-from src.adapter.qmt.client import QMTAdapter
-
-__all__ = ["QMTAdapter"]
+__all__: list[str] = []

@@ -1,7 +1,7 @@
 """QMT 适配器 FastAPI 应用入口 (Port 9002).
 
 启动方式: uvicorn qmt.main:app --port 9002 --reload
-对应 QMT SDK: xtquant.xtdata (行情)
+生产 QMT 接入通过大 QMT 内置 Python bridge；本 app 当前保留为 mock/diagnostic surface。
 """
 
 from contextlib import asynccontextmanager
@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from qmt.routes.bridge import router as bridge_router
 from qmt.routes.etf import router as etf_router
 from qmt.routes.financial import router as financial_router
 from qmt.routes.market import router as market_router
@@ -18,17 +19,21 @@ from qmt.routes.ws import router as ws_router
 from src.adapter import create_qmt_adapter
 from src.adapter.base import QmtDataAdapter
 from src.core.config import settings
+from src.core.exceptions import AdapterError
 from src.core.logging import setup_logging
+from src.datasource.qmt.command_gateway import QmtCommandGateway
 from src.ws.manager import ConnectionManager
 
 setup_logging()
 
 qmt_adapter: QmtDataAdapter | None = None
+qmt_command_gateway = QmtCommandGateway()
 ws_manager = ConnectionManager()
 
 
 def _sync_app_state(target_app: FastAPI) -> None:
     target_app.state.qmt_adapter = qmt_adapter
+    target_app.state.qmt_command_gateway = qmt_command_gateway
     target_app.state.ws_manager = ws_manager
 
 
@@ -37,7 +42,7 @@ async def lifespan(_app: FastAPI):
     """应用生命周期管理器.
 
     启动时创建并初始化 QMT 适配器，关闭时执行清理.
-    对应 QMT SDK: xtdata 连接 MiniQMT 客户端
+    生产 live QMT 在 Windows spike 完成前保持禁用。
 
     Args:
         _app: FastAPI 应用实例
@@ -46,10 +51,11 @@ async def lifespan(_app: FastAPI):
         None
     """
     global qmt_adapter
-    qmt_adapter = create_qmt_adapter(
-        path=settings.qmt.path, account_id=settings.qmt.account_id
-    )
-    await qmt_adapter.initialize()
+    try:
+        qmt_adapter = create_qmt_adapter()
+        await qmt_adapter.initialize()
+    except AdapterError:
+        qmt_adapter = None
     _sync_app_state(_app)
     yield
     if qmt_adapter:
@@ -60,7 +66,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Mist DataSource - QMT Adapter",
-    description="miniQMT 数据源适配器 - 行情、合约、财务、板块、ETF、交易",
+    description="QMT 数据源适配器 - full-QMT bridge / mock diagnostics",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -102,3 +108,4 @@ app.include_router(financial_router, prefix="/api/qmt/financial", tags=["Financi
 app.include_router(sector_router, prefix="/api/qmt/sector", tags=["Sector"])
 app.include_router(etf_router, prefix="/api/qmt/etf", tags=["ETF"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
+app.include_router(bridge_router, prefix="/qmt/bridge", tags=["QMT Bridge"])

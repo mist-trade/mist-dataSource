@@ -212,7 +212,10 @@ async def _call_provider(
                 provider=provider_id,
                 family=capability_family,
                 operation=operation_name,
-                fallback="Use provider 'tdx' for this endpoint until QMT support is implemented.",
+                fallback=(
+                    "Use provider 'tdx' or complete full-QMT bridge Windows spike "
+                    "evidence before enabling provider 'qmt'."
+                ),
             ),
             provider=provider_id,
         )

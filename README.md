@@ -1,12 +1,12 @@
 # Mist-Datasource
 
-数据源桥接层 - 将通达信 (TDX) 和 miniQMT 的本地 SDK 接口包装为 HTTP/WebSocket 服务。
+数据源桥接层 - 将通达信 (TDX) 与大 QMT 内置 Python 数据能力包装为 HTTP/WebSocket 服务。
 
 ## 项目定位
 
 mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 
-- 将通达信 (TDX) 和 miniQMT 的本地 SDK 接口包装为 HTTP/WebSocket 服务
+- 将通达信 (TDX) 与大 QMT 内置 Python 数据能力包装为 HTTP/WebSocket 服务
 - 通过 WebSocket 将实时行情推送到 NestJS 后端
 - 提供统一的适配器层抽象，屏蔽底层 SDK 差异
 
@@ -15,9 +15,9 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 ## 架构总览
 
 ```
-通达信终端 (Windows)          miniQMT 客户端 (Windows)
+通达信终端 (Windows)          大 QMT 客户端 (Windows)
       │                              │
-      │ tqcenter SDK                 │ xtquant SDK
+      │ tqcenter SDK                 │ 内置 Python bridge
       ▼                              ▼
 ┌─────────────┐              ┌─────────────┐
 │  Instance 1 │              │  Instance 2 │
@@ -37,7 +37,7 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 
 | 项目 | 选型 | 原因 |
 |------|------|------|
-| Python | 3.12+ | xtquant 最高支持 3.12；tqcenter 支持 3.7-3.14 |
+| Python | 3.12+ | datasource 服务使用 3.12；TDX/QMT 客户端内置 Python 版本以 Windows 实机为准 |
 | 包管理 | uv | 速度快，lockfile 可靠 |
 | 框架 | FastAPI | 异步支持好，自动 OpenAPI 文档 |
 | 配置 | pydantic-settings | 类型安全的环境变量管理 |
@@ -107,8 +107,8 @@ uv run pytest --cov=src --cov=tdx --cov=qmt
 - 可以正常开发/测试 REST API 和 WebSocket 推送逻辑
 
 ### Windows 生产
-- `APP_ENV=production`，使用真实 SDK
-- 前置条件：通达信终端 / MiniQMT 客户端已启动
+- `APP_ENV=production`，TDX 使用真实 SDK；QMT 需要大 QMT 内置 bridge 完成 Windows spike 后启用
+- 前置条件：通达信终端已启动；大 QMT bridge 需要单独执行 spike 和策略脚本
 - 使用 `scripts/deploy_windows.ps1` 安装依赖并做临时启动验证
 
 ## 目录结构
@@ -305,7 +305,7 @@ uv run python scripts/export_openapi.py
 
 ### SDK 路径约束
 
-Windows 生产部署不会复制或打包通达信 / miniQMT SDK 文件。服务通过 `.env` 中的绝对路径引用已授权机器上的现有安装。
+Windows 生产部署不会复制或打包通达信 SDK 文件。QMT 生产接入不再走本地 SDK 目录，而是通过大 QMT 内置 Python bridge 与 datasource 通信。
 
 TDX 预期目录结构：
 
@@ -325,15 +325,24 @@ TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user
 
 不要只复制 `tqcenter.py` 到部署包。`TPythClient.dll` 在 `TDX_SDK_PATH` 的上一级目录，SDK 会按这个父目录关系定位它；移动目录后需要同步修改 `.env`，并可能需要在通达信终端里清理旧策略身份。
 
-QMT 预期配置，保留给后续手工启用或未来服务化：
+QMT bridge 预期配置，保留给 Windows full-QMT spike 和后续启用：
 
 ```env
-QMT_PATH=F:/quant/qmt
-QMT_SDK_PATH=
+QMT_HOST=127.0.0.1
+QMT_PORT=9002
+QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9012/qmt/bridge
 ```
 
-当前 Mist Windows appliance 不注册也不启动 QMT 服务。保留这些配置不会影响
-TDX/Backend 的 WinSW 部署。
+当前 Mist Windows appliance 不注册也不启动 live QMT provider。保留这些配置不会影响 TDX/Backend 的 WinSW 部署。
+
+启用 live QMT 前必须先在 Windows 大 QMT 客户端中运行：
+
+- `qmt/builtin_bridge/mist_qmt_spike.py`
+- `qmt/builtin_bridge/mist_qmt_bridge.py`
+
+实机结果记录到 `docs/references/bigqmt-windows-spike-evidence-template.md`。如果
+第三方库、WebSocket、监听端口、线程或子进程没有通过 spike，不得在 bridge
+生产脚本中使用这些能力。
 
 部署前可先运行 SDK 预检：
 

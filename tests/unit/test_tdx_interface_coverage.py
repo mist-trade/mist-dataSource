@@ -77,10 +77,11 @@ def test_qmt_alignment_reference_is_linked_from_coverage_matrix() -> None:
     qmt_text = QMT_ALIGNMENT_PATH.read_text(encoding="utf-8")
 
     assert "docs/references/qmt-provider-alignment.md" in coverage_text
-    assert "First parity target set" in qmt_text
+    assert "First Parity Target Set" in qmt_text
     assert "`/api/qmt/*`" in qmt_text
     assert "`/v1`" in qmt_text
-    assert "QMT sector mutation signatures intentionally follow xtdata" in qmt_text
+    assert "full-QMT built-in Python" in qmt_text
+    assert "Windows evidence proves them safe" in qmt_text
     for family in [
         "bars",
         "snapshots",

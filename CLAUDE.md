@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**mist-datasource** is a data source bridge layer that wraps Windows-only trading SDKs (通达信/TDX via `tqcenter`, miniQMT via `xtquant`) as HTTP/WebSocket services for the NestJS backend. Not a general-purpose microservice — a focused adapter layer.
+**mist-datasource** is a data source bridge layer that wraps Windows-only market data providers (通达信/TDX via `tqcenter`, full QMT via built-in Python bridge) as HTTP/WebSocket services for the NestJS backend. Not a general-purpose microservice — a focused adapter layer.
 
 ## Development Commands
 
@@ -32,7 +32,7 @@ Each instance is a separate FastAPI app. Shared code lives in `src/`.
 | Instance | Port | Adapter | SDK | Stock Code Format |
 |----------|------|---------|-----|-------------------|
 | tdx | 9001 | `TDXAdapter`/`TDXMockAdapter` | `tqcenter.tq` | `SH600519`, `SZ000001` |
-| qmt | 9002 | `QMTAdapter`/`QMTMockAdapter` | `xtquant.xtdata` | `600000.SH`, `000001.SZ` |
+| qmt | 9002 | full-QMT bridge/`QMTMockAdapter` | built-in Python command bridge | `600000.SH`, `000001.SZ` |
 
 ### Request Flow
 
@@ -67,7 +67,7 @@ not add a giant shared ABC for provider APIs with different native signatures;
 keep normalized HTTP contracts in the route/provider layer and provider quirks
 inside each adapter.
 
-Factory functions in `__init__.py` (`create_tdx_adapter`, `create_qmt_adapter`) return real or mock adapters based on `settings.is_production` (controlled by `APP_ENV` env var).
+Factory functions in `__init__.py` (`create_tdx_adapter`, `create_qmt_adapter`) return real or mock adapters based on `settings.is_production` (controlled by `APP_ENV` env var). Production QMT remains disabled until the full-QMT bridge spike evidence enables the provider; do not add a local SDK adapter.
 
 ### API Routes
 
@@ -105,6 +105,6 @@ tests/             conftest.py (httpx ASGI fixtures that auto-init adapters), un
 - **Tests**: `pytest-asyncio` with `asyncio_mode = "auto"` (configured in pyproject.toml). Fixtures in `conftest.py` provide `tdx_client` / `qmt_client` as httpx `AsyncClient` with ASGI transport. These fixtures automatically initialize the adapter before yielding and shut it down in cleanup.
 - **Code style**: ruff (line length 100, Python 3.12 target), pyright strict mode, pre-commit hooks.
 - **SDK references**: Use `docs/references/*` for datasource coverage, design decisions, and smoke references. If a provider API shape is missing there, fetch current official docs and update `docs/references/*` instead of relying on stale root-level snapshots.
-- **Cross-platform**: macOS development uses mock adapters returning random data. Windows production requires TDX terminal or MiniQMT client running.
+- **Cross-platform**: macOS development uses mock adapters returning random data. Windows production requires TDX terminal for TDX and a separately validated full-QMT bridge for QMT.
 - **TDX 策略管理**: 通达信终端用文件路径作为策略名标识。重新启动 TDX 进程前必须在通达信终端中**手动删除**已注册的策略, 否则 `tq.initialize()` 会报 "已有同名策略运行" 导致初始化失败。策略标识为 `sdk_path/mist_datasource.py`。
 - **Windows 部署**: 使用 `scripts/deploy_windows.ps1` 安装依赖并做临时启动验证 (需管理员权限)。支持 `-Only install|test` 运行单步。

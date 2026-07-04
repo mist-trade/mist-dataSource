@@ -1,6 +1,6 @@
 """QMT 财务数据 REST API 路由.
 
-对应 QMT SDK: xtquant.xtdata (get_financial_data, download_financial_data, download_financial_data2)
+对应 full-QMT bridge 财务数据命令。
 """
 
 from typing import Any

@@ -12,12 +12,12 @@ from src.datasource.contracts import ResponseEnvelope
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
 
 FIRST_QMT_PARITY_TARGETS = {
-    "bars": {"get_market_data"},
+    "bars": {"get_market_data_ex"},
     "snapshots": {"get_full_tick"},
-    "calendar": {"get_trading_dates"},
-    "securities": {"get_stock_list"},
-    "security-info": {"get_instrument_detail", "get_instrument_type"},
-    "sector-list": {"get_sector_list"},
+    "calendar": {"trading_calendar"},
+    "securities": {"get_stock_list_in_sector"},
+    "security-info": {"instrument_detail"},
+    "sector-list": {"sector_list"},
     "sector-members": {"get_stock_list_in_sector"},
 }
 
@@ -34,8 +34,9 @@ def test_qmt_manifest_records_first_parity_target_set() -> None:
 
     for family, expected_methods in FIRST_QMT_PARITY_TARGETS.items():
         capability = qmt_capabilities[family]
-        assert capability["status"] == "planned"
-        assert capability["unsupportedReason"] is None
+        assert capability["status"] == "unsupported"
+        assert capability["stability"] == "spike-blocked"
+        assert capability["unsupportedReason"] == "Full-QMT bridge Windows spike evidence is required"
         assert expected_methods <= set(capability["nativeMethods"])
         assert capability["providerMethods"]
 
@@ -116,12 +117,13 @@ def test_qmt_alignment_reference_records_current_path_and_first_targets() -> Non
     reference = Path("docs/references/qmt-provider-alignment.md")
     text = reference.read_text(encoding="utf-8")
 
-    assert "First parity target set" in text
+    assert "First Parity Target Set" in text
     for family in FIRST_QMT_PARITY_TARGETS:
         assert f"`{family}`" in text
     assert "`/api/qmt/*`" in text
     assert "`/v1`" in text
-    assert "QMT service startup remains optional" in text
+    assert "QMT live startup remains disabled" in text
+    assert "full-QMT built-in Python script polls the gateway" in text
 
 
 def test_provider_neutral_public_models_do_not_use_tdx_native_field_names() -> None:

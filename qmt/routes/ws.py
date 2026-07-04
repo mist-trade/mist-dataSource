@@ -1,7 +1,7 @@
 """QMT 实时行情 WebSocket 路由.
 
 为 NestJS 后端提供实时行情推送的 WebSocket 接口.
-对应 QMT SDK: xtquant.xtdata (subscribe_quote, subscribe_whole_quote)
+对应 full-QMT bridge 订阅命令。
 
 消息协议:
     客户端发送:
@@ -32,9 +32,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str):
     NestJS 后端连接此端点以接收实时行情推送. 连接建立后保持长连接，
     通过 JSON 消息进行心跳检测和股票订阅管理.
 
-    对应 QMT SDK:
-        - xtdata.subscribe_quote(stock_code, period, callback)
-        - xtdata.unsubscribe_quote(seq)
+    对应 full-QMT bridge 订阅命令；生产订阅实现需等待 Windows spike。
 
     Args:
         websocket: WebSocket 连接实例

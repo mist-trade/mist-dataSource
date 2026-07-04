@@ -213,40 +213,13 @@ if (-not $Only -or $Only -eq "test") {
         }
     }
 
-    # 测试 QMT 实例 (仅在配置了 QMT_SDK_PATH 时)
-    Write-Step "Step 4/4: 测试 QMT 实例启动"
-
-    $qmtSdk = Get-EnvValue $envContent "QMT_SDK_PATH"
-    if (-not $qmtSdk -or $qmtSdk -eq "") {
-        Write-Host "  跳过 QMT 测试 (QMT_SDK_PATH 未配置)" -ForegroundColor Yellow
+    Write-Step "Step 4/4: QMT bridge status"
+    $qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
+    if ($qmtBridgeGatewayUrl) {
+        Write-Host "  QMT bridge gateway configured: $qmtBridgeGatewayUrl" -ForegroundColor Yellow
+        Write-Host "  Live QMT remains disabled until Windows full-QMT spike evidence is captured." -ForegroundColor Yellow
     } else {
-        $qmtTestLog = Join-Path $LogsDir "deploy-test-qmt.log"
-        $qmtTestErr = Join-Path $LogsDir "deploy-test-qmt-err.log"
-        Write-Host "  启动 QMT 实例 (临时, 仅测试)..."
-        $qmtProc = Start-Process -FilePath $venvPython `
-            -ArgumentList "-m", "uvicorn", "qmt.main:app", "--host", "127.0.0.1", "--port", "9002" `
-            -WorkingDirectory $ProjectDir `
-            -RedirectStandardOutput $qmtTestLog `
-            -RedirectStandardError $qmtTestErr `
-            -PassThru -NoNewWindow
-
-        Start-Sleep -Seconds 3
-
-        if ($qmtProc.HasExited) {
-            Write-Fail "QMT 实例启动后立即退出 (exit code: $($qmtProc.ExitCode))"
-            Get-Content $qmtTestErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
-        } else {
-            $qmtOk = Wait-HttpHealth `
-                -Name "QMT" `
-                -Url "http://127.0.0.1:9002/health" `
-                -Attempts 5 `
-                -DelaySeconds 3 `
-                -TimeoutSeconds 5
-            if (-not $qmtOk) {
-                Get-Content $qmtTestErr -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
-            }
-            Stop-ProcessTreeBestEffort -Process $qmtProc
-        }
+        Write-Host "  QMT bridge gateway not configured; QMT provider remains disabled." -ForegroundColor Yellow
     }
 }
 

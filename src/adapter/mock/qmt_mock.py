@@ -10,7 +10,7 @@ from src.adapter.base import MarketDataAdapter
 
 
 class QMTMockAdapter(MarketDataAdapter):
-    """macOS 开发环境 mock，不依赖 xtquant."""
+    """macOS 开发环境 mock，不依赖本地 QMT 客户端。"""
 
     def __init__(self, path: str, account_id: str) -> None:
         self._path = path

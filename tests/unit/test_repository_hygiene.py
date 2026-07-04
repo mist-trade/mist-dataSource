@@ -11,8 +11,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from src.adapter.mock.qmt_mock import QMTMockAdapter
 from src.adapter.mock.tdx_mock import TDXMockAdapter
-from src.adapter.qmt.client import QMTAdapter
 from src.adapter.tdx.client import TDXAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -69,9 +69,6 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
     tdx_client_source = (PROJECT_ROOT / "src" / "adapter" / "tdx" / "client.py").read_text(
         encoding="utf-8"
     )
-    qmt_client_source = (PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py").read_text(
-        encoding="utf-8"
-    )
     tdx_bridge_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_bridge.py").read_text(
         encoding="utf-8"
     )
@@ -85,7 +82,6 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
     assert "ConfigurationError" not in core_init_source
     assert "print(" not in tdx_client_source
     assert "get_logger" in tdx_client_source
-    assert "if list_type == 0" not in qmt_client_source
     assert "def _dedupe_stable" not in tdx_bridge_source
     assert "def _dedupe_normalized" not in tdx_subscription_source
 
@@ -238,12 +234,9 @@ def test_adapter_sdk_error_wrapping_is_centralized() -> None:
         ("src/adapter/tdx/client.py", "_heartbeat_loop"),
         ("src/adapter/tdx/client.py", "initialize"),
         ("src/adapter/tdx/client.py", "_call_tq"),
-        ("src/adapter/qmt/client.py", "initialize"),
-        ("src/adapter/qmt/client.py", "_call_xtdata"),
     }
     adapter_files = (
         PROJECT_ROOT / "src" / "adapter" / "tdx" / "client.py",
-        PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py",
     )
     offenders: list[tuple[str, str]] = []
 
@@ -311,9 +304,9 @@ def test_tdx_adapter_selected_provider_methods_are_typed() -> None:
     )
 
 
-def test_qmt_adapter_selected_provider_methods_are_typed() -> None:
+def test_qmt_mock_adapter_selected_provider_methods_are_typed() -> None:
     _assert_selected_adapter_methods_are_typed(
-        QMTAdapter,
+        QMTMockAdapter,
         (
             "subscribe_quote",
             "get_local_data",

@@ -4,6 +4,7 @@ from src.adapter.base import MarketDataAdapter, QmtDataAdapter, TdxDataAdapter
 from src.adapter.mock.qmt_mock import QMTMockAdapter
 from src.adapter.mock.tdx_mock import TDXMockAdapter
 from src.core.config import settings
+from src.core.exceptions import AdapterError
 
 
 def create_tdx_adapter() -> TdxDataAdapter:
@@ -29,28 +30,24 @@ def create_qmt_adapter(path: str = "", account_id: str = "") -> QmtDataAdapter:
     """根据运行环境创建 QMT 适配器.
 
     Args:
-        path: QMT 客户端路径（仅生产环境需要）
-        account_id: QMT 账户 ID（仅生产环境需要）
+        path: 保留参数，生产环境不再使用本地 SDK 路径
+        account_id: 保留参数，生产环境不再使用账户直连
 
     Returns:
-        QMTAdapter 实例（生产环境）或 QMTMockAdapter（开发环境）
+        QMTMockAdapter（开发环境）。生产 QMT 需走 full-QMT bridge。
 
     Examples:
         >>> adapter = create_qmt_adapter(
-        ...     path="D:\\miniQMT",
+        ...     path="",
         ...     account_id="12345678"
         ... )
         >>> await adapter.initialize()
     """
     if settings.is_production:
-        if not path:
-            path = settings.qmt.path
-        if not account_id:
-            account_id = settings.qmt.account_id
-
-        from src.adapter.qmt.client import QMTAdapter
-
-        return QMTAdapter(path, account_id)
+        raise AdapterError(
+            "Production QMT adapter is disabled until full-QMT bridge spike "
+            "evidence enables the provider."
+        )
     else:
         return QMTMockAdapter(path, account_id)
 

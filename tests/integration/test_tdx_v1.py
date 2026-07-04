@@ -1,4 +1,6 @@
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +12,15 @@ from src.datasource.tdx_http_client import TdxHttpError
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
 from tdx.main import app
 from tdx.routes.v1 import product as tdx_v1_routes
+
+QMT_SPIKE_BLOCKED_DETAILS = json.loads(
+    (
+        Path(__file__).resolve().parents[1]
+        / "fixtures"
+        / "qmt"
+        / "spike_blocked_unsupported_details.json"
+    ).read_text(encoding="utf-8")
+)
 
 
 class FakeTdxProvider:
@@ -698,13 +709,13 @@ async def test_providers_returns_tdx_and_qmt_capability_manifests(
     assert "get_bars" in tdx_capabilities["bars"]["providerMethods"]
     assert "get_market_data" in tdx_capabilities["bars"]["nativeMethods"]
     assert "get_market_data" not in tdx_capabilities["bars"]["providerMethods"]
-    assert "get_market_data" in qmt_capabilities["bars"]["nativeMethods"]
+    assert "get_market_data_ex" in qmt_capabilities["bars"]["nativeMethods"]
     assert "nativeMethods" in tdx_capabilities["raw-diagnostics"]
     assert tdx_families["formula-metadata"] == "supported"
     assert tdx_families["formula-execution"] == "supported"
     assert tdx_families["formula-batch-execution"] == "supported"
     assert tdx_families["formulas"] == "supported"
-    assert qmt_families["bars"] in {"supported", "planned", "unsupported"}
+    assert qmt_families["bars"] == "unsupported"
     assert qmt_families["financial-data"] == "unsupported"
     assert "report-data" not in qmt_families
     assert qmt_families["formula-data"] == "unsupported"
@@ -926,9 +937,10 @@ async def test_qmt_provider_requests_return_capability_unsupported(
     assert body["data"] is None
     assert body["error"]["code"] == "PROVIDER_CAPABILITY_UNSUPPORTED"
     assert body["error"]["retryable"] is False
-    assert body["error"]["details"]["provider"] == "qmt"
+    assert body["error"]["details"]["provider"] == QMT_SPIKE_BLOCKED_DETAILS["provider"]
     assert body["error"]["details"]["family"] == family
     assert body["error"]["details"]["operation"] == operation
+    assert body["error"]["details"]["fallback"] == QMT_SPIKE_BLOCKED_DETAILS["fallback"]
 
 
 @pytest.mark.asyncio

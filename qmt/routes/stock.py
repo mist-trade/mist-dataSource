@@ -1,6 +1,6 @@
 """QMT 合约信息 REST API 路由.
 
-对应 QMT SDK: xtquant.xtdata (get_instrument_detail, get_instrument_type)
+对应 full-QMT bridge 合约信息命令。
 """
 
 from typing import Any
