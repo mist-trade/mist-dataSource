@@ -66,6 +66,14 @@ def test_builtin_bridge_polling_uses_run_time_not_market_event_callbacks() -> No
     assert "subscribe_quote" not in source
 
 
+def test_builtin_bridge_run_time_starts_from_current_time_for_after_hours_smoke() -> None:
+    source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+
+    assert '"2026-01-01 09:30:00"' not in source
+    assert 'start_time = time.strftime("%Y-%m-%d %H:%M:%S")' in source
+    assert 'ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", start_time)' in source
+
+
 def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
     bridge_source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
     spike_source = SPIKE_SCRIPT.read_text(encoding="utf-8")

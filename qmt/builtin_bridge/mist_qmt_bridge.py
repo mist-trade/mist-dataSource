@@ -65,7 +65,9 @@ STATE.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 def init(ContextInfo: BridgeContextInfo) -> None:
     """QMT entrypoint."""
     try:
-        ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", "2026-01-01 09:30:00")
+        start_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        STATE.started_at = start_time
+        ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", start_time)
     except Exception:
         STATE.last_error = traceback.format_exc()
 
