@@ -65,7 +65,7 @@ def handlebar(ContextInfo):
 def mist_qmt_spike_tick(ContextInfo):
     _record_run_time_tick()
     if not STATE.websocket_probe_done:
-        STATE.results["websocketDuplex"] = _probe_websocket_duplex()
+        STATE.results["websocketDuplex"] = _websocket_duplex_result()
         STATE.websocket_probe_done = True
     _write_results(STATE.results)
     if STATE.run_time_ticks <= 5 or STATE.run_time_ticks % 30 == 0:
@@ -244,6 +244,22 @@ def _probe_websocket_duplex():
         or results["stdlibRawWebSocket"].get("ok", False)
     )
     return results
+
+
+def _websocket_duplex_result():
+    command_loop = STATE.results.get("websocketCommandLoop", {})
+    if command_loop.get("ok", False):
+        return {
+            "ok": True,
+            "skipped": True,
+            "phase": "covered-by-websocketCommandLoop",
+            "reason": (
+                "The bounded single-thread WebSocket command loop already "
+                "proved bidirectional command/result exchange; legacy ping/pong "
+                "probe is skipped to avoid single-owner gateway conflicts."
+            ),
+        }
+    return _probe_websocket_duplex()
 
 
 def _probe_websocket_client_package():
