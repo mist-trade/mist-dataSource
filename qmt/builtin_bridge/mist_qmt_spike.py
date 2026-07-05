@@ -28,7 +28,7 @@ class SpikeState:
 
 
 STATE = SpikeState()
-STATE.output_path = "mist_qmt_spike_output.json"
+STATE.output_path = r"C:\Temp\mist_qmt_spike_output.json"
 STATE.results = {}
 STATE.run_time_ticks = 0
 STATE.first_tick_at = ""
@@ -135,6 +135,17 @@ def _probe_network():
         results["outboundLocalHttp"] = {"ok": True, "error": ""}
     except Exception as exc:
         results["outboundLocalHttp"] = {"ok": False, "error": str(exc)}
+
+    try:
+        requests = importlib.import_module("requests")
+        response = requests.get("http://127.0.0.1:9012/qmt/bridge/health", timeout=1)
+        results["requestsLocalHttp"] = {
+            "ok": 200 <= response.status_code < 300,
+            "statusCode": response.status_code,
+            "error": "",
+        }
+    except Exception as exc:
+        results["requestsLocalHttp"] = {"ok": False, "error": str(exc)}
 
     listener = None
     try:
@@ -561,6 +572,9 @@ def _json_safe(value):
 
 def _write_results(results):
     try:
+        output_dir = os.path.dirname(STATE.output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         with open(STATE.output_path, "w") as output:
             output.write(json.dumps(results, sort_keys=True, indent=2))
     except Exception as exc:
