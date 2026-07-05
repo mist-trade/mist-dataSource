@@ -268,6 +268,20 @@ Windows 服务名为 `mist-tdx-datasource`，由 WinSW 管理：
 .\scripts\winsw\test-tdx-datasource.ps1
 ```
 
+### QMT WinSW 服务路径
+
+QMT datasource 独立运行在 `http://127.0.0.1:9002`，Windows 服务名为
+`mist-qmt-datasource`，同样由 WinSW 管理：
+
+```powershell
+.\scripts\winsw\install-qmt-datasource.ps1 -WinSWExe D:\tools\winsw\winsw.exe
+.\scripts\winsw\test-qmt-datasource.ps1
+```
+
+这个服务只负责启动 `qmt.main:app`、native `/v1/bars/query` 和 HTTP polling
+bridge gateway。大 QMT 内置 Python 策略脚本不由 WinSW 或部署脚本加载、注册或
+删除；需要时仍在大 QMT 客户端 UI 中手动处理。
+
 迁移期间，Mist backend 的 `TDX_BASE_URL` 默认仍保持：
 
 ```env
@@ -353,7 +367,8 @@ bridge 脚本只允许 stdlib HTTP polling；不得在 bridge 生产脚本中使
 ```
 
 `deploy_windows.ps1` 只负责依赖安装和临时启动验证；Mist Windows appliance
-不再依赖 NSSM，也不会通过 datasource 仓库注册 QMT 服务。
+不再依赖 NSSM。生产服务注册由 TDX/QMT 各自的 WinSW installer 负责，QMT 策略
+脚本的加载、注册和删除仍保持人工操作。
 
 ```powershell
 # 完整验证（安装依赖 + 运行测试）

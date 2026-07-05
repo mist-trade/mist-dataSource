@@ -61,6 +61,8 @@ $deployWindows = Get-Content (Join-Path $ProjectDir "scripts\deploy_windows.ps1"
 $runtimeChecks = Get-Content (Join-Path $ProjectDir "scripts\run-runtime-checks.ps1") -Raw
 $tdxWinswInstall = Get-Content (Join-Path $ProjectDir "scripts\winsw\install-tdx-datasource.ps1") -Raw
 $tdxWinswSmoke = Get-Content (Join-Path $ProjectDir "scripts\winsw\test-tdx-datasource.ps1") -Raw
+$qmtWinswInstall = Get-Content (Join-Path $ProjectDir "scripts\winsw\install-qmt-datasource.ps1") -Raw
+$qmtWinswSmoke = Get-Content (Join-Path $ProjectDir "scripts\winsw\test-qmt-datasource.ps1") -Raw
 Assert-Match "default TDX SDK path" $windowsEnvExample "TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user"
 Assert-Match "default QMT bridge gateway" $windowsEnvExample "QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9002/qmt/bridge"
 Assert-Match "TDX comment points SDK path to user directory" $windowsEnvExample "TDX_SDK_PATH points to the user directory that contains tqcenter.py."
@@ -98,9 +100,28 @@ Assert-Match "TDX WinSW installer accepts started-successfully output" $tdxWinsw
 Assert-Match "TDX WinSW installer clears native exit code after success" $tdxWinswInstall '$global:LASTEXITCODE = 0'
 Assert-Match "TDX WinSW installer resolves packaged uv" $tdxWinswInstall "Resolve-UvExe"
 Assert-Match "TDX WinSW installer default executable can be resolved" $tdxWinswInstall 'if (-not $Executable)'
+Assert-Match "QMT WinSW installer starts qmt app" $qmtWinswInstall "qmt.main:app"
+Assert-Match "QMT WinSW installer defaults port 9002" $qmtWinswInstall '[int]$DatasourcePort = 9002'
+Assert-Match "QMT WinSW installer uses distinct service" $qmtWinswInstall 'mist-qmt-datasource'
+Assert-Match "QMT WinSW installer resolves packaged uv" $qmtWinswInstall "Resolve-UvExe"
+Assert-Match "QMT WinSW installer explains manual strategy registration" $qmtWinswInstall "manual"
+foreach ($forbidden in @("TDX_SDK_PATH", "tqcenter.py", "mist_datasource.py")) {
+    if ($qmtWinswInstall -match [regex]::Escape($forbidden)) {
+        throw "QMT WinSW installer must not manage TDX SDK or strategy identity: $forbidden"
+    }
+}
+Write-Host "  [PASS] QMT WinSW installer avoids strategy and TDX SDK management" -ForegroundColor Green
 Assert-Match "TDX WinSW smoke uses supported market data method" $tdxWinswSmoke "get_market_data"
 Assert-Match "TDX WinSW smoke uses read-only websocket ping" $tdxWinswSmoke '"type" = "ping"'
 Assert-Match "TDX WinSW smoke preserves dotted symbols for TDX HTTP" $tdxWinswSmoke "ConvertTo-TdxHttpSymbol"
+Assert-Match "QMT WinSW smoke checks health" $qmtWinswSmoke "/health"
+Assert-Match "QMT WinSW smoke checks bridge health" $qmtWinswSmoke "/qmt/bridge/health"
+Assert-Match "QMT WinSW smoke checks bridge owner field" $qmtWinswSmoke "ownerId"
+Assert-Match "QMT WinSW smoke does not use websocket" $qmtWinswSmoke "HTTP polling bridge"
+if ($qmtWinswSmoke -match [regex]::Escape('/ws/quote')) {
+    throw "QMT WinSW smoke must not use WebSocket routes."
+}
+Write-Host "  [PASS] QMT WinSW smoke stays HTTP-only" -ForegroundColor Green
 if ($tdxWinswSmoke -match [regex]::Escape('method = "ping"')) {
     throw "TDX WinSW smoke must not call unsupported raw ping."
 }
