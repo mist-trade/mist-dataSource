@@ -1,9 +1,14 @@
 """Integration tests for the full-QMT HTTP polling command bridge route surface."""
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 
 import qmt.main
 from src.datasource.qmt.command_gateway import QmtCommandGateway
+
+BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 @pytest.mark.asyncio
@@ -106,6 +111,46 @@ async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
     assert result_response.status_code == 200
     assert result_response.json()["ok"] is True
     assert result_response.json()["result"] == {"marketData": {}}
+
+
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_rejects_realtime_command_outside_trading_session(qmt_client):
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_bridge_now = lambda: datetime(2026, 7, 6, 20, 0, tzinfo=BEIJING)
+
+    response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={
+            "method": "get_full_tick",
+            "params": {"symbols": ["000001.SZ"]},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "QMT_REALTIME_OUTSIDE_TRADING_SESSION"
+    assert gateway.health()["pendingCount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_allows_historical_command_outside_trading_session(qmt_client):
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_bridge_now = lambda: datetime(2026, 7, 6, 20, 0, tzinfo=BEIJING)
+
+    response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={
+            "method": "get_market_data_ex",
+            "params": {"stock_list": ["000001.SZ"], "period": "1d", "count": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["method"] == "get_market_data_ex"
+    assert gateway.health()["pendingCount"] == 1
 
 
 @pytest.mark.asyncio

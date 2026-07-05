@@ -1,6 +1,8 @@
 """Full-QMT command bridge routes."""
 
+from datetime import datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,6 +13,9 @@ from src.datasource.qmt.command_gateway import (
 )
 
 router = APIRouter()
+
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+REALTIME_COMMAND_METHODS = {"get_full_tick"}
 
 
 class BridgeModel(BaseModel):
@@ -58,9 +63,39 @@ def get_gateway(request: Request) -> QmtCommandGateway:
     return _get_gateway_from_state(request.app.state)
 
 
+def _bridge_now(request: Request) -> datetime:
+    clock = getattr(request.app.state, "qmt_bridge_now", None)
+    now_value = clock() if callable(clock) else datetime.now(BEIJING_TZ)
+    if now_value.tzinfo is None:
+        return now_value.replace(tzinfo=BEIJING_TZ)
+    return now_value.astimezone(BEIJING_TZ)
+
+
+def _is_a_share_trading_session(now: datetime) -> bool:
+    if now.weekday() >= 5:
+        return False
+    hhmm = now.hour * 100 + now.minute
+    return (930 <= hhmm <= 1130) or (1300 <= hhmm <= 1500)
+
+
 @router.post("/commands")
 async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
+    if payload.method in REALTIME_COMMAND_METHODS:
+        now = _bridge_now(request)
+        if not _is_a_share_trading_session(now):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "QMT_REALTIME_OUTSIDE_TRADING_SESSION",
+                    "message": "QMT realtime bridge command is outside A-share trading session",
+                    "retryable": True,
+                    "details": {
+                        "method": payload.method,
+                        "beijingTime": now.isoformat(),
+                    },
+                },
+            )
     command = gateway.enqueue(
         payload.method,
         payload.params,
