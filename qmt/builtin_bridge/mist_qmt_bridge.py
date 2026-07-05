@@ -7,16 +7,13 @@ socket listeners. The external Mist datasource owns concurrency; this script
 polls one local command gateway and executes commands serially.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import time
 import traceback
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, cast
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -83,13 +80,13 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
             {"ownerId": STATE.owner_id, "limit": 1},
         )
         commands_value = poll_payload.get("commands", [])
-        commands: list[Any] = (
-            cast(list[Any], commands_value) if isinstance(commands_value, list) else []
+        commands = (
+            cast(List[Any], commands_value) if isinstance(commands_value, list) else []
         )
         for command_value in commands:
             if not isinstance(command_value, dict):
                 continue
-            command = cast(dict[str, Any], command_value)
+            command = cast(Dict[str, Any], command_value)
             result = _execute_command(ContextInfo, command)
             _post_json(
                 STATE.gateway_url + "/result",
@@ -105,7 +102,7 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
         STATE.last_error = traceback.format_exc()
 
 
-def _register_owner() -> dict[str, Any]:
+def _register_owner() -> Dict[str, Any]:
     return _post_json(
         STATE.gateway_url + "/owner",
         {
@@ -116,7 +113,7 @@ def _register_owner() -> dict[str, Any]:
     )
 
 
-def _post_json(url: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+def _post_json(url: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -130,7 +127,7 @@ def _post_json(url: str, payload: Mapping[str, Any]) -> dict[str, Any]:
             return {}
         parsed = json.loads(response_body)
         if isinstance(parsed, dict):
-            return cast(dict[str, Any], parsed)
+            return cast(Dict[str, Any], parsed)
         return {
             "ok": False,
             "error": {
@@ -152,12 +149,12 @@ def _post_json(url: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         }
 
 
-def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any]) -> dict[str, Any]:
+def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any]) -> Dict[str, Any]:
     method = str(command.get("method", ""))
     params_value = command.get("params", {})
-    params: dict[str, Any] = {}
+    params = {}  # type: Dict[str, Any]
     if isinstance(params_value, dict):
-        params = cast(dict[str, Any], params_value)
+        params = cast(Dict[str, Any], params_value)
     try:
         if method == "health":
             return {
@@ -216,13 +213,13 @@ def _json_safe(value: Any) -> Any:
     if callable(to_dict):
         return to_dict()
     if isinstance(value, dict):
-        result: dict[str, Any] = {}
+        result = {}  # type: Dict[str, Any]
         mapping = cast(Mapping[Any, Any], value)
         for key, item in mapping.items():
             result[str(key)] = _json_safe(item)
         return result
     if isinstance(value, (list, tuple)):
-        sequence = cast(list[Any] | tuple[Any, ...], value)
+        sequence = cast(Any, value)
         return [_json_safe(item) for item in sequence]
     try:
         json.dumps(value)

@@ -96,6 +96,24 @@ def test_spike_script_records_run_time_without_websocket_probe() -> None:
     assert "spike-command-loop" not in source
 
 
+def test_qmt_builtin_scripts_are_python36_compatible() -> None:
+    forbidden_tokens = (
+        "from __future__ import annotations",
+        "dict[",
+        "list[",
+        "tuple[",
+        " | ",
+    )
+    violations: list[str] = []
+    for path in (BRIDGE_SCRIPT, SPIKE_SCRIPT):
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            if token in source:
+                violations.append(f"{path.relative_to(PROJECT_ROOT)} contains {token}")
+
+    assert violations == []
+
+
 def test_spike_output_defaults_under_datasource_logs_not_c_temp() -> None:
     source = SPIKE_SCRIPT.read_text(encoding="utf-8")
     windows_env = ENV_WINDOWS_EXAMPLE.read_text(encoding="utf-8")

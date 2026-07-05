@@ -6,8 +6,6 @@ provider support. It intentionally probes imports and runtime features that the
 production bridge is forbidden to use.
 """
 
-from __future__ import annotations
-
 import importlib
 import json
 import multiprocessing
@@ -20,8 +18,7 @@ import threading
 import time
 import traceback
 import urllib.request
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, cast
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -51,11 +48,11 @@ else:
 class SpikeState:
     output_path: str
     gateway_url: str
-    results: dict[str, Any]
+    results: Dict[str, Any]
     run_time_ticks: int
     first_tick_at: str
     last_tick_at: str
-    run_time_schedule: dict[str, Any]
+    run_time_schedule: Dict[str, Any]
 
 
 DEFAULT_DATASOURCE_ROOT = r"F:\quant\MistAPI\datasource"
@@ -106,7 +103,7 @@ def mist_qmt_spike_tick(ContextInfo: SpikeContextInfo) -> None:
 
 
 def run_spike(ContextInfo: SpikeContextInfo, phase: str) -> None:
-    results: dict[str, Any] = {
+    results = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "phase": phase,
         "pythonVersion": sys.version,
@@ -123,7 +120,7 @@ def run_spike(ContextInfo: SpikeContextInfo, phase: str) -> None:
     print(json.dumps(results, sort_keys=True))
 
 
-def _probe_imports() -> dict[str, Any]:
+def _probe_imports() -> Dict[str, Any]:
     names = [
         "json",
         "urllib",
@@ -132,7 +129,7 @@ def _probe_imports() -> dict[str, Any]:
         "sqlite3",
         "requests",
     ]
-    results: dict[str, Any] = {}
+    results = {}  # type: Dict[str, Any]
     for name in names:
         try:
             importlib.import_module(name)
@@ -142,7 +139,7 @@ def _probe_imports() -> dict[str, Any]:
     return results
 
 
-def _probe_sqlite() -> dict[str, Any]:
+def _probe_sqlite() -> Dict[str, Any]:
     try:
         connection = sqlite3.connect(":memory:")
         connection.execute("select 1")
@@ -152,8 +149,8 @@ def _probe_sqlite() -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
-def _probe_network() -> dict[str, Any]:
-    results: dict[str, Any] = {}
+def _probe_network() -> Dict[str, Any]:
+    results = {}  # type: Dict[str, Any]
     try:
         urllib.request.urlopen(STATE.gateway_url + "/health", timeout=1).read()
         results["outboundLocalHttp"] = {"ok": True, "error": ""}
@@ -185,13 +182,13 @@ def _probe_network() -> dict[str, Any]:
     return results
 
 
-def _probe_process_model() -> dict[str, Any]:
-    results: dict[str, Any] = {
+def _probe_process_model() -> Dict[str, Any]:
+    results = {
         "mainThread": str(threading.current_thread()),
         "activeThreadCount": threading.active_count(),
     }
     try:
-        thread_result: list[int] = []
+        thread_result = []  # type: List[int]
 
         def target() -> None:
             thread_result.append(os.getpid())
@@ -238,7 +235,7 @@ def _record_run_time_tick() -> None:
     STATE.results["runTime"] = _run_time_result()
 
 
-def _run_time_result() -> dict[str, Any]:
+def _run_time_result() -> Dict[str, Any]:
     return {
         "schedule": STATE.run_time_schedule,
         "tickCount": STATE.run_time_ticks,
@@ -256,8 +253,8 @@ def _outside_trading_window_hint() -> bool:
     return not ((930 <= hhmm <= 1130) or (1300 <= hhmm <= 1500))
 
 
-def _probe_native_api(ContextInfo: SpikeContextInfo) -> dict[str, Any]:
-    results: dict[str, Any] = {}
+def _probe_native_api(ContextInfo: SpikeContextInfo) -> Dict[str, Any]:
+    results = {}  # type: Dict[str, Any]
     try:
         results["stock"] = {
             "ok": True,
@@ -288,13 +285,13 @@ def _json_safe(value: Any) -> Any:
     if callable(to_dict):
         return to_dict()
     if isinstance(value, dict):
-        result: dict[str, Any] = {}
+        result = {}  # type: Dict[str, Any]
         mapping = cast(Mapping[Any, Any], value)
         for key, item in mapping.items():
             result[str(key)] = _json_safe(item)
         return result
     if isinstance(value, (list, tuple)):
-        sequence = cast(list[Any] | tuple[Any, ...], value)
+        sequence = cast(Any, value)
         return [_json_safe(item) for item in sequence]
     try:
         json.dumps(value)
