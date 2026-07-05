@@ -84,6 +84,19 @@ def test_builtin_bridge_prints_low_frequency_tick_heartbeat_for_qmt_ui() -> None
     assert "STATE.tick_count % 30 == 0" in source
 
 
+def test_builtin_bridge_logs_qmt_function_calls_for_qmt_ui() -> None:
+    source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "mist_qmt_bridge command" in source
+    assert "mist_qmt_bridge call_start" in source
+    assert "mist_qmt_bridge call_ok" in source
+    assert "mist_qmt_bridge call_error" in source
+    assert "_log_command(command)" in source
+    assert '_log_call_start("get_market_data_ex"' in source
+    assert '_log_call_start("get_full_tick"' in source
+    assert '_log_call_start("get_stock_list_in_sector"' in source
+
+
 def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
     bridge_source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
     spike_source = SPIKE_SCRIPT.read_text(encoding="utf-8")

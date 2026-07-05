@@ -102,6 +102,7 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
             if not isinstance(command_value, dict):
                 continue
             command = cast(Dict[str, Any], command_value)
+            _log_command(command)
             result = _execute_command(ContextInfo, command)
             _post_json(
                 STATE.gateway_url + "/result",
@@ -143,6 +144,48 @@ def _log_tick(command_count: int) -> None:
             + " lastError="
             + STATE.last_error[:200]
         )
+
+
+def _log_command(command: Mapping[str, Any]) -> None:
+    print(
+        "mist_qmt_bridge command commandId="
+        + str(command.get("commandId", ""))
+        + " method="
+        + str(command.get("method", ""))
+        + " params="
+        + _short_json(command.get("params", {}))
+    )
+
+
+def _log_call_start(method: str, command: Mapping[str, Any], params: Mapping[str, Any]) -> None:
+    print(
+        "mist_qmt_bridge call_start commandId="
+        + str(command.get("commandId", ""))
+        + " method="
+        + method
+        + " params="
+        + _short_json(params)
+    )
+
+
+def _log_call_ok(method: str, command: Mapping[str, Any]) -> None:
+    print(
+        "mist_qmt_bridge call_ok commandId="
+        + str(command.get("commandId", ""))
+        + " method="
+        + method
+    )
+
+
+def _log_call_error(method: str, command: Mapping[str, Any], error: Any) -> None:
+    print(
+        "mist_qmt_bridge call_error commandId="
+        + str(command.get("commandId", ""))
+        + " method="
+        + method
+        + " error="
+        + str(error)[:300]
+    )
 
 
 def _post_json(url: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -199,6 +242,7 @@ def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any])
                 },
             }
         if method == "get_market_data_ex":
+            _log_call_start("get_market_data_ex", command, params)
             data = ContextInfo.get_market_data_ex(
                 params.get("fields", []),
                 params.get("stock_list", []),
@@ -210,14 +254,19 @@ def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any])
                 fill_data=params.get("fill_data", True),
                 subscribe=False,
             )
+            _log_call_ok("get_market_data_ex", command)
             return {"ok": True, "result": _json_safe(data)}
         if method == "get_full_tick":
+            _log_call_start("get_full_tick", command, params)
             data = ContextInfo.get_full_tick(params.get("symbols", []))
+            _log_call_ok("get_full_tick", command)
             return {"ok": True, "result": _json_safe(data)}
         if method == "get_stock_list_in_sector":
+            _log_call_start("get_stock_list_in_sector", command, params)
             data = ContextInfo.get_stock_list_in_sector(
                 params.get("sector", "\u6caa\u6df1A\u80a1")
             )
+            _log_call_ok("get_stock_list_in_sector", command)
             return {"ok": True, "result": _json_safe(data)}
         return {
             "ok": False,
@@ -229,6 +278,7 @@ def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any])
             },
         }
     except Exception as exc:
+        _log_call_error(method, command, exc)
         return {
             "ok": False,
             "error": {
@@ -258,3 +308,13 @@ def _json_safe(value: Any) -> Any:
         return value
     except TypeError:
         return str(value)
+
+
+def _short_json(value: Any) -> str:
+    try:
+        text = json.dumps(_json_safe(value), sort_keys=True)
+    except Exception:
+        text = str(value)
+    if len(text) > 300:
+        return text[:300] + "..."
+    return text
