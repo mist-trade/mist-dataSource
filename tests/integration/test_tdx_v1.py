@@ -709,13 +709,15 @@ async def test_providers_returns_tdx_and_qmt_capability_manifests(
     assert "get_bars" in tdx_capabilities["bars"]["providerMethods"]
     assert "get_market_data" in tdx_capabilities["bars"]["nativeMethods"]
     assert "get_market_data" not in tdx_capabilities["bars"]["providerMethods"]
-    assert "get_market_data_ex" in qmt_capabilities["bars"]["nativeMethods"]
+    assert {"local_dat:1d", "local_dat:1m", "local_dat:5m"} <= set(
+        qmt_capabilities["bars"]["nativeMethods"]
+    )
     assert "nativeMethods" in tdx_capabilities["raw-diagnostics"]
     assert tdx_families["formula-metadata"] == "supported"
     assert tdx_families["formula-execution"] == "supported"
     assert tdx_families["formula-batch-execution"] == "supported"
     assert tdx_families["formulas"] == "supported"
-    assert qmt_families["bars"] == "unsupported"
+    assert qmt_families["bars"] == "supported"
     assert qmt_families["financial-data"] == "unsupported"
     assert "report-data" not in qmt_families
     assert qmt_families["formula-data"] == "unsupported"
@@ -990,6 +992,53 @@ async def test_bars_query_passes_fields_and_adjustment_options(v1_client: AsyncC
             "fillData": False,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_qmt_bars_query_reads_local_dat_envelope(
+    v1_client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    import struct
+
+    from src.datasource.contracts import BEIJING_TZ
+    from src.datasource.qmt.local_dat import QmtLocalDatReader
+    from src.datasource.qmt_provider import QmtDatasourceProvider
+
+    code_dir = tmp_path / "SZ" / "86400"
+    code_dir.mkdir(parents=True)
+    timestamp = int(datetime(2026, 7, 1, tzinfo=BEIJING_TZ).timestamp())
+    with (code_dir / "000001.DAT").open("wb") as handle:
+        handle.write(b"QMTDAT00")
+        handle.write(struct.pack("<IIIIIIII", timestamp, 10000, 11000, 9900, 10500, 0, 123, 1))
+        handle.write(struct.pack("<IIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0))
+
+    previous_qmt_provider = getattr(app.state, "qmt_provider", None)
+    app.state.qmt_provider = QmtDatasourceProvider(
+        local_dat_reader=QmtLocalDatReader(
+            data_dir=tmp_path,
+            enabled=True,
+            now=lambda: datetime(2026, 7, 5, 17, 0, tzinfo=BEIJING_TZ),
+            stability_wait_ms=0,
+        )
+    )
+    try:
+        response = await v1_client.post(
+            "/v1/bars/query",
+            json={"provider": "qmt", "symbols": ["000001.SZ"], "period": "1d", "count": 1},
+        )
+    finally:
+        app.state.qmt_provider = previous_qmt_provider
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["provider"] == "qmt"
+    assert body["data"]["bars"][0]["symbol"] == "000001.SZ"
+    assert body["data"]["bars"][0]["barTime"] == "2026-07-01T00:00:00+08:00"
+    assert body["data"]["bars"][0]["open"] == 10.0
+    assert body["data"]["bars"][0]["volume"] == 12300.0
+    assert body["data"]["bars"][0]["provider"] == "qmt"
 
 
 @pytest.mark.asyncio

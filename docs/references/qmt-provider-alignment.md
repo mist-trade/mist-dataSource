@@ -42,7 +42,7 @@ evidence validates the runtime.
 
 | Capability family | Full-QMT method candidates | Target `/v1` contract | Status |
 | --- | --- | --- | --- |
-| `bars` | `get_market_data_ex`; optional configured local DAT reader for historical bars only | `/v1/bars/query` | Spike-blocked until native shape and DAT read behavior are captured. |
+| `bars` | configured local DAT reader for historical `1d`/`1m`/`5m`; bridge-backed native bars later | `/v1/bars/query` | Supported for configured local DAT historical bars; bridge-native bars remain spike-gated. |
 | `snapshots` | `get_full_tick` | `/v1/snapshots/query` | Spike-blocked until native shape is captured. |
 | `calendar` | trading calendar functions from built-in docs | `/v1/calendar/trading-dates/query` | Spike-blocked until native shape is captured. |
 | `securities` | sector/list functions from built-in docs | `/v1/securities/query` | Spike-blocked until mapping is verified. |
@@ -82,10 +82,10 @@ fire outside trading hours before production can depend on it.
 
 ## Local DAT Bars Fast Path
 
-Full-QMT historical downloads can be read from the local `datadir` as an
-optional bars-only fast path. This path is not a bridge replacement. It is only
-for historical `/v1/bars/query` responses after the operator has explicitly
-configured the full-QMT data directory.
+Full-QMT historical downloads can be read from the local `datadir` as a
+bars-only fast path for `1d`, `1m`, and `5m`. This path is not a bridge
+replacement. It is only for historical `/v1/bars/query` responses after the
+operator has explicitly configured the full-QMT data directory.
 
 Default safeguards:
 
@@ -94,8 +94,7 @@ Default safeguards:
 3. `QMT_LOCAL_DAT_BLOCK_AFTER` defaults to `18:00` China time so reads avoid
    the operator's evening update job.
 4. `QMT_LOCAL_DAT_ON_BLOCK` chooses `retryable_error`, `fallback_bridge`, or
-   `allow`; the default should be conservative until Windows evidence is
-   captured.
+   `allow`; the default is `fallback_bridge`.
 5. The reader must stat the file before and after a short wait. If size or
    modification time changes, the file is treated as unstable and is not
    parsed.
@@ -106,7 +105,8 @@ and `provider=qmt`. Non-bars provider families must not use DAT files.
 
 Third-party packages, local port listening, threads, processes, subprocesses,
 and QMT editor separate-process execution remain outside the default production
-bridge unless separate evidence and design work approves them.
+bridge unless separate Windows evidence proves them safe and follow-up design
+work approves them.
 
 ## Verification Owners
 

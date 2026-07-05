@@ -218,7 +218,7 @@ TDX_PROVIDER_METHODS: dict[str, list[str]] = {
 QMT_SPIKE_BLOCKED_REASON = "Full-QMT bridge Windows spike evidence is required"
 
 QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str | None]] = {
-    "bars": ("unsupported", "spike-blocked", ["get_market_data_ex"], QMT_SPIKE_BLOCKED_REASON),
+    "bars": ("supported", "local-dat", ["local_dat:1d", "local_dat:1m", "local_dat:5m"], None),
     "snapshots": ("unsupported", "spike-blocked", ["get_full_tick"], QMT_SPIKE_BLOCKED_REASON),
     "price-volume": ("unsupported", "planned", [], "QMT price-volume mapping is not verified"),
     "benchmarks": ("unsupported", "planned", [], "QMT benchmark mapping is not verified"),

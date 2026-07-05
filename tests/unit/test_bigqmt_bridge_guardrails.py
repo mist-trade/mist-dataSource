@@ -7,11 +7,14 @@ SPIKE_SCRIPT = PROJECT_ROOT / "qmt" / "builtin_bridge" / "mist_qmt_spike.py"
 README = PROJECT_ROOT / "README.md"
 QMT_ALIGNMENT = PROJECT_ROOT / "docs" / "references" / "qmt-provider-alignment.md"
 QMT_CLIENT = PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py"
-ENV_EXAMPLE = PROJECT_ROOT / ".env.windows.example"
+ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
+ENV_WINDOWS_EXAMPLE = PROJECT_ROOT / ".env.windows.example"
+V1_PRODUCT_ROUTES = PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py"
+QMT_LOCAL_DAT_READER = PROJECT_ROOT / "src" / "datasource" / "qmt" / "local_dat.py"
 
 
 def test_qmt_production_docs_do_not_recommend_miniqmt_or_xtquant() -> None:
-    scanned_files = [README, QMT_ALIGNMENT, ENV_EXAMPLE]
+    scanned_files = [README, QMT_ALIGNMENT, ENV_EXAMPLE, ENV_WINDOWS_EXAMPLE]
     forbidden = (
         "miniQMT",
         "MiniQMT",
@@ -107,6 +110,42 @@ def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() 
             for method_name in forbidden_method_names:
                 if method_name in text:
                     violations.append(f"{path.relative_to(PROJECT_ROOT)} contains {method_name}")
+
+    assert violations == []
+
+
+def test_qmt_local_dat_binary_parsing_stays_out_of_v1_routes() -> None:
+    source = V1_PRODUCT_ROUTES.read_text(encoding="utf-8")
+
+    forbidden_route_tokens = {
+        "QmtLocalDatReader",
+        "struct.",
+        "read_bytes",
+        ".DAT",
+        "86400",
+        "userdata_mini",
+    }
+    violations = [
+        token
+        for token in forbidden_route_tokens
+        if token in source
+    ]
+
+    assert violations == []
+    assert "QmtDatasourceProvider" in source
+
+
+def test_qmt_local_dat_reader_has_no_legacy_qmt_runtime_dependencies() -> None:
+    source = QMT_LOCAL_DAT_READER.read_text(encoding="utf-8")
+    forbidden = {
+        "miniQMT",
+        "MiniQMT",
+        "userdata_mini",
+        "xtquant",
+        "XtQuant",
+        "QMT_SDK_PATH",
+    }
+    violations = [token for token in forbidden if token in source]
 
     assert violations == []
 

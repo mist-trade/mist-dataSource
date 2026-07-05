@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.datasource.capabilities import ProviderCapabilityUnsupported, build_provider_manifests
 from src.datasource.contracts import BEIJING_TZ, DatasourceError, ResponseEnvelope, ResponseMeta
+from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.datasource.tdx_http_client import TdxHttpError
 from src.datasource.tdx_models import (
     RawTdxCallRequest,
@@ -78,6 +79,13 @@ def _payload_alias(payload: BaseModel) -> dict[str, Any]:
 
 def _get_provider(request: Request) -> TdxDatasourceProvider | None:
     return get_tdx_provider(request)
+
+
+def _get_qmt_provider(request: Request) -> QmtDatasourceProvider | None:
+    provider = getattr(request.app.state, "qmt_provider", None)
+    if isinstance(provider, QmtDatasourceProvider):
+        return provider
+    return None
 
 
 def _request_id(request: Request) -> str:
@@ -204,7 +212,40 @@ async def _call_provider(
     provider_id: str = "tdx",
     capability_family: str,
     operation_name: str,
+    qmt_operation: Callable[[QmtDatasourceProvider], Awaitable[Any]] | None = None,
 ) -> ResponseEnvelope:
+    if provider_id == "qmt":
+        if qmt_operation is None:
+            return _failure(
+                request,
+                ProviderCapabilityUnsupported(
+                    provider=provider_id,
+                    family=capability_family,
+                    operation=operation_name,
+                    fallback=(
+                        "Use provider 'tdx' or complete full-QMT bridge Windows spike "
+                        "evidence before enabling provider 'qmt'."
+                    ),
+                ),
+                provider=provider_id,
+            )
+
+        qmt_provider = _get_qmt_provider(request)
+        if qmt_provider is None:
+            return ResponseEnvelope.failure(
+                request_id=_request_id(request),
+                provider=provider_id,
+                error=_provider_unavailable(provider_id),
+                meta=_meta(),
+            )
+
+        try:
+            return _success(request, await qmt_operation(qmt_provider), provider=provider_id)
+        except TdxHttpError as exc:
+            return _failure(request, exc, provider=provider_id)
+        except Exception as exc:
+            return _failure(request, exc, provider=provider_id)
+
     if provider_id != "tdx":
         return _failure(
             request,
@@ -267,6 +308,19 @@ async def query_bars(payload: TdxBarQueryRequest, request: Request):
         provider_id=payload.provider,
         capability_family="bars",
         operation_name="bars/query",
+        qmt_operation=lambda provider: _wrap(
+            "bars",
+            provider.get_bars(
+                payload.symbols,
+                period=payload.period,
+                start_time=payload.start_time,
+                end_time=payload.end_time,
+                count=payload.count,
+                fields=payload.fields,
+                dividend_type=payload.dividend_type,
+                fill_data=payload.fill_data,
+            ),
+        ),
     )
 
 

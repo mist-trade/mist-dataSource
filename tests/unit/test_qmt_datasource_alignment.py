@@ -12,7 +12,6 @@ from src.datasource.contracts import ResponseEnvelope
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
 
 FIRST_QMT_PARITY_TARGETS = {
-    "bars": {"get_market_data_ex"},
     "snapshots": {"get_full_tick"},
     "calendar": {"trading_calendar"},
     "securities": {"get_stock_list_in_sector"},
@@ -31,6 +30,12 @@ def test_qmt_manifest_records_first_parity_target_set() -> None:
     qmt_capabilities = {
         capability.family: capability.model_dump() for capability in qmt_manifest.capabilities
     }
+    bars = qmt_capabilities["bars"]
+
+    assert bars["status"] == "supported"
+    assert bars["stability"] == "local-dat"
+    assert {"get_bars", "collect_recent_bars"} <= set(bars["providerMethods"])
+    assert {"local_dat:1d", "local_dat:1m", "local_dat:5m"} <= set(bars["nativeMethods"])
 
     for family, expected_methods in FIRST_QMT_PARITY_TARGETS.items():
         capability = qmt_capabilities[family]
@@ -40,8 +45,7 @@ def test_qmt_manifest_records_first_parity_target_set() -> None:
         assert expected_methods <= set(capability["nativeMethods"])
         assert capability["providerMethods"]
 
-    assert "get_bars" in qmt_capabilities["bars"]["providerMethods"]
-    assert "get_market_data" not in qmt_capabilities["bars"]["providerMethods"]
+    assert "get_market_data" not in bars["providerMethods"]
 
 
 def test_qmt_manifest_keeps_unverified_capabilities_explicit() -> None:

@@ -15,6 +15,7 @@ from src.adapter import create_tdx_adapter
 from src.adapter.base import TdxDataAdapter
 from src.core.config import settings
 from src.core.logging import setup_logging
+from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.datasource.tdx.runtime import TdxRuntime
 from src.datasource.tdx_provider import TdxDatasourceProvider
 from src.ws.manager import ConnectionManager
@@ -35,6 +36,7 @@ tdx_provider: TdxDatasourceProvider | None = None
 tdx_bridge: Any | None = None
 tdx_collector: Any | None = None
 tdx_subscription_client: Any | None = None
+qmt_provider: QmtDatasourceProvider | None = QmtDatasourceProvider()
 ws_manager = ConnectionManager()
 tdx_runtime: TdxRuntime | None = None
 LEGACY_TDX_API_DEPRECATION_HEADERS = {
@@ -55,6 +57,7 @@ def _sync_app_state(target_app: FastAPI) -> None:
     target_app.state.tdx_bridge = tdx_bridge
     target_app.state.tdx_collector = tdx_collector
     target_app.state.tdx_subscription_client = tdx_subscription_client
+    target_app.state.qmt_provider = qmt_provider
     target_app.state.ws_manager = ws_manager
 
 
