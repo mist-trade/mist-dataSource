@@ -19,6 +19,7 @@
         "type": "object"
       },
       "FormulaCallRequest": {
+        "additionalProperties": false,
         "properties": {
           "args": {
             "anyOf": [
@@ -44,15 +45,6 @@
           "name": {
             "title": "Name",
             "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           }
         },
         "required": [
@@ -75,6 +67,7 @@
         "type": "object"
       },
       "RawTdxCallRequest": {
+        "additionalProperties": false,
         "properties": {
           "method": {
             "title": "Method",
@@ -93,16 +86,8 @@
         "type": "object"
       },
       "SectorQueryRequest": {
+        "additionalProperties": false,
         "properties": {
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "sector": {
             "title": "Sector",
             "type": "string"
@@ -132,6 +117,7 @@
         "type": "object"
       },
       "TdxBarQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "count": {
             "anyOf": [
@@ -193,15 +179,6 @@
             "title": "Period",
             "type": "string"
           },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "startTime": {
             "anyOf": [
               {
@@ -229,6 +206,7 @@
         "type": "object"
       },
       "TdxConvertibleBondInfoQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "anyOf": [
@@ -253,15 +231,6 @@
             "title": "Nativemethod",
             "type": "string"
           },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "symbol": {
             "title": "Symbol",
             "type": "string"
@@ -274,6 +243,7 @@
         "type": "object"
       },
       "TdxDividendFactorsQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "endTime": {
             "anyOf": [
@@ -285,15 +255,6 @@
               }
             ],
             "title": "Endtime"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "startTime": {
             "anyOf": [
@@ -318,6 +279,7 @@
         "type": "object"
       },
       "TdxFinancialDataByDateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "items": {
@@ -330,15 +292,6 @@
             "default": 0,
             "title": "Mmdd",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "symbols": {
             "items": {
@@ -361,6 +314,7 @@
         "type": "object"
       },
       "TdxFinancialDataQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "endTime": {
             "default": "",
@@ -373,15 +327,6 @@
             },
             "title": "Fields",
             "type": "array"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "reportType": {
             "default": "report_time",
@@ -409,6 +354,7 @@
         "type": "object"
       },
       "TdxFormulaBatchExecutionRequest": {
+        "additionalProperties": false,
         "properties": {
           "count": {
             "default": -1,
@@ -432,15 +378,6 @@
           },
           "formulaName": {
             "title": "Formulaname",
-            "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
             "type": "string"
           },
           "returnCount": {
@@ -493,6 +430,7 @@
         "type": "object"
       },
       "TdxFormulaExecutionRequest": {
+        "additionalProperties": false,
         "properties": {
           "formulaArg": {
             "default": "",
@@ -501,15 +439,6 @@
           },
           "formulaName": {
             "title": "Formulaname",
-            "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
             "type": "string"
           },
           "timeoutMs": {
@@ -535,20 +464,12 @@
         "type": "object"
       },
       "TdxFormulaFormatDataRequest": {
+        "additionalProperties": false,
         "properties": {
           "data": {
             "additionalProperties": true,
             "title": "Data",
             "type": "object"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "timeoutMs": {
             "title": "Timeoutms",
@@ -559,16 +480,8 @@
         "type": "object"
       },
       "TdxFormulaGetDataRequest": {
+        "additionalProperties": false,
         "properties": {
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "timeoutMs": {
             "title": "Timeoutms",
             "type": "integer"
@@ -578,6 +491,7 @@
         "type": "object"
       },
       "TdxFormulaMetadataInfoQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "formulaCode": {
             "title": "Formulacode",
@@ -587,15 +501,6 @@
             "default": 0,
             "title": "Formulatype",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "timeoutMs": {
             "title": "Timeoutms",
@@ -609,20 +514,12 @@
         "type": "object"
       },
       "TdxFormulaMetadataQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "formulaType": {
             "default": 0,
             "title": "Formulatype",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "timeoutMs": {
             "title": "Timeoutms",
@@ -633,6 +530,7 @@
         "type": "object"
       },
       "TdxFormulaSetDataInfoRequest": {
+        "additionalProperties": false,
         "properties": {
           "count": {
             "default": -1,
@@ -647,15 +545,6 @@
           "endTime": {
             "default": "",
             "title": "Endtime",
-            "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
             "type": "string"
           },
           "startTime": {
@@ -684,6 +573,7 @@
         "type": "object"
       },
       "TdxFormulaSetDataRequest": {
+        "additionalProperties": false,
         "properties": {
           "count": {
             "default": -1,
@@ -694,15 +584,6 @@
             "default": 0,
             "title": "Dividendtype",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "stockCode": {
             "title": "Stockcode",
@@ -733,6 +614,7 @@
         "type": "object"
       },
       "TdxIpoInfoQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "ipoDate": {
             "default": 0,
@@ -743,21 +625,13 @@
             "default": 0,
             "title": "Ipotype",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           }
         },
         "title": "TdxIpoInfoQueryRequest",
         "type": "object"
       },
       "TdxMarketTradeAggregateByDateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "items": {
@@ -770,15 +644,6 @@
             "default": 0,
             "title": "Mmdd",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "year": {
             "default": 0,
@@ -793,6 +658,7 @@
         "type": "object"
       },
       "TdxMarketTradeAggregateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "endTime": {
             "default": "",
@@ -805,15 +671,6 @@
             },
             "title": "Fields",
             "type": "array"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "startTime": {
             "default": "",
@@ -828,6 +685,7 @@
         "type": "object"
       },
       "TdxPriceVolumeQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "anyOf": [
@@ -848,15 +706,6 @@
             "title": "Includeraw",
             "type": "boolean"
           },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "symbols": {
             "items": {
               "type": "string"
@@ -872,26 +721,19 @@
         "type": "object"
       },
       "TdxSectorListQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "listType": {
             "default": 0,
             "title": "Listtype",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           }
         },
         "title": "TdxSectorListQueryRequest",
         "type": "object"
       },
       "TdxSectorTradeAggregateByDateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "items": {
@@ -904,15 +746,6 @@
             "default": 0,
             "title": "Mmdd",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "sectorCodes": {
             "items": {
@@ -935,6 +768,7 @@
         "type": "object"
       },
       "TdxSectorTradeAggregateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "endTime": {
             "default": "",
@@ -947,15 +781,6 @@
             },
             "title": "Fields",
             "type": "array"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "sectorCodes": {
             "items": {
@@ -978,19 +803,11 @@
         "type": "object"
       },
       "TdxSecuritiesQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "market": {
             "default": "5",
             "title": "Market",
-            "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
             "type": "string"
           }
         },
@@ -998,20 +815,12 @@
         "type": "object"
       },
       "TdxSecurityInfoQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "includeRaw": {
             "default": true,
             "title": "Includeraw",
             "type": "boolean"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "symbols": {
             "items": {
@@ -1028,16 +837,8 @@
         "type": "object"
       },
       "TdxSecurityRelationsQueryRequest": {
+        "additionalProperties": false,
         "properties": {
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "symbol": {
             "title": "Symbol",
             "type": "string"
@@ -1050,6 +851,7 @@
         "type": "object"
       },
       "TdxShareCapitalQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "count": {
             "default": 1,
@@ -1074,15 +876,6 @@
             ],
             "title": "Enddate"
           },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "startDate": {
             "anyOf": [
               {
@@ -1106,6 +899,7 @@
         "type": "object"
       },
       "TdxSingleFinanceValueQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "items": {
@@ -1113,15 +907,6 @@
             },
             "title": "Fields",
             "type": "array"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "symbols": {
             "items": {
@@ -1139,6 +924,7 @@
         "type": "object"
       },
       "TdxSnapshotQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "anyOf": [
@@ -1159,15 +945,6 @@
             "title": "Includeraw",
             "type": "boolean"
           },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
           "symbols": {
             "items": {
               "type": "string"
@@ -1183,6 +960,7 @@
         "type": "object"
       },
       "TdxStockTradeAggregateByDateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "items": {
@@ -1195,15 +973,6 @@
             "default": 0,
             "title": "Mmdd",
             "type": "integer"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "symbols": {
             "items": {
@@ -1226,6 +995,7 @@
         "type": "object"
       },
       "TdxStockTradeAggregateQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "endTime": {
             "default": "",
@@ -1238,15 +1008,6 @@
             },
             "title": "Fields",
             "type": "array"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
-            "type": "string"
           },
           "startTime": {
             "default": "",
@@ -1269,18 +1030,10 @@
         "type": "object"
       },
       "TdxTrackingEtfsQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "indexSymbol": {
             "title": "Indexsymbol",
-            "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
             "type": "string"
           }
         },
@@ -1291,6 +1044,7 @@
         "type": "object"
       },
       "TdxTradingDatesQueryRequest": {
+        "additionalProperties": false,
         "properties": {
           "count": {
             "anyOf": [
@@ -1317,15 +1071,6 @@
           "market": {
             "default": "SH",
             "title": "Market",
-            "type": "string"
-          },
-          "provider": {
-            "default": "tdx",
-            "enum": [
-              "tdx",
-              "qmt"
-            ],
-            "title": "Provider",
             "type": "string"
           },
           "startTime": {
@@ -3354,7 +3099,7 @@
     },
     "/health": {
       "get": {
-        "description": "健康检查端点.\n\nReturns:\n    包含以下字段的字典:\n    - status (str): 服务状态，固定为 \"ok\"\n    - instance (str): 实例标识，固定为 \"tdx\"\n    - adapter (str): 当前适配器类名，未初始化时为 \"none\"\n    - connections (int): 当前 WebSocket 连接数\n\nExamples:\n    >>> GET /health\n    {\"status\": \"ok\", \"instance\": \"tdx\", \"adapter\": \"TDXMockAdapter\", \"connections\": 0}",
+        "description": "健康检查端点.\n\nReturns:\n    包含以下字段的字典:\n    - status (str): 服务状态，固定为 \"ok\"\n    - instance (str): 实例标识，固定为 \"tdx\"\n    - adapter (str): 当前适配器类名，未初始化时为 \"none\"\n    - connections (int): 当前 WebSocket 连接数\n\nExamples:\n    >>> GET /health\n    {\"status\": \"ok\", \"instance\": \"tdx\", \"adapter\": \"TdxLegacyMockAdapter\", \"connections\": 0}",
         "operationId": "health_health_get",
         "responses": {
           "200": {

@@ -9,11 +9,11 @@ from starlette.requests import Request
 from starlette.websockets import WebSocket
 
 from src.datasource.tdx.runtime import TdxRuntime
-from tdx.routes.dependencies import (
-    get_tdx_adapter,
-    get_tdx_bridge,
-    get_tdx_provider,
-    get_tdx_subscription_client,
+from tdx.routes.dependencies import get_tdx_provider
+from tdx.routes.legacy.dependencies import (
+    get_tdx_legacy_adapter,
+    get_tdx_legacy_bridge,
+    get_tdx_legacy_subscription_client,
     get_ws_manager,
 )
 
@@ -73,8 +73,8 @@ def test_tdx_route_dependencies_read_runtime_components_from_app_state() -> None
     request = _request(app)
     websocket = _websocket(app)
 
-    assert get_tdx_adapter(request) is adapter
+    assert get_tdx_legacy_adapter(request) is adapter
     assert get_tdx_provider(request) is provider
-    assert get_tdx_bridge(websocket) is bridge
-    assert get_tdx_subscription_client(websocket) is subscription_client
+    assert get_tdx_legacy_bridge(websocket) is bridge
+    assert get_tdx_legacy_subscription_client(websocket) is subscription_client
     assert get_ws_manager(websocket) is ws_manager

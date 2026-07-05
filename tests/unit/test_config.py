@@ -1,6 +1,6 @@
 """Unit tests for configuration management."""
 
-from src.core.config import AppSettings, TDXSettings, settings
+from src.core.config import AppSettings, QMTSettings, TDXSettings, settings
 
 
 def test_settings_defaults():
@@ -33,6 +33,20 @@ def test_tdx_datasource_settings_defaults(monkeypatch):
     assert tdx_settings.reconcile_interval_seconds == 60
     assert tdx_settings.max_subscriptions == 100
     assert tdx_settings.ws_queue_max_size == 1000
+
+
+def test_qmt_datasource_settings_defaults(monkeypatch):
+    """Test default QMT datasource settings values."""
+    for env_name in (
+        "QMT_BRIDGE_GATEWAY_URL",
+        "QMT_LOCAL_DAT_ON_BLOCK",
+    ):
+        monkeypatch.delenv(env_name, raising=False)
+
+    qmt_settings = QMTSettings(_env_file=None)
+
+    assert qmt_settings.bridge_gateway_url == "http://127.0.0.1:9002/qmt/bridge"
+    assert qmt_settings.local_dat_on_block == "retryable_error"
 
 
 def test_app_settings_ignores_unrelated_env_file_values(tmp_path):

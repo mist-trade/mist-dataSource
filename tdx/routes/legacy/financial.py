@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
+from tdx.routes.legacy.dependencies import call_tdx_legacy_adapter, require_tdx_legacy_adapter
 
 router = APIRouter()
 
@@ -29,12 +29,12 @@ async def get_financial_data(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    data = await call_tdx_adapter(
+    data = await call_tdx_legacy_adapter(
         adapter.get_financial_data(stock_list, field_list, start_time, end_time, report_type)
     )
     return {"data": data}
@@ -55,12 +55,12 @@ async def get_financial_data_by_date(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    data = await call_tdx_adapter(
+    data = await call_tdx_legacy_adapter(
         adapter.get_financial_data_by_date(stock_list, field_list, year, mmdd)
     )
     return {"data": data}
@@ -79,10 +79,10 @@ async def get_gp_one_data(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    data = await call_tdx_adapter(adapter.get_gp_one_data(stock_list, field_list))
+    data = await call_tdx_legacy_adapter(adapter.get_gp_one_data(stock_list, field_list))
     return {"data": data}

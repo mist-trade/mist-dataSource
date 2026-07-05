@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
+from tdx.routes.legacy.dependencies import call_tdx_legacy_adapter, require_tdx_legacy_adapter
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ async def get_stock_list_in_sector(
     Returns:
         {"stocks": [...], "count": int}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     stocks = await adapter.get_stock_list_in_sector(block_code, block_type, list_type)
     return {"stocks": stocks, "count": len(stocks)}
@@ -56,12 +56,12 @@ async def get_market_data(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     stock_list = [s.strip() for s in stocks.split(",")]
     field_list = [f.strip() for f in fields.split(",")]
 
-    data = await call_tdx_adapter(
+    data = await call_tdx_legacy_adapter(
         adapter.get_market_data(
             stock_list=stock_list,
             fields=field_list,
@@ -87,11 +87,11 @@ async def get_market_snapshot(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
-    data = await call_tdx_adapter(adapter.get_market_snapshot(stock_code, field_list))
+    data = await call_tdx_legacy_adapter(adapter.get_market_snapshot(stock_code, field_list))
     return {"data": data}
 
 
@@ -110,9 +110,9 @@ async def get_trading_dates(
     Returns:
         {"data": list[str]}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_trading_dates(market, start_time, end_time, count))
+    data = await call_tdx_legacy_adapter(adapter.get_trading_dates(market, start_time, end_time, count))
     return {"data": data}
 
 
@@ -130,9 +130,9 @@ async def get_divid_factors(
     Returns:
         {"data": Any}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_divid_factors(stock_code, start_time, end_time))
+    data = await call_tdx_legacy_adapter(adapter.get_divid_factors(stock_code, start_time, end_time))
     return {"data": data}
 
 
@@ -150,11 +150,11 @@ async def get_gb_info(
     Returns:
         {"data": list[dict]}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     dates = [d.strip() for d in date_list.split(",")] if date_list else []
 
-    data = await call_tdx_adapter(adapter.get_gb_info(stock_code, dates, count))
+    data = await call_tdx_legacy_adapter(adapter.get_gb_info(stock_code, dates, count))
     return {"data": data}
 
 
@@ -171,9 +171,9 @@ async def refresh_cache(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.refresh_cache(market, force))
+    data = await call_tdx_legacy_adapter(adapter.refresh_cache(market, force))
     return {"data": data}
 
 
@@ -190,11 +190,11 @@ async def refresh_kline(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     stocks = [s.strip() for s in stock_list.split(",")] if stock_list else []
 
-    data = await call_tdx_adapter(adapter.refresh_kline(stocks, period))
+    data = await call_tdx_legacy_adapter(adapter.refresh_kline(stocks, period))
     return {"data": data}
 
 
@@ -212,7 +212,7 @@ async def download_file(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.download_file(stock_code, down_time, down_type))
+    data = await call_tdx_legacy_adapter(adapter.download_file(stock_code, down_time, down_type))
     return {"data": data}

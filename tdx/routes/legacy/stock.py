@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
+from tdx.routes.legacy.dependencies import call_tdx_legacy_adapter, require_tdx_legacy_adapter
 
 router = APIRouter()
 
@@ -26,9 +26,9 @@ async def get_stock_list(
     Returns:
         {"stocks": [...], "count": int}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    stocks = await call_tdx_adapter(adapter.get_stock_list(market))
+    stocks = await call_tdx_legacy_adapter(adapter.get_stock_list(market))
     return {"stocks": stocks, "count": len(stocks)}
 
 
@@ -44,9 +44,9 @@ async def get_stock_info(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_stock_info(stock_code))
+    data = await call_tdx_legacy_adapter(adapter.get_stock_info(stock_code))
     return {"data": data}
 
 
@@ -63,11 +63,11 @@ async def get_more_info(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
-    data = await call_tdx_adapter(adapter.get_more_info(stock_code, field_list))
+    data = await call_tdx_legacy_adapter(adapter.get_more_info(stock_code, field_list))
     return {"data": data}
 
 
@@ -83,7 +83,7 @@ async def get_relation(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_relation(stock_code))
+    data = await call_tdx_legacy_adapter(adapter.get_relation(stock_code))
     return {"data": data}

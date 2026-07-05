@@ -7,46 +7,89 @@ socket listeners. The external Mist datasource owns concurrency; this script
 polls one local command gateway and executes commands serially.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import time
 import traceback
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from typing import Protocol
+
+    class BridgeContextInfo(Protocol):
+        """Subset used by this bridge; attributes follow ThinkTrader ContextInfo docs."""
+
+        def run_time(self, func_name: str, period: str, start_time: str) -> Any: ...
+
+        def get_market_data_ex(
+            self,
+            fields: Any,
+            stock_list: Any,
+            *,
+            period: Any,
+            start_time: Any,
+            end_time: Any,
+            count: Any,
+            dividend_type: Any,
+            fill_data: Any,
+            subscribe: bool,
+        ) -> Any: ...
+
+        def get_full_tick(self, symbols: Any) -> Any: ...
+
+        def get_stock_list_in_sector(self, sector: Any) -> Any: ...
+else:
+    BridgeContextInfo = Any
 
 
 class BridgeState:
-    pass
+    owner_id: str
+    gateway_url: str
+    poll_interval_seconds: int
+    last_error: str
+    last_poll_at: str
+    started_at: str
 
 
 STATE = BridgeState()
 STATE.owner_id = "bigqmt-" + str(os.getpid())
-STATE.gateway_url = "http://127.0.0.1:9012/qmt/bridge"
+STATE.gateway_url = os.environ.get("QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge")
 STATE.poll_interval_seconds = 1
 STATE.last_error = ""
 STATE.last_poll_at = ""
 STATE.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def init(ContextInfo):
+def init(ContextInfo: BridgeContextInfo) -> None:
     """QMT entrypoint."""
-    _ = ContextInfo
     try:
         ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", "2026-01-01 09:30:00")
     except Exception:
         STATE.last_error = traceback.format_exc()
 
 
-def mist_qmt_bridge_tick(ContextInfo):
+def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
     """Poll one batch of commands and post results."""
     try:
         STATE.last_poll_at = time.strftime("%Y-%m-%d %H:%M:%S")
         _register_owner()
-        commands = _post_json(
+        poll_payload = _post_json(
             STATE.gateway_url + "/poll",
             {"ownerId": STATE.owner_id, "limit": 1},
-        ).get("commands", [])
-        for command in commands:
+        )
+        commands_value = poll_payload.get("commands", [])
+        commands: list[Any] = (
+            cast(list[Any], commands_value) if isinstance(commands_value, list) else []
+        )
+        for command_value in commands:
+            if not isinstance(command_value, dict):
+                continue
+            command = cast(dict[str, Any], command_value)
             result = _execute_command(ContextInfo, command)
             _post_json(
                 STATE.gateway_url + "/result",
@@ -62,7 +105,7 @@ def mist_qmt_bridge_tick(ContextInfo):
         STATE.last_error = traceback.format_exc()
 
 
-def _register_owner():
+def _register_owner() -> dict[str, Any]:
     return _post_json(
         STATE.gateway_url + "/owner",
         {
@@ -73,7 +116,7 @@ def _register_owner():
     )
 
 
-def _post_json(url, payload):
+def _post_json(url: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -85,7 +128,18 @@ def _post_json(url, payload):
         response_body = response.read().decode("utf-8")
         if not response_body:
             return {}
-        return json.loads(response_body)
+        parsed = json.loads(response_body)
+        if isinstance(parsed, dict):
+            return cast(dict[str, Any], parsed)
+        return {
+            "ok": False,
+            "error": {
+                "code": "QMT_BRIDGE_GATEWAY_INVALID_RESPONSE",
+                "message": "Gateway response is not a JSON object",
+                "retryable": True,
+                "details": {"url": url},
+            },
+        }
     except urllib.error.URLError as exc:
         return {
             "ok": False,
@@ -98,9 +152,12 @@ def _post_json(url, payload):
         }
 
 
-def _execute_command(ContextInfo, command):
-    method = command.get("method", "")
-    params = command.get("params", {}) or {}
+def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any]) -> dict[str, Any]:
+    method = str(command.get("method", ""))
+    params_value = command.get("params", {})
+    params: dict[str, Any] = {}
+    if isinstance(params_value, dict):
+        params = cast(dict[str, Any], params_value)
     try:
         if method == "health":
             return {
@@ -115,11 +172,13 @@ def _execute_command(ContextInfo, command):
         if method == "get_market_data_ex":
             data = ContextInfo.get_market_data_ex(
                 params.get("fields", []),
-                params.get("symbols", []),
+                params.get("stock_list", []),
                 period=params.get("period", "1d"),
-                start_time=params.get("startTime", ""),
-                end_time=params.get("endTime", ""),
+                start_time=params.get("start_time", ""),
+                end_time=params.get("end_time", ""),
                 count=params.get("count", -1),
+                dividend_type=params.get("dividend_type", "none"),
+                fill_data=params.get("fill_data", True),
                 subscribe=False,
             )
             return {"ok": True, "result": _json_safe(data)}
@@ -152,16 +211,19 @@ def _execute_command(ContextInfo, command):
         }
 
 
-def _json_safe(value):
-    if hasattr(value, "to_dict"):
-        return value.to_dict()
+def _json_safe(value: Any) -> Any:
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return to_dict()
     if isinstance(value, dict):
-        result = {}
-        for key, item in value.items():
+        result: dict[str, Any] = {}
+        mapping = cast(Mapping[Any, Any], value)
+        for key, item in mapping.items():
             result[str(key)] = _json_safe(item)
         return result
     if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
+        sequence = cast(list[Any] | tuple[Any, ...], value)
+        return [_json_safe(item) for item in sequence]
     try:
         json.dumps(value)
         return value

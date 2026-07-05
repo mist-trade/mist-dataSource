@@ -8,10 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src.adapter.base import MarketDataAdapter
+from src.adapter_legacy.base import TdxLegacyAdapterBase
 
 
-class TDXMockAdapter(MarketDataAdapter):
+class TdxLegacyMockAdapter(TdxLegacyAdapterBase):
     """macOS 开发环境 mock，返回固定确定性的测试数据."""
 
     def __init__(self) -> None:

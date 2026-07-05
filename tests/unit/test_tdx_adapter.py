@@ -5,15 +5,15 @@ Tests all implemented adapter methods using the mock adapter with fixed determin
 
 import pytest
 
-from src.adapter.mock.tdx_mock import TDXMockAdapter
-from src.adapter.tdx.client import TDXAdapter
+from src.adapter_legacy.mock.tdx_mock import TdxLegacyMockAdapter
+from src.adapter_legacy.tdx.client import TdxLegacyAdapter
 from src.datasource.capabilities import ProviderCapabilityUnsupported
 
 
 @pytest.fixture
 async def adapter():
     """Create and initialize TDX mock adapter."""
-    a = TDXMockAdapter()
+    a = TdxLegacyMockAdapter()
     await a.initialize()
     yield a
     await a.shutdown()
@@ -222,17 +222,17 @@ class TestSubscriptionMethods:
         assert isinstance(result, list)
 
     async def test_direct_quote_subscription_raises_capability_error(self):
-        tdx_adapter = TDXAdapter()
+        tdx_legacy_adapter = TdxLegacyAdapter()
 
         with pytest.raises(ProviderCapabilityUnsupported) as exc_info:
-            await tdx_adapter.subscribe_quote(["600519.SH"])
+            await tdx_legacy_adapter.subscribe_quote(["600519.SH"])
 
         assert exc_info.value.code == "PROVIDER_CAPABILITY_UNSUPPORTED"
         assert exc_info.value.details == {
             "provider": "tdx",
             "family": "websocket-subscriptions",
             "operation": "subscribe_quote",
-            "fallback": "Use subscribe_hq with TdxSubscriptionClient.",
+            "fallback": "Use subscribe_hq with TdxLegacySubscriptionClient.",
         }
 
 

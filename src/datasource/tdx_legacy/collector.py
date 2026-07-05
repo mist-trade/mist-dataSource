@@ -6,19 +6,19 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from src.core.config import settings
-from src.datasource.tdx_bridge import TdxBridge
+from src.datasource.tdx_legacy.bridge import TdxLegacyBridge
 from src.datasource.tdx_models import TdxSnapshot
 from src.datasource.tdx_normalization import normalize_symbol
 
 
-class TdxMinuteCollector:
+class TdxLegacyMinuteCollector:
     """Collect latest snapshots for symbols marked dirty by quote callbacks."""
 
     def __init__(
         self,
         *,
         provider: Any,
-        bridge: TdxBridge,
+        bridge: TdxLegacyBridge,
         period: str,
         collect_delay_seconds: float | None = None,
         retry_delay_seconds: float | None = None,

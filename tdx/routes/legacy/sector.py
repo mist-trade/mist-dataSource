@@ -7,7 +7,7 @@
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
-from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
+from tdx.routes.legacy.dependencies import call_tdx_legacy_adapter, require_tdx_legacy_adapter
 
 router = APIRouter()
 
@@ -31,9 +31,9 @@ async def get_sector_list(
     Returns:
         {"data": list}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_sector_list(list_type))
+    data = await call_tdx_legacy_adapter(adapter.get_sector_list(list_type))
     return {"data": data}
 
 
@@ -46,9 +46,9 @@ async def get_user_sectors(request: Request):
     Returns:
         {"data": list}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_user_sector())
+    data = await call_tdx_legacy_adapter(adapter.get_user_sector())
     return {"data": data}
 
 
@@ -61,9 +61,9 @@ async def create_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.create_sector(payload.block_code, payload.block_name))
+    data = await call_tdx_legacy_adapter(adapter.create_sector(payload.block_code, payload.block_name))
     return {"data": data}
 
 
@@ -76,9 +76,9 @@ async def delete_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.delete_sector(payload.block_code))
+    data = await call_tdx_legacy_adapter(adapter.delete_sector(payload.block_code))
     return {"data": data}
 
 
@@ -91,9 +91,9 @@ async def rename_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.rename_sector(payload.block_code, payload.block_name))
+    data = await call_tdx_legacy_adapter(adapter.rename_sector(payload.block_code, payload.block_name))
     return {"data": data}
 
 
@@ -106,9 +106,9 @@ async def clear_sector(payload: SectorRequest, request: Request):
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.clear_sector(payload.block_code))
+    data = await call_tdx_legacy_adapter(adapter.clear_sector(payload.block_code))
     return {"data": data}
 
 
@@ -120,8 +120,8 @@ async def send_user_block(payload: SectorRequest, request: Request):
 
     Note: 此接口需要额外的stocks参数，这里使用简化的SectorRequest模型.
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     # 注意：实际实现需要扩展请求模型以包含stocks列表
-    data = await call_tdx_adapter(adapter.send_user_block(payload.block_code, []))
+    data = await call_tdx_legacy_adapter(adapter.send_user_block(payload.block_code, []))
     return {"data": data}

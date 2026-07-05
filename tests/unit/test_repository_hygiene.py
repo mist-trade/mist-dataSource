@@ -11,9 +11,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from src.adapter.mock.qmt_mock import QMTMockAdapter
-from src.adapter.mock.tdx_mock import TDXMockAdapter
-from src.adapter.tdx.client import TDXAdapter
+from src.adapter_legacy.mock.tdx_mock import TdxLegacyMockAdapter
+from src.adapter_legacy.tdx.client import TdxLegacyAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,14 +65,14 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
         encoding="utf-8"
     )
     core_init_source = (PROJECT_ROOT / "src" / "core" / "__init__.py").read_text(encoding="utf-8")
-    tdx_client_source = (PROJECT_ROOT / "src" / "adapter" / "tdx" / "client.py").read_text(
-        encoding="utf-8"
-    )
-    tdx_bridge_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_bridge.py").read_text(
-        encoding="utf-8"
-    )
+    tdx_client_source = (
+        PROJECT_ROOT / "src" / "adapter_legacy" / "tdx" / "client.py"
+    ).read_text(encoding="utf-8")
+    tdx_legacy_bridge_source = (
+        PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "bridge.py"
+    ).read_text(encoding="utf-8")
     tdx_subscription_source = (
-        PROJECT_ROOT / "src" / "datasource" / "tdx_subscription.py"
+        PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "subscription.py"
     ).read_text(encoding="utf-8")
 
     assert "class ConnectionError" not in exceptions_source
@@ -82,7 +81,7 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
     assert "ConfigurationError" not in core_init_source
     assert "print(" not in tdx_client_source
     assert "get_logger" in tdx_client_source
-    assert "def _dedupe_stable" not in tdx_bridge_source
+    assert "def _dedupe_stable" not in tdx_legacy_bridge_source
     assert "def _dedupe_normalized" not in tdx_subscription_source
 
 
@@ -92,8 +91,8 @@ def test_legacy_service_layers_are_removed() -> None:
 
 
 def test_tdx_create_sector_signature_matches_mock_adapter() -> None:
-    real_signature = inspect.signature(TDXAdapter.create_sector)
-    mock_signature = inspect.signature(TDXMockAdapter.create_sector)
+    real_signature = inspect.signature(TdxLegacyAdapter.create_sector)
+    mock_signature = inspect.signature(TdxLegacyMockAdapter.create_sector)
 
     assert list(real_signature.parameters) == ["self", "block_code", "block_name"]
     assert list(mock_signature.parameters) == ["self", "block_code", "block_name"]
@@ -192,6 +191,28 @@ def test_claude_adapter_pattern_matches_current_base_adapter_contract() -> None:
     assert "`shutdown()`" in docs
 
 
+def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    claude = (PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    tdx_api_section = readme.split("#### TDX", 1)[1].split("#### QMT", 1)[0]
+    tdx_api_table_rows = [line for line in tdx_api_section.splitlines() if line.startswith("|")]
+    assert not any("/api/tdx/" in line for line in tdx_api_table_rows)
+    for endpoint in (
+        "/v1/bars/query",
+        "/v1/snapshots/query",
+        "/v1/sectors/query",
+        "/v1/finance/financial-data/query",
+        "/v1/instruments/convertible-bonds/query",
+    ):
+        assert endpoint in tdx_api_section
+
+    claude_api_table = claude.split("### API Routes", 1)[1].split("### WebSocket Protocol", 1)[0]
+    assert "| TDX | `/api/tdx/" not in claude_api_table
+    assert "| TDX | `/v1/bars/query`" in claude_api_table
+    assert "| TDX | `/v1/finance/financial-data/query`" in claude_api_table
+
+
 def test_routes_share_adapter_dependency_helpers() -> None:
     route_roots = (PROJECT_ROOT / "tdx" / "routes", PROJECT_ROOT / "qmt" / "routes")
     offenders: list[str] = []
@@ -231,12 +252,12 @@ def test_rest_routes_use_shared_adapter_error_wrappers() -> None:
 
 def test_adapter_sdk_error_wrapping_is_centralized() -> None:
     allowed_handlers = {
-        ("src/adapter/tdx/client.py", "_heartbeat_loop"),
-        ("src/adapter/tdx/client.py", "initialize"),
-        ("src/adapter/tdx/client.py", "_call_tq"),
+        ("src/adapter_legacy/tdx/client.py", "_heartbeat_loop"),
+        ("src/adapter_legacy/tdx/client.py", "initialize"),
+        ("src/adapter_legacy/tdx/client.py", "_call_tq"),
     }
     adapter_files = (
-        PROJECT_ROOT / "src" / "adapter" / "tdx" / "client.py",
+        PROJECT_ROOT / "src" / "adapter_legacy" / "tdx" / "client.py",
     )
     offenders: list[tuple[str, str]] = []
 
@@ -288,9 +309,9 @@ def _assert_selected_adapter_methods_are_typed(
             )
 
 
-def test_tdx_adapter_selected_provider_methods_are_typed() -> None:
+def test_tdx_legacy_adapter_selected_provider_methods_are_typed() -> None:
     _assert_selected_adapter_methods_are_typed(
-        TDXAdapter,
+        TdxLegacyAdapter,
         (
             "subscribe_quote",
             "get_market_snapshot",
@@ -304,19 +325,37 @@ def test_tdx_adapter_selected_provider_methods_are_typed() -> None:
     )
 
 
-def test_qmt_mock_adapter_selected_provider_methods_are_typed() -> None:
-    _assert_selected_adapter_methods_are_typed(
-        QMTMockAdapter,
-        (
-            "subscribe_quote",
-            "get_local_data",
-            "get_full_kline",
-            "get_divid_factors",
-            "get_trading_dates",
-            "get_financial_data",
-            "get_sector_list",
-            "get_cb_info",
-            "get_ipo_info",
-            "get_etf_info",
-        ),
-    )
+def test_legacy_qmt_mock_adapter_is_removed() -> None:
+    assert not (PROJECT_ROOT / "src" / "adapter" / "mock" / "qmt_mock.py").exists()
+
+
+def test_tdx_legacy_code_uses_explicit_legacy_paths() -> None:
+    assert not (PROJECT_ROOT / "src" / "adapter").exists()
+    assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_subscription.py").exists()
+    assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy_bridge.py").exists()
+    assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy_collector.py").exists()
+
+    assert (PROJECT_ROOT / "src" / "adapter_legacy" / "tdx" / "client.py").exists()
+    assert (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "subscription.py").exists()
+    assert (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "bridge.py").exists()
+    assert (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "collector.py").exists()
+
+
+def test_tdx_v1_provider_surface_does_not_import_legacy_runtime() -> None:
+    v1_files = [
+        PROJECT_ROOT / "src" / "datasource" / "tdx_provider.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx_http_client.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx_models.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx_normalization.py",
+        *sorted((PROJECT_ROOT / "src" / "datasource" / "tdx" / "operations").glob("*.py")),
+        *sorted((PROJECT_ROOT / "src" / "datasource" / "tdx" / "normalizers").glob("*.py")),
+        PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py",
+    ]
+
+    offenders: list[str] = []
+    for source_file in v1_files:
+        source = source_file.read_text(encoding="utf-8")
+        if "src.adapter_legacy" in source or "src.datasource.tdx_legacy" in source:
+            offenders.append(str(source_file.relative_to(PROJECT_ROOT)))
+
+    assert offenders == []

@@ -126,11 +126,11 @@ async def test_runtime_startup_creates_components_and_syncs_app_state() -> None:
     runtime.sync_app_state(app)
 
     assert events == ["adapter.initialize", "collector.start"]
-    assert isinstance(app.state.tdx_adapter, FakeAdapter)
+    assert isinstance(app.state.tdx_legacy_adapter, FakeAdapter)
     assert isinstance(app.state.tdx_provider, FakeProvider)
-    assert isinstance(app.state.tdx_bridge, FakeBridge)
-    assert isinstance(app.state.tdx_collector, FakeCollector)
-    assert isinstance(app.state.tdx_subscription_client, FakeSubscriptionClient)
+    assert isinstance(app.state.tdx_legacy_bridge, FakeBridge)
+    assert isinstance(app.state.tdx_legacy_collector, FakeCollector)
+    assert isinstance(app.state.tdx_legacy_subscription_client, FakeSubscriptionClient)
     assert isinstance(app.state.ws_manager, FakeWsManager)
 
     await runtime.stop()
@@ -191,11 +191,11 @@ def test_runtime_sync_app_state_can_clear_components() -> None:
 
     runtime.sync_app_state(app)
 
-    assert app.state.tdx_adapter is None
+    assert app.state.tdx_legacy_adapter is None
     assert app.state.tdx_provider is None
-    assert app.state.tdx_bridge is None
-    assert app.state.tdx_collector is None
-    assert app.state.tdx_subscription_client is None
+    assert app.state.tdx_legacy_bridge is None
+    assert app.state.tdx_legacy_collector is None
+    assert app.state.tdx_legacy_subscription_client is None
     assert isinstance(app.state.ws_manager, FakeWsManager)
 
 

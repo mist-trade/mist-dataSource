@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from src.adapter.tdx.client import TDXAdapter
+from src.adapter_legacy.tdx.client import TdxLegacyAdapter
 
 
 class BlockingTq:
@@ -22,7 +22,7 @@ class BlockingTq:
 @pytest.mark.asyncio
 async def test_tdx_sdk_call_does_not_block_event_loop():
     tq = BlockingTq()
-    adapter = TDXAdapter()
+    adapter = TdxLegacyAdapter()
     adapter._tq = tq
     threading.Timer(0.2, tq.release.set).start()
 

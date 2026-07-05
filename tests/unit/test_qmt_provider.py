@@ -28,7 +28,7 @@ def _write_daily_dat(root: Path, symbol: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_qmt_provider_get_bars_returns_tdx_bar_contract(tmp_path: Path) -> None:
+async def test_qmt_provider_get_bars_returns_native_market_data(tmp_path: Path) -> None:
     _write_daily_dat(tmp_path, "000001.SZ")
     reader = QmtLocalDatReader(
         data_dir=tmp_path,
@@ -38,17 +38,22 @@ async def test_qmt_provider_get_bars_returns_tdx_bar_contract(tmp_path: Path) ->
     )
     provider = QmtDatasourceProvider(local_dat_reader=reader)
 
-    bars = await provider.get_bars(
-        ["000001.SZ"],
+    result = await provider.get_bars(
+        stock_list=["000001.SZ"],
         period="1d",
         start_time=None,
         end_time=None,
         count=1,
-        fields=None,
-        dividend_type="front",
+        fields=["close", "volume"],
+        dividend_type="none",
         fill_data=True,
+        include_raw=False,
     )
 
-    assert len(bars) == 1
-    assert bars[0].model_dump(by_alias=True)["provider"] == "qmt"
-    assert bars[0].model_dump(by_alias=True)["barTime"] == "2026-07-01T00:00:00+08:00"
+    assert result["source"] == "local_dat"
+    assert result["marketData"] == {
+        "000001.SZ": {
+            "close": {"20260701": 10.5},
+            "volume": {"20260701": 123.0},
+        }
+    }

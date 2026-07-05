@@ -215,124 +215,6 @@ TDX_PROVIDER_METHODS: dict[str, list[str]] = {
     "websocket-subscriptions": [],
 }
 
-QMT_SPIKE_BLOCKED_REASON = "Full-QMT bridge Windows spike evidence is required"
-
-QMT_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str | None]] = {
-    "bars": ("supported", "local-dat", ["local_dat:1d", "local_dat:1m", "local_dat:5m"], None),
-    "snapshots": ("unsupported", "spike-blocked", ["get_full_tick"], QMT_SPIKE_BLOCKED_REASON),
-    "price-volume": ("unsupported", "planned", [], "QMT price-volume mapping is not verified"),
-    "benchmarks": ("unsupported", "planned", [], "QMT benchmark mapping is not verified"),
-    "calendar": ("unsupported", "spike-blocked", ["trading_calendar"], QMT_SPIKE_BLOCKED_REASON),
-    "securities": ("unsupported", "spike-blocked", ["get_stock_list_in_sector"], QMT_SPIKE_BLOCKED_REASON),
-    "security-info": (
-        "unsupported",
-        "spike-blocked",
-        ["instrument_detail"],
-        QMT_SPIKE_BLOCKED_REASON,
-    ),
-    "security-search": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT security search mapping is not verified",
-    ),
-    "security-relations": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT security relation mapping is not verified",
-    ),
-    "sector-list": ("unsupported", "spike-blocked", ["sector_list"], QMT_SPIKE_BLOCKED_REASON),
-    "sector-members": (
-        "unsupported",
-        "spike-blocked",
-        ["get_stock_list_in_sector"],
-        QMT_SPIKE_BLOCKED_REASON,
-    ),
-    "ipo-info": ("unsupported", "planned", [], "QMT IPO mapping is not verified"),
-    "share-capital": ("unsupported", "planned", [], "QMT share-capital mapping is not verified"),
-    "dividend-factors": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT dividend-factor mapping is not verified",
-    ),
-    "convertible-bonds": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT convertible-bond mapping is not verified",
-    ),
-    "etf-info": ("unsupported", "planned", [], "QMT ETF mapping is not verified"),
-    "reference-data": ("unsupported", "planned", [], "QMT reference-data mapping is not verified"),
-    "instrument-data": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT instrument-data mapping is not verified",
-    ),
-    "finance-report": ("unsupported", "planned", [], "QMT finance/report mapping is not verified"),
-    "financial-data": ("unsupported", "planned", [], "QMT financial-data mapping is not verified"),
-    "single-finance-value": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT single finance value mapping is not verified",
-    ),
-    "stock-trade-aggregate": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT stock trade aggregate mapping is not verified",
-    ),
-    "sector-trade-aggregate": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT sector trade aggregate mapping is not verified",
-    ),
-    "market-trade-aggregate": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT market trade aggregate mapping is not verified",
-    ),
-    "formulas": ("unsupported", "planned", [], "QMT formula integration is not implemented"),
-    "formula-data": ("unsupported", "planned", [], "QMT formula data mapping is not verified"),
-    "formula-metadata": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT formula metadata mapping is not verified",
-    ),
-    "formula-execution": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT formula execution mapping is not verified",
-    ),
-    "formula-batch-execution": (
-        "unsupported",
-        "planned",
-        [],
-        "QMT formula batch execution mapping is not verified",
-    ),
-    "raw-diagnostics": ("unsupported", "planned", [], "Raw TDX diagnostics are TDX-only"),
-    "websocket-subscriptions": (
-        "unsupported",
-        "spike-blocked",
-        [],
-        QMT_SPIKE_BLOCKED_REASON,
-    ),
-}
-
-QMT_PROVIDER_METHODS: dict[str, list[str]] = {
-    family: methods
-    for family, methods in TDX_PROVIDER_METHODS.items()
-    if family != "raw-diagnostics"
-}
-QMT_PROVIDER_METHODS["raw-diagnostics"] = []
-
 
 def build_provider_manifests(*, tdx_status: str) -> list[ProviderManifest]:
     return [
@@ -344,16 +226,7 @@ def build_provider_manifests(*, tdx_status: str) -> list[ProviderManifest]:
                 TDX_CAPABILITY_STATUSES,
                 provider_methods_by_family=TDX_PROVIDER_METHODS,
             ),
-        ),
-        ProviderManifest(
-            id="qmt",
-            name="QMT",
-            status="disabled",
-            capabilities=_capabilities_from_statuses(
-                QMT_CAPABILITY_STATUSES,
-                provider_methods_by_family=QMT_PROVIDER_METHODS,
-            ),
-        ),
+        )
     ]
 
 

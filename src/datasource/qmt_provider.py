@@ -1,6 +1,5 @@
 from src.datasource.qmt.local_dat import QmtLocalDatReader
 from src.datasource.qmt.operations.market import QmtMarketOperations
-from src.datasource.tdx_models import TdxBar
 
 
 class QmtDatasourceProvider:
@@ -10,7 +9,7 @@ class QmtDatasourceProvider:
 
     async def get_bars(
         self,
-        symbols: list[str],
+        stock_list: list[str],
         *,
         period: str,
         start_time: str | None,
@@ -19,9 +18,10 @@ class QmtDatasourceProvider:
         fields: list[str] | None = None,
         dividend_type: str | None = None,
         fill_data: bool | None = None,
-    ) -> list[TdxBar]:
+        include_raw: bool = False,
+    ) -> dict[str, object]:
         return await self._market.get_bars(
-            symbols,
+            stock_list,
             period=period,
             start_time=start_time,
             end_time=end_time,
@@ -29,12 +29,13 @@ class QmtDatasourceProvider:
             fields=fields,
             dividend_type=dividend_type,
             fill_data=fill_data,
+            include_raw=include_raw,
         )
 
     async def collect_recent_bars(
         self,
-        symbols: list[str],
+        stock_list: list[str],
         period: str,
         count: int,
-    ) -> list[TdxBar]:
-        return await self._market.collect_recent_bars(symbols, period, count)
+    ) -> dict[str, object]:
+        return await self._market.collect_recent_bars(stock_list, period, count)

@@ -1,1 +1,1 @@
-"""Instance 2 - QMT Adapter Service (Port 9002)."""
+"""Instance 2 - QMT datasource service (Port 9002)."""

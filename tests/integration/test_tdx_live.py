@@ -8,14 +8,14 @@ Only run on Windows with TDX terminal installed and running.
 
 import pytest
 
-from src.adapter import create_tdx_adapter
+from src.adapter_legacy import create_tdx_legacy_adapter
 
 
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_live_get_market_snapshot():
     """Test get_market_snapshot with real TDX SDK."""
-    adapter = create_tdx_adapter()
+    adapter = create_tdx_legacy_adapter()
     await adapter.initialize()
     try:
         result = await adapter.get_market_snapshot("600519.SH")
@@ -30,7 +30,7 @@ async def test_live_get_market_snapshot():
 @pytest.mark.asyncio
 async def test_live_get_stock_list_in_sector():
     """Test get_stock_list_in_sector with real TDX SDK."""
-    adapter = create_tdx_adapter()
+    adapter = create_tdx_legacy_adapter()
     await adapter.initialize()
     try:
         result = await adapter.get_stock_list_in_sector("通达信88")
@@ -45,7 +45,7 @@ async def test_live_get_stock_list_in_sector():
 @pytest.mark.asyncio
 async def test_live_get_stock_list():
     """Test get_stock_list (market-based) with real TDX SDK."""
-    adapter = create_tdx_adapter()
+    adapter = create_tdx_legacy_adapter()
     await adapter.initialize()
     try:
         result = await adapter.get_stock_list("0")
@@ -60,7 +60,7 @@ async def test_live_get_stock_list():
 @pytest.mark.asyncio
 async def test_live_get_financial_data():
     """Test get_financial_data with real TDX SDK."""
-    adapter = create_tdx_adapter()
+    adapter = create_tdx_legacy_adapter()
     await adapter.initialize()
     try:
         result = await adapter.get_financial_data(
@@ -82,7 +82,7 @@ async def test_live_get_financial_data():
 @pytest.mark.asyncio
 async def test_live_get_sector_list():
     """Test get_sector_list with real TDX SDK."""
-    adapter = create_tdx_adapter()
+    adapter = create_tdx_legacy_adapter()
     await adapter.initialize()
     try:
         result = await adapter.get_sector_list(0)
@@ -96,7 +96,7 @@ async def test_live_get_sector_list():
 @pytest.mark.asyncio
 async def test_live_get_kzz_info():
     """Test get_kzz_info (convertible bonds) with real TDX SDK."""
-    adapter = create_tdx_adapter()
+    adapter = create_tdx_legacy_adapter()
     await adapter.initialize()
     try:
         # TDX SDK requires a specific convertible bond code

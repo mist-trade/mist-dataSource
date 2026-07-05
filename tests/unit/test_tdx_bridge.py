@@ -1,16 +1,16 @@
-from src.datasource.tdx_bridge import TdxBridge
+from src.datasource.tdx_legacy.bridge import TdxLegacyBridge
 from src.datasource.tdx_models import TdxBar
 
 
 def test_bridge_claims_first_client_as_command_leader():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
 
     assert bridge.claim_leader("nestjs-a") is True
     assert bridge.claim_leader("nestjs-b") is False
 
 
 def test_bridge_releases_leader_on_disconnect():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     bridge.claim_leader("nestjs-a")
 
     bridge.disconnect("nestjs-a")
@@ -19,7 +19,7 @@ def test_bridge_releases_leader_on_disconnect():
 
 
 def test_bridge_sync_subscriptions_calculates_delta():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     result = bridge.plan_sync(["600519.SH", "000001.SZ"])
 
     assert result.to_subscribe == ["600519.SH", "000001.SZ"]
@@ -33,7 +33,7 @@ def test_bridge_sync_subscriptions_calculates_delta():
 
 
 def test_bridge_rejects_subscription_over_limit():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=2)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=2)
 
     result = bridge.plan_sync(["600519.SH", "000001.SZ", "601318.SH"])
 
@@ -41,7 +41,7 @@ def test_bridge_rejects_subscription_over_limit():
 
 
 def test_bridge_bounded_queue_reports_backpressure():
-    bridge = TdxBridge(queue_max_size=1, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=1, max_subscriptions=100)
     bar = TdxBar(
         symbol="600519.SH",
         period="1m",
@@ -63,7 +63,7 @@ def test_bridge_bounded_queue_reports_backpressure():
 
 
 def test_bridge_records_runtime_callback_and_queue_state():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
 
     bridge.record_callback(last_minute_bar_at="2026-06-26T09:31:00+08:00")
     bridge.record_queue_depth(3)
@@ -75,7 +75,7 @@ def test_bridge_records_runtime_callback_and_queue_state():
 
 
 def test_bridge_records_raw_quote_callback_diagnostics():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     bridge.mark_active(["600519.SH"])
 
     bridge.record_quote_callback(
@@ -97,7 +97,7 @@ def test_bridge_records_raw_quote_callback_diagnostics():
 
 
 def test_bridge_records_rejected_quote_callback_diagnostics():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
 
     bridge.record_quote_callback(
         code="SZ000001",
@@ -116,7 +116,7 @@ def test_bridge_records_rejected_quote_callback_diagnostics():
 
 
 def test_bridge_reports_route_backpressure_without_enqueueing_bar():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
 
     bridge.report_backpressure()
 

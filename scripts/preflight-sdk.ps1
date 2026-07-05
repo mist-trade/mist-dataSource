@@ -78,9 +78,9 @@ Write-Host "  Keep TDX_SDK_PATH stable. If it changes, clean stale strategy entr
 
 $qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
 if ($qmtBridgeGatewayUrl) {
-    Write-Warn "QMT full-client bridge is configured but live provider enablement requires Windows spike evidence: $qmtBridgeGatewayUrl"
+    Write-Warn "QMT full-client bridge is configured; rely on live commands only after Windows evidence is captured: $qmtBridgeGatewayUrl"
 } else {
-    Write-Warn "QMT full-client bridge is not configured; QMT provider remains disabled"
+    Write-Warn "QMT full-client bridge is not configured; only local DAT paths can be tested"
 }
 
 Write-Ok "SDK preflight passed"

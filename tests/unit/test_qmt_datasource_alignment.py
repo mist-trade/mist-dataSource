@@ -1,200 +1,56 @@
-from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
-from src.adapter.mock.qmt_mock import QMTMockAdapter
-from src.datasource.capabilities import (
-    QMT_CAPABILITY_STATUSES,
-    build_provider_manifests,
-)
+from src.datasource.capabilities import build_provider_manifests
 from src.datasource.contracts import ResponseEnvelope
-from src.datasource.tdx_models import TdxBar, TdxSnapshot
 
-FIRST_QMT_PARITY_TARGETS = {
-    "snapshots": {"get_full_tick"},
-    "calendar": {"trading_calendar"},
-    "securities": {"get_stock_list_in_sector"},
-    "security-info": {"instrument_detail"},
-    "sector-list": {"sector_list"},
-    "sector-members": {"get_stock_list_in_sector"},
-}
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_qmt_manifest_records_first_parity_target_set() -> None:
-    qmt_manifest = next(
-        manifest
-        for manifest in build_provider_manifests(tdx_status="available")
-        if manifest.id == "qmt"
-    )
-    qmt_capabilities = {
-        capability.family: capability.model_dump() for capability in qmt_manifest.capabilities
-    }
-    bars = qmt_capabilities["bars"]
+def test_tdx_provider_manifest_no_longer_lists_qmt() -> None:
+    manifests = build_provider_manifests(tdx_status="available")
 
-    assert bars["status"] == "supported"
-    assert bars["stability"] == "local-dat"
-    assert {"get_bars", "collect_recent_bars"} <= set(bars["providerMethods"])
-    assert {"local_dat:1d", "local_dat:1m", "local_dat:5m"} <= set(bars["nativeMethods"])
-
-    for family, expected_methods in FIRST_QMT_PARITY_TARGETS.items():
-        capability = qmt_capabilities[family]
-        assert capability["status"] == "unsupported"
-        assert capability["stability"] == "spike-blocked"
-        assert capability["unsupportedReason"] == "Full-QMT bridge Windows spike evidence is required"
-        assert expected_methods <= set(capability["nativeMethods"])
-        assert capability["providerMethods"]
-
-    assert "get_market_data" not in bars["providerMethods"]
+    assert [manifest.id for manifest in manifests] == ["tdx"]
 
 
-def test_qmt_manifest_keeps_unverified_capabilities_explicit() -> None:
-    unsupported_families = {
-        "reference-data",
-        "finance-report",
-        "financial-data",
-        "formula-data",
-        "formula-execution",
-        "formula-batch-execution",
-        "formulas",
-        "raw-diagnostics",
-    }
-
-    for family in unsupported_families:
-        status, _stability, methods, unsupported_reason = QMT_CAPABILITY_STATUSES[family]
-        assert status == "unsupported"
-        assert methods == []
-        assert unsupported_reason
-
-    assert "report-data" not in QMT_CAPABILITY_STATUSES
-
-
-@pytest.mark.asyncio
-async def test_qmt_mock_adapter_covers_first_parity_native_methods() -> None:
-    adapter = QMTMockAdapter(path="/mock/qmt", account_id="mock")
-    await adapter.initialize()
-
-    try:
-        market_data = await adapter.get_market_data(["600000.SH"], ["close"], count=1)
-        ticks = await adapter.get_full_tick(["600000.SH"])
-        trading_dates = await adapter.get_trading_dates("SH", count=2)
-        securities = await adapter.get_stock_list("0")
-        members = await adapter.get_stock_list_in_sector("沪深300")
-        sectors = await adapter.get_sector_list()
-        detail = await adapter.get_instrument_detail("600000.SH")
-        instrument_type = await adapter.get_instrument_type("600000.SH")
-    finally:
-        await adapter.shutdown()
-
-    assert "close" in market_data
-    assert "600000.SH" in ticks
-    assert trading_dates
-    assert securities
-    assert members
-    assert sectors
-    assert detail["InstrumentID"] == "600000.SH"
-    assert instrument_type["stock"] is True
-
-
-@pytest.mark.asyncio
-async def test_qmt_mock_adapter_covers_later_reference_and_finance_candidates() -> None:
-    adapter = QMTMockAdapter(path="/mock/qmt", account_id="mock")
-    await adapter.initialize()
-
-    try:
-        dividend_factors = await adapter.get_divid_factors("600000.SH")
-        cb_info = await adapter.get_cb_info("113001.SH")
-        ipo_info = await adapter.get_ipo_info()
-        etf_info = await adapter.get_etf_info()
-        financial_data = await adapter.get_financial_data(["600000.SH"], ["Balance"])
-    finally:
-        await adapter.shutdown()
-
-    assert dividend_factors
-    assert cb_info["stock_code"] == "113001.SH"
-    assert ipo_info == []
-    assert etf_info == {}
-    assert financial_data == {"600000.SH": {}}
-
-
-def test_qmt_alignment_reference_records_current_path_and_first_targets() -> None:
-    reference = Path("docs/references/qmt-provider-alignment.md")
+def test_qmt_alignment_reference_records_native_service_path() -> None:
+    reference = PROJECT_ROOT / "docs" / "references" / "qmt-provider-alignment.md"
     text = reference.read_text(encoding="utf-8")
 
-    assert "First Parity Target Set" in text
-    for family in FIRST_QMT_PARITY_TARGETS:
-        assert f"`{family}`" in text
-    assert "`/api/qmt/*`" in text
-    assert "`/v1`" in text
-    assert "QMT live startup remains disabled" in text
-    assert "WebSocket duplex is a first-class Windows spike candidate" in text
-    assert "fire outside trading hours" in text
-    assert "`handlebar` K-line events or `subscribe` quote callbacks" in text
+    assert "`:9002/v1/bars/query`" in text
+    assert "QMT native `marketData`" in text
+    assert "`get_market_data_ex(..., subscribe=False)`" in text
+    assert "QMT does not implement `src.adapter_legacy.base.TdxLegacyAdapterBase`" in text
+    assert "`/api/qmt/*`" not in text
+    assert "`provider=qmt`" not in text
+    assert "WebSocket duplex" not in text
 
 
-def test_provider_neutral_public_models_do_not_use_tdx_native_field_names() -> None:
-    bar = TdxBar(
-        symbol="600000.SH",
-        period="1m",
-        barTime="2026-06-27T09:31:00+08:00",
-        open=10.0,
-        high=10.2,
-        low=9.9,
-        close=10.1,
-        volume=1000.0,
-        amount=10100.0,
-        receivedAt=datetime(2026, 6, 27, 9, 31, tzinfo=UTC),
-    )
-    snapshot = TdxSnapshot(
-        symbol="600000.SH",
-        last=10.1,
-        open=10.0,
-        high=10.2,
-        low=9.9,
-        lastClose=9.8,
-        volume=1000.0,
-        amount=10100.0,
-        asOf="2026-06-27T09:31:00+08:00",
-    )
+def test_qmt_has_no_legacy_adapter_package_source() -> None:
+    adapter_qmt = PROJECT_ROOT / "src" / "adapter" / "qmt"
+
+    assert not [path for path in adapter_qmt.glob("*.py") if path.name != "__init__.py"]
+    assert not (adapter_qmt / "__init__.py").exists()
+
+
+def test_qmt_native_market_data_envelope_keeps_column_shape() -> None:
     envelope = ResponseEnvelope.success(
-        request_id="req-qmt-neutral",
+        request_id="req-qmt-native",
         provider="qmt",
         data={
-            "bars": [bar.model_dump()],
-            "snapshots": [snapshot.model_dump()],
+            "marketData": {
+                "000001.SZ": {
+                    "open": {"20260701": 10.05},
+                    "close": {"20260701": 10.16},
+                    "volume": {"20260701": 906890.0},
+                    "amount": {"20260701": 915838549.0},
+                }
+            },
+            "source": "local_dat",
         },
     )
 
-    serialized = envelope.model_dump()
-    forbidden_keys = {
-        "Amount",
-        "Close",
-        "ErrorId",
-        "High",
-        "LastClose",
-        "Low",
-        "Max",
-        "Min",
-        "Now",
-        "Open",
-        "Value",
-        "field_list",
-        "stock_code",
-    }
-    discovered_keys = set(_walk_public_keys(serialized))
+    payload = envelope.model_dump()
 
-    assert forbidden_keys.isdisjoint(discovered_keys)
-
-
-def _walk_public_keys(value: object) -> list[str]:
-    if isinstance(value, dict):
-        keys = list(value)
-        for child_value in value.values():
-            keys.extend(_walk_public_keys(child_value))
-        return keys
-    if isinstance(value, list):
-        keys: list[str] = []
-        for item in value:
-            keys.extend(_walk_public_keys(item))
-        return keys
-    return []
+    assert payload["provider"] == "qmt"
+    assert "bars" not in payload["data"]
+    assert payload["data"]["marketData"]["000001.SZ"]["close"] == {"20260701": 10.16}

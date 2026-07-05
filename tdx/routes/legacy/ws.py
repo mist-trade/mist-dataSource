@@ -4,7 +4,7 @@
 对应 TDX SDK: tqcenter.tq (subscribe_hq, unsubscribe_hq)
 
 使用 TDX 订阅客户端 + 快照采集模式:
-    1. TdxSubscriptionClient 包装 subscribe_hq/unsubscribe_hq
+    1. TdxLegacySubscriptionClient 包装 subscribe_hq/unsubscribe_hq
     2. SDK 回调只标记 collector dirty symbols
     3. collector 拉取 get_market_snapshot 后广播 quote 事件
 
@@ -34,11 +34,11 @@ from typing import Any, cast
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.core.config import settings
-from src.datasource.tdx_bridge import TdxBridge
+from src.datasource.tdx_legacy.bridge import TdxLegacyBridge
 from src.ws.protocol import ws_pong, ws_subscription_ack
-from tdx.routes.dependencies import (
-    get_tdx_bridge,
-    get_tdx_subscription_client,
+from tdx.routes.legacy.dependencies import (
+    get_tdx_legacy_bridge,
+    get_tdx_legacy_subscription_client,
     get_ws_manager,
 )
 
@@ -50,11 +50,11 @@ def _get_ws_manager(websocket: WebSocket):
 
 
 def _get_subscription_client(websocket: WebSocket):
-    return get_tdx_subscription_client(websocket)
+    return get_tdx_legacy_subscription_client(websocket)
 
 
-def _get_bridge(websocket: WebSocket) -> TdxBridge:
-    return get_tdx_bridge(websocket)
+def _get_bridge(websocket: WebSocket) -> TdxLegacyBridge:
+    return get_tdx_legacy_bridge(websocket)
 
 
 def _message_symbols(message: dict[str, Any]) -> list[str] | None:
@@ -67,7 +67,7 @@ def _message_symbols(message: dict[str, Any]) -> list[str] | None:
     return cast(list[str], symbol_list)
 
 
-def _is_leader(bridge: TdxBridge, client_id: str) -> bool:
+def _is_leader(bridge: TdxLegacyBridge, client_id: str) -> bool:
     return bridge.leader_client_id == client_id or bridge.claim_leader(client_id)
 
 
@@ -91,7 +91,7 @@ def _subscription_response(
 async def websocket_quote(websocket: WebSocket, client_id: str):
     """实时行情 WebSocket 端点 (TDX 原生模式).
 
-    使用 TDXSubscriptionClient + TdxMinuteCollector 模式:
+    使用 TDXSubscriptionClient + TdxLegacyMinuteCollector 模式:
     1. 客户端发送订阅请求
     2. 验证股票数量不超过100只 (TDX SDK限制)
     3. 调用 subscription client 注册轻量回调

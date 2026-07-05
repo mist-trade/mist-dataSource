@@ -1,7 +1,7 @@
 """TDX 适配器 FastAPI 应用入口 (Port 9001).
 
 启动方式: uvicorn tdx.main:app --port 9001 --reload
-对应 TDX SDK: tqcenter.tq (通过 MarketDataAdapter 适配器层调用)
+对应 TDX SDK: tqcenter.tq (通过 TdxLegacyAdapterBase 适配器层调用)
 """
 
 from collections.abc import Awaitable, Callable
@@ -11,11 +11,10 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.adapter import create_tdx_adapter
-from src.adapter.base import TdxDataAdapter
+from src.adapter_legacy import create_tdx_legacy_adapter
+from src.adapter_legacy.base import TdxLegacyAdapterProtocol
 from src.core.config import settings
 from src.core.logging import setup_logging
-from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.datasource.tdx.runtime import TdxRuntime
 from src.datasource.tdx_provider import TdxDatasourceProvider
 from src.ws.manager import ConnectionManager
@@ -26,17 +25,16 @@ from tdx.routes.legacy.market import router as market_router
 from tdx.routes.legacy.sector import router as sector_router
 from tdx.routes.legacy.stock import router as stock_router
 from tdx.routes.legacy.value import router as value_router
+from tdx.routes.legacy.ws import router as ws_router
 from tdx.routes.v1 import router as v1_router
-from tdx.routes.ws import router as ws_router
 
 setup_logging()
 
-tdx_adapter: TdxDataAdapter | None = None
+tdx_legacy_adapter: TdxLegacyAdapterProtocol | None = None
 tdx_provider: TdxDatasourceProvider | None = None
-tdx_bridge: Any | None = None
-tdx_collector: Any | None = None
-tdx_subscription_client: Any | None = None
-qmt_provider: QmtDatasourceProvider | None = QmtDatasourceProvider()
+tdx_legacy_bridge: Any | None = None
+tdx_legacy_collector: Any | None = None
+tdx_legacy_subscription_client: Any | None = None
 ws_manager = ConnectionManager()
 tdx_runtime: TdxRuntime | None = None
 LEGACY_TDX_API_DEPRECATION_HEADERS = {
@@ -44,52 +42,51 @@ LEGACY_TDX_API_DEPRECATION_HEADERS = {
     "Link": '</v1/bars/query>; rel="successor-version"',
 }
 _tdx_provider_owned_by_main: TdxDatasourceProvider | None = None
-_tdx_adapter_owned_by_main: TdxDataAdapter | None = None
-_tdx_bridge_owned_by_main: Any | None = None
-_tdx_collector_owned_by_main: Any | None = None
-_tdx_subscription_client_owned_by_main: Any | None = None
+_tdx_legacy_adapter_owned_by_main: TdxLegacyAdapterProtocol | None = None
+_tdx_legacy_bridge_owned_by_main: Any | None = None
+_tdx_legacy_collector_owned_by_main: Any | None = None
+_tdx_legacy_subscription_client_owned_by_main: Any | None = None
 
 
 def _sync_app_state(target_app: FastAPI) -> None:
     target_app.state.tdx_runtime = tdx_runtime
-    target_app.state.tdx_adapter = tdx_adapter
+    target_app.state.tdx_legacy_adapter = tdx_legacy_adapter
     target_app.state.tdx_provider = tdx_provider
-    target_app.state.tdx_bridge = tdx_bridge
-    target_app.state.tdx_collector = tdx_collector
-    target_app.state.tdx_subscription_client = tdx_subscription_client
-    target_app.state.qmt_provider = qmt_provider
+    target_app.state.tdx_legacy_bridge = tdx_legacy_bridge
+    target_app.state.tdx_legacy_collector = tdx_legacy_collector
+    target_app.state.tdx_legacy_subscription_client = tdx_legacy_subscription_client
     target_app.state.ws_manager = ws_manager
 
 
 def _runtime_from_globals() -> TdxRuntime:
     return TdxRuntime(
-        adapter=tdx_adapter,
+        adapter=tdx_legacy_adapter,
         provider=tdx_provider,
-        bridge=tdx_bridge,
-        collector=tdx_collector,
-        subscription_client=tdx_subscription_client,
+        bridge=tdx_legacy_bridge,
+        collector=tdx_legacy_collector,
+        subscription_client=tdx_legacy_subscription_client,
         ws_manager=ws_manager,
-        adapter_factory=create_tdx_adapter,
+        adapter_factory=create_tdx_legacy_adapter,
         provider_factory=TdxDatasourceProvider,
     )
 
 
 def _sync_globals_from_runtime(runtime: TdxRuntime) -> None:
-    global _tdx_adapter_owned_by_main, _tdx_bridge_owned_by_main
-    global _tdx_collector_owned_by_main, _tdx_provider_owned_by_main
-    global _tdx_subscription_client_owned_by_main
-    global tdx_adapter, tdx_bridge, tdx_collector, tdx_provider, tdx_subscription_client
+    global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
+    global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
+    global _tdx_legacy_subscription_client_owned_by_main
+    global tdx_legacy_adapter, tdx_legacy_bridge, tdx_legacy_collector, tdx_provider, tdx_legacy_subscription_client
 
-    tdx_adapter = runtime.adapter
+    tdx_legacy_adapter = runtime.adapter
     tdx_provider = runtime.provider
-    tdx_bridge = runtime.bridge
-    tdx_collector = runtime.collector
-    tdx_subscription_client = runtime.subscription_client
-    _tdx_adapter_owned_by_main = runtime.adapter if runtime.owns_adapter else None
+    tdx_legacy_bridge = runtime.bridge
+    tdx_legacy_collector = runtime.collector
+    tdx_legacy_subscription_client = runtime.subscription_client
+    _tdx_legacy_adapter_owned_by_main = runtime.adapter if runtime.owns_adapter else None
     _tdx_provider_owned_by_main = runtime.provider if runtime.owns_provider else None
-    _tdx_bridge_owned_by_main = runtime.bridge if runtime.owns_bridge else None
-    _tdx_collector_owned_by_main = runtime.collector if runtime.owns_collector else None
-    _tdx_subscription_client_owned_by_main = (
+    _tdx_legacy_bridge_owned_by_main = runtime.bridge if runtime.owns_bridge else None
+    _tdx_legacy_collector_owned_by_main = runtime.collector if runtime.owns_collector else None
+    _tdx_legacy_subscription_client_owned_by_main = (
         runtime.subscription_client if runtime.owns_subscription_client else None
     )
 
@@ -102,27 +99,27 @@ def _clear_owned_globals_after_stop(
     owned_collector: Any | None,
     owned_subscription_client: Any | None,
 ) -> None:
-    global _tdx_adapter_owned_by_main, _tdx_bridge_owned_by_main
-    global _tdx_collector_owned_by_main, _tdx_provider_owned_by_main
-    global _tdx_subscription_client_owned_by_main
-    global tdx_adapter, tdx_bridge, tdx_collector, tdx_provider, tdx_subscription_client
+    global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
+    global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
+    global _tdx_legacy_subscription_client_owned_by_main
+    global tdx_legacy_adapter, tdx_legacy_bridge, tdx_legacy_collector, tdx_provider, tdx_legacy_subscription_client
 
-    if tdx_subscription_client is owned_subscription_client:
-        tdx_subscription_client = None
-    if tdx_collector is owned_collector:
-        tdx_collector = None
-    if tdx_bridge is owned_bridge:
-        tdx_bridge = None
+    if tdx_legacy_subscription_client is owned_subscription_client:
+        tdx_legacy_subscription_client = None
+    if tdx_legacy_collector is owned_collector:
+        tdx_legacy_collector = None
+    if tdx_legacy_bridge is owned_bridge:
+        tdx_legacy_bridge = None
     if tdx_provider is owned_provider:
         tdx_provider = None
-    if tdx_adapter is owned_adapter:
-        tdx_adapter = None
+    if tdx_legacy_adapter is owned_adapter:
+        tdx_legacy_adapter = None
 
-    _tdx_subscription_client_owned_by_main = None
-    _tdx_collector_owned_by_main = None
-    _tdx_bridge_owned_by_main = None
+    _tdx_legacy_subscription_client_owned_by_main = None
+    _tdx_legacy_collector_owned_by_main = None
+    _tdx_legacy_bridge_owned_by_main = None
     _tdx_provider_owned_by_main = None
-    _tdx_adapter_owned_by_main = None
+    _tdx_legacy_adapter_owned_by_main = None
 
 
 @asynccontextmanager
@@ -148,11 +145,11 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
-        owned_subscription_client = _tdx_subscription_client_owned_by_main
-        owned_collector = _tdx_collector_owned_by_main
-        owned_bridge = _tdx_bridge_owned_by_main
+        owned_subscription_client = _tdx_legacy_subscription_client_owned_by_main
+        owned_collector = _tdx_legacy_collector_owned_by_main
+        owned_bridge = _tdx_legacy_bridge_owned_by_main
         owned_provider = _tdx_provider_owned_by_main
-        owned_adapter = _tdx_adapter_owned_by_main
+        owned_adapter = _tdx_legacy_adapter_owned_by_main
         try:
             await runtime.stop()
         finally:
@@ -210,7 +207,7 @@ async def health():
 
     Examples:
         >>> GET /health
-        {"status": "ok", "instance": "tdx", "adapter": "TDXMockAdapter", "connections": 0}
+        {"status": "ok", "instance": "tdx", "adapter": "TdxLegacyMockAdapter", "connections": 0}
     """
     return await _runtime_from_globals().health(instance="tdx")
 

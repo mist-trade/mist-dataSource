@@ -77,21 +77,12 @@ def test_qmt_alignment_reference_is_linked_from_coverage_matrix() -> None:
     qmt_text = QMT_ALIGNMENT_PATH.read_text(encoding="utf-8")
 
     assert "docs/references/qmt-provider-alignment.md" in coverage_text
-    assert "First Parity Target Set" in qmt_text
-    assert "`/api/qmt/*`" in qmt_text
-    assert "`/v1`" in qmt_text
+    assert "QMT native `marketData`" in qmt_text
+    assert "`:9002/v1/bars/query`" in qmt_text
+    assert "`/api/qmt/*`" not in qmt_text
+    assert "`provider=qmt`" not in qmt_text
     assert "full-QMT built-in Python" in qmt_text
-    assert "Windows evidence proves them safe" in qmt_text
-    for family in [
-        "bars",
-        "snapshots",
-        "calendar",
-        "securities",
-        "security-info",
-        "sector-list",
-        "sector-members",
-    ]:
-        assert f"`{family}`" in qmt_text
+    assert "`get_market_data_ex(..., subscribe=False)`" in qmt_text
 
 
 def test_old_tdx_routes_are_documented_as_migration_only() -> None:

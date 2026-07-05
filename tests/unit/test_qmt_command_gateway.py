@@ -32,7 +32,7 @@ def test_qmt_command_gateway_allows_only_one_bridge_owner() -> None:
 def test_qmt_command_gateway_polls_commands_in_fifo_order() -> None:
     gateway = QmtCommandGateway()
     gateway.register_owner("bridge-a")
-    first = gateway.enqueue("get_market_data_ex", {"symbols": ["600519.SH"]})
+    first = gateway.enqueue("get_market_data_ex", {"stock_list": ["600519.SH"]})
     second = gateway.enqueue("get_full_tick", {"symbols": ["000001.SZ"]})
 
     commands = gateway.poll("bridge-a", limit=2)

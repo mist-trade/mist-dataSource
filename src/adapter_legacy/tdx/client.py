@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from src.adapter.base import MarketDataAdapter
+from src.adapter_legacy.base import TdxLegacyAdapterBase
 from src.core.config import settings
 from src.core.exceptions import AdapterError
 from src.core.logging import get_logger
@@ -80,7 +80,7 @@ def _load_tq_module(sdk_path: str) -> Any:
     )
 
 
-class TDXAdapter(MarketDataAdapter):
+class TdxLegacyAdapter(TdxLegacyAdapterBase):
     """通达信适配器 - 基于 tqcenter SDK.
 
     前置条件：通达信终端已启动并登录.
@@ -147,7 +147,7 @@ class TDXAdapter(MarketDataAdapter):
                 "tqcenter SDK is not available. "
                 "Please set TDX_SDK_PATH to the directory containing tqcenter.py "
                 "(e.g. TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user). "
-                "Use TDXMockAdapter for development on other platforms."
+                "Use TdxLegacyMockAdapter for development on other platforms."
             ) from e
         except Exception as e:
             raise AdapterError(f"Failed to initialize TDX adapter: {e}") from e
@@ -254,7 +254,7 @@ class TDXAdapter(MarketDataAdapter):
             provider="tdx",
             family="websocket-subscriptions",
             operation="subscribe_quote",
-            fallback="Use subscribe_hq with TdxSubscriptionClient.",
+            fallback="Use subscribe_hq with TdxLegacySubscriptionClient.",
         )
 
     async def send_user_block(self, block_code: str, stocks: list[str]) -> None:

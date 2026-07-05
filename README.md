@@ -21,7 +21,7 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
       ▼                              ▼
 ┌─────────────┐              ┌─────────────┐
 │  Instance 1 │              │  Instance 2 │
-│  TDX Adapter│              │  QMT Adapter│
+│  TDX Adapter│              │ QMT DataSrc │
 │  Port: 9001 │              │  Port: 9002 │
 │  FastAPI     │              │  FastAPI     │
 └──────┬──────┘              └──────┬──────┘
@@ -49,7 +49,7 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 | Instance | 端口 | 用途 |
 |----------|------|------|
 | tdx | 9001 | TDX 适配器 |
-| qmt | 9002 | QMT 适配器 |
+| qmt | 9002 | QMT datasource |
 
 ## 快速开始
 
@@ -121,36 +121,29 @@ mist-datasource/
 │   │   ├── config.py         # pydantic-settings 配置
 │   │   ├── logging.py        # 日志配置
 │   │   └── exceptions.py     # 自定义异常
-│   ├── adapter/              # 适配器层
-│   │   ├── base.py           # MarketDataAdapter 抽象基类
-│   │   ├── tdx/              # TDX 真实适配器
-│   │   ├── qmt/              # QMT 真实适配器
-│   │   └── mock/             # Mock 适配器 (开发用)
+│   ├── adapter_legacy/       # TDX legacy SDK 适配器层
+│   │   ├── base.py           # TdxLegacyAdapterBase 抽象基类
+│   │   ├── tdx/              # TDX legacy 真实适配器
+│   │   └── mock/             # TDX legacy Mock 适配器 (开发用)
+│   ├── datasource/           # TDX/QMT provider 与 legacy 订阅链
+│   │   ├── tdx/              # TDX V1 operations/normalizers/runtime
+│   │   ├── tdx_legacy/       # TDX legacy WS subscription/bridge/collector
+│   │   └── qmt/              # QMT native local-DAT datasource
 │   └── ws/                   # WebSocket 管理
 │       ├── protocol.py       # WSMessage 消息协议
 │       └── manager.py        # ConnectionManager 连接管理
 ├── tdx/                      # TDX 适配器服务 (Port 9001)
 │   ├── main.py               # FastAPI 应用入口
-│   ├── config.py             # TDX 特定配置
 │   ├── routes/               # REST API 路由
-│   │   ├── market.py         # 行情数据
-│   │   ├── stock.py          # 股票信息
-│   │   ├── financial.py      # 财务数据
-│   │   ├── value.py          # 估值数据
-│   │   ├── sector.py         # 板块数据
-│   │   ├── etf.py            # ETF 数据
-│   │   ├── client.py         # 客户端管理
-│   │   └── ws.py             # WebSocket 路由
-│   └── services/             # 业务逻辑层
-│       └── tdx_service.py    # TDX 服务
-├── qmt/                      # QMT 适配器服务 (Port 9002)
+│   │   ├── legacy/           # legacy /api/tdx/* 路由
+│   │   ├── v1/               # normalized /v1/* TDX 路由
+│   │   └── legacy/ws.py      # legacy WebSocket quote 路由
+├── qmt/                      # QMT datasource 服务 (Port 9002)
 │   ├── main.py               # FastAPI 应用入口
-│   ├── config.py             # QMT 特定配置
 │   ├── routes/               # REST API 路由
-│   │   ├── market.py         # 行情数据
-│   │   └── ws.py             # WebSocket 路由
-│   └── services/             # 业务逻辑层
-│       └── qmt_service.py    # QMT 服务
+│   │   ├── v1/               # native QMT /v1/bars/query
+│   │   └── bridge.py         # full-QMT HTTP polling bridge
+│   └── builtin_bridge/       # 大 QMT 内置 Python 脚本
 ├── tests/                    # 测试
 │   ├── conftest.py           # pytest 配置和 fixtures
 │   ├── unit/                 # 单元测试
@@ -161,8 +154,9 @@ mist-datasource/
 │   └── integration/          # 集成测试
 │       ├── test_tdx_routes.py
 │       ├── test_tdx_ws.py
-│       ├── test_tdx_service.py
-│       ├── test_qmt_service.py
+│       ├── test_tdx_v1.py
+│       ├── test_qmt_v1.py
+│       ├── test_qmt_bridge_routes.py
 │       └── test_tdx_live.py  # 需要真实环境 (标记为 live)
 ├── scripts/                  # 脚本
 │   ├── start_all.sh          # 启动所有服务
@@ -180,36 +174,43 @@ mist-datasource/
 
 ### 主要 API 端点
 
-#### TDX 适配器 (Port 9001)
+#### TDX datasource (Port 9001)
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
-| GET | `/api/tdx/stock-list-in-sector` | 获取板块股票列表 |
-| GET | `/api/tdx/market-data` | 获取历史行情数据 |
-| GET | `/api/tdx/market-snapshot` | 获取实时行情快照 |
-| GET | `/api/tdx/trading-dates` | 获取交易日列表 |
-| GET | `/api/tdx/divid-factors` | 获取除权除息数据 |
-| GET | `/api/tdx/gb-info` | 获取股本数据 |
-| POST | `/api/tdx/refresh-cache` | 刷新行情缓存 |
-| POST | `/api/tdx/refresh-kline` | 刷新 K 线缓存 |
-| POST | `/api/tdx/download-file` | 下载特定数据文件 |
-| GET | `/api/tdx/instrument-detail` | 获取合约详情 |
-| GET | `/api/tdx/full-tick` | 获取完整tick数据 |
-| GET | `/api/tdx/financial` | 获取财务数据 |
-| GET | `/api/tdx/index-weight` | 获取指数权重 |
-| GET | `/api/tdx/sector-list` | 获取板块列表 |
-| GET | `/api/tdx/kzz-info` | 获取可转债信息 |
+| POST | `/v1/bars/query` | normalized 历史 bars |
+| POST | `/v1/snapshots/query` | normalized 行情快照 |
+| POST | `/v1/sectors/query` | normalized 板块成份查询 |
+| POST | `/v1/sectors/list/query` | normalized 板块列表 |
+| POST | `/v1/calendar/trading-dates/query` | normalized 交易日 |
+| POST | `/v1/securities/query` | normalized 证券列表 |
+| POST | `/v1/securities/info/query` | normalized 证券详情 |
+| POST | `/v1/price-volume/query` | normalized 价量数据 |
+| POST | `/v1/finance/financial-data/query` | normalized 专业财务数据 |
+| POST | `/v1/finance/financial-data/by-date/query` | normalized 指定日期财务数据 |
+| POST | `/v1/reference/dividend-factors/query` | normalized 除权除息 |
+| POST | `/v1/reference/share-capital/query` | normalized 股本数据 |
+| POST | `/v1/instruments/convertible-bonds/query` | normalized 可转债信息 |
+| POST | `/v1/instruments/tracking-etfs/query` | normalized 跟踪 ETF 信息 |
+| POST | `/v1/raw/tdx/call` | operator/debug only TDX raw 调用 |
 | WS | `/ws/quote/{client_id}` | 实时行情订阅 |
 
-#### QMT 适配器 (Port 9002)
+`/api/tdx/*` legacy endpoints 仍在运行时保留并标记 deprecated，只用于旧调用方兼容；
+新接入和 Mist 后端主路径应使用 `/v1/*`。
+
+#### QMT datasource (Port 9002)
 
 | 方法 | 路径 | 描述 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
-| GET | `/api/qmt/stocks` | 获取股票列表 |
-| GET | `/api/qmt/market-data` | 获取历史行情数据 |
-| WS | `/ws/quote/{client_id}` | 实时行情订阅 |
+| POST | `/v1/bars/query` | QMT native 历史 bars，返回 `data.marketData` |
+| POST | `/qmt/bridge/owner` | 大 QMT 内置 Python bridge 注册 owner |
+| POST | `/qmt/bridge/commands` | 受控入队一条 full-QMT bridge 命令 |
+| GET | `/qmt/bridge/commands/{command_id}` | 查询 bridge 命令结果或 pending 状态 |
+| POST | `/qmt/bridge/poll` | 大 QMT 内置 Python bridge 拉取命令 |
+| POST | `/qmt/bridge/result` | 大 QMT 内置 Python bridge 回写结果 |
+| GET | `/qmt/bridge/health` | bridge owner/queue 健康状态 |
 
 ### WebSocket 消息协议
 
@@ -325,24 +326,25 @@ TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user
 
 不要只复制 `tqcenter.py` 到部署包。`TPythClient.dll` 在 `TDX_SDK_PATH` 的上一级目录，SDK 会按这个父目录关系定位它；移动目录后需要同步修改 `.env`，并可能需要在通达信终端里清理旧策略身份。
 
-QMT bridge 预期配置，保留给 Windows full-QMT spike 和后续启用：
+QMT bridge 预期配置：
 
 ```env
 QMT_HOST=127.0.0.1
 QMT_PORT=9002
-QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9012/qmt/bridge
+QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9002/qmt/bridge
 ```
 
-当前 Mist Windows appliance 不注册也不启动 live QMT provider。保留这些配置不会影响 TDX/Backend 的 WinSW 部署。
+当前 QMT 服务只暴露 native `/v1/bars/query` 和 HTTP polling bridge；TDX
+服务不再接受 QMT provider 参数。
 
 启用 live QMT 前必须先在 Windows 大 QMT 客户端中运行：
 
 - `qmt/builtin_bridge/mist_qmt_spike.py`
 - `qmt/builtin_bridge/mist_qmt_bridge.py`
 
-实机结果记录到 `docs/references/bigqmt-windows-spike-evidence-template.md`。如果
-第三方库、WebSocket、监听端口、线程或子进程没有通过 spike，不得在 bridge
-生产脚本中使用这些能力。
+实机结果记录到 `docs/references/bigqmt-windows-spike-evidence-template.md`。生产
+bridge 脚本只允许 stdlib HTTP polling；不得在 bridge 生产脚本中使用第三方库、
+监听端口、线程或子进程。
 
 部署前可先运行 SDK 预检：
 
@@ -390,9 +392,8 @@ price-volume endpoints、WebSocket ping/pong，以及 appliance health。通过
 `-IncludeReferenceInstrumentSmoke` 与 `-IncludeFormulaSmoke` 可额外检查
 Phase 2 reference/instrument 和 Phase 4 formula 的 read-only 路径。
 
-`/v1` normalized 请求默认使用 `provider=tdx`。如果显式传
-`provider=qmt`，当前会返回 `PROVIDER_CAPABILITY_UNSUPPORTED`，用于固定
-QMT 后续接入时的错误契约；Mist Windows appliance 目前仍不启动 QMT 服务。
+TDX `/v1` 请求固定使用 TDX schema，不接受 `provider` 字段。QMT 历史 bars
+请调用 QMT 服务的 `http://127.0.0.1:9002/v1/bars/query`。
 
 **重要提示**：重新启动 TDX 进程前，必须在通达信终端中**手动删除**已注册的策略，否则 `tq.initialize()` 会报 "已有同名策略运行" 导致初始化失败。策略标识为 `sdk_path/mist_datasource.py`。
 

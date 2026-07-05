@@ -1,7 +1,6 @@
-"""Integration tests for the full-QMT command bridge route surface."""
+"""Integration tests for the full-QMT HTTP polling command bridge route surface."""
 
 import pytest
-from fastapi.testclient import TestClient
 
 import qmt.main
 from src.datasource.qmt.command_gateway import QmtCommandGateway
@@ -53,62 +52,73 @@ async def test_qmt_bridge_health_reports_gateway_state(qmt_client):
     assert response.json()["ownerId"] == "bridge-health"
 
 
-def test_qmt_bridge_websocket_accepts_probe_messages():
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
     gateway = QmtCommandGateway()
     qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
 
-    with (
-        TestClient(qmt.main.app) as client,
-        client.websocket_connect("/qmt/bridge/ws?ownerId=bridge-ws") as websocket,
-    ):
-        ready = websocket.receive_json()
-        websocket.send_json({"type": "ping", "id": "probe-1"})
-        pong = websocket.receive_json()
+    owner_response = await qmt_client.post(
+        "/qmt/bridge/owner",
+        json={"ownerId": "bridge-a"},
+    )
+    enqueue_response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={
+            "method": "get_market_data_ex",
+            "params": {"stock_list": ["000001.SZ"], "period": "1d", "count": 1},
+            "timeoutSeconds": 3,
+        },
+    )
 
-    assert ready["type"] == "bridge.ready"
-    assert ready["ownerId"] == "bridge-ws"
-    assert pong == {"type": "pong", "id": "probe-1", "ownerId": "bridge-ws"}
-    assert gateway.health()["ownerId"] == "bridge-ws"
+    assert owner_response.status_code == 200
+    assert enqueue_response.status_code == 200
+    command_id = enqueue_response.json()["commandId"]
+
+    poll_response = await qmt_client.post(
+        "/qmt/bridge/poll",
+        json={"ownerId": "bridge-a", "limit": 1},
+    )
+    assert poll_response.json()["commands"] == [
+        {
+            "commandId": command_id,
+            "method": "get_market_data_ex",
+            "params": {"stock_list": ["000001.SZ"], "period": "1d", "count": 1},
+            "timeoutSeconds": 3.0,
+        }
+    ]
+
+    pending_response = await qmt_client.get(f"/qmt/bridge/commands/{command_id}")
+    assert pending_response.status_code == 202
+    assert pending_response.json()["status"] == "pending"
+
+    await qmt_client.post(
+        "/qmt/bridge/result",
+        json={
+            "ownerId": "bridge-a",
+            "commandId": command_id,
+            "ok": True,
+            "result": {"marketData": {}},
+        },
+    )
+    result_response = await qmt_client.get(f"/qmt/bridge/commands/{command_id}")
+
+    assert result_response.status_code == 200
+    assert result_response.json()["ok"] is True
+    assert result_response.json()["result"] == {"marketData": {}}
 
 
-def test_qmt_bridge_websocket_spike_mode_pushes_commands_and_accepts_results():
-    gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
-    qmt.main.app.state.qmt_command_gateway = gateway
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_rejects_unknown_methods(qmt_client):
+    response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={"method": "order_stock", "params": {}},
+    )
 
-    with (
-        TestClient(qmt.main.app) as client,
-        client.websocket_connect(
-            "/qmt/bridge/ws?ownerId=bridge-ws-spike&mode=spike-command-loop"
-        ) as websocket,
-    ):
-        ready = websocket.receive_json()
-        health_command = websocket.receive_json()
-        websocket.send_json(
-            {
-                "type": "bridge.result",
-                "id": health_command["id"],
-                "ok": True,
-                "result": {"ownerId": "bridge-ws-spike"},
-            }
-        )
-        market_command = websocket.receive_json()
-        websocket.send_json(
-            {
-                "type": "bridge.result",
-                "id": market_command["id"],
-                "ok": True,
-                "result": {"000001.SZ": {"close": [10.0]}},
-            }
-        )
-        done = websocket.receive_json()
+    assert response.status_code == 422
 
-    assert ready == {"type": "bridge.ready", "ownerId": "bridge-ws-spike"}
-    assert health_command["type"] == "bridge.command"
-    assert health_command["method"] == "health"
-    assert market_command["type"] == "bridge.command"
-    assert market_command["method"] == "get_market_data_ex"
-    assert market_command["params"]["symbols"] == ["000001.SZ"]
-    assert done["type"] == "bridge.done"
-    assert done["commandCount"] == 2
+
+def test_qmt_bridge_route_table_has_no_websocket_endpoint():
+    paths = set(qmt.main.app.openapi()["paths"])
+
+    assert "/qmt/bridge/ws" not in paths

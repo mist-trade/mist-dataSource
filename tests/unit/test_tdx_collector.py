@@ -5,11 +5,11 @@ from typing import Any
 
 import pytest
 
-from src.adapter.mock.tdx_mock import TDXMockAdapter
-from src.datasource.tdx_bridge import TdxBridge
-from src.datasource.tdx_collector import TdxMinuteCollector
+from src.adapter_legacy.mock.tdx_mock import TdxLegacyMockAdapter
+from src.datasource.tdx_legacy.bridge import TdxLegacyBridge
+from src.datasource.tdx_legacy.collector import TdxLegacyMinuteCollector
+from src.datasource.tdx_legacy.subscription import TdxLegacySubscriptionClient
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
-from src.datasource.tdx_subscription import TdxSubscriptionClient
 from tdx.main import app
 
 
@@ -395,8 +395,8 @@ class FakeAdapter:
 
 @pytest.mark.asyncio
 async def test_callback_only_marks_dirty_symbol():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    collector = TdxMinuteCollector(provider=FakeProvider(), bridge=bridge, period="1m")
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    collector = TdxLegacyMinuteCollector(provider=FakeProvider(), bridge=bridge, period="1m")
 
     collector.mark_dirty_from_callback({"Code": "SH600519", "ErrorId": "0"})
 
@@ -405,8 +405,8 @@ async def test_callback_only_marks_dirty_symbol():
 
 @pytest.mark.asyncio
 async def test_callback_dirty_symbol_is_scheduled_on_event_loop():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    collector = TdxMinuteCollector(provider=FakeProvider(), bridge=bridge, period="1m")
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    collector = TdxLegacyMinuteCollector(provider=FakeProvider(), bridge=bridge, period="1m")
     await collector.start()
 
     collector.mark_dirty_from_callback({"Code": "SH600519", "ErrorId": "0"})
@@ -419,9 +419,9 @@ async def test_callback_dirty_symbol_is_scheduled_on_event_loop():
 
 @pytest.mark.asyncio
 async def test_collector_collects_dirty_snapshot_once():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     provider = FakeProvider()
-    collector = TdxMinuteCollector(provider=provider, bridge=bridge, period="1m")
+    collector = TdxLegacyMinuteCollector(provider=provider, bridge=bridge, period="1m")
     collector.mark_dirty("600519.SH")
 
     emitted = await collector.collect_dirty_once()
@@ -437,13 +437,13 @@ async def test_collector_collects_dirty_snapshot_once():
 
 @pytest.mark.asyncio
 async def test_collector_publishes_new_normalized_snapshot():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     published: list[TdxSnapshot] = []
 
     async def publish_snapshot(snapshot: TdxSnapshot) -> None:
         published.append(snapshot)
 
-    collector = TdxMinuteCollector(
+    collector = TdxLegacyMinuteCollector(
         provider=FakeProvider(),
         bridge=bridge,
         period="1m",
@@ -470,14 +470,14 @@ async def test_collector_publishes_new_normalized_snapshot():
 
 @pytest.mark.asyncio
 async def test_collector_publishes_snapshot_without_fetching_cached_bars():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     provider = SnapshotProvider()
     published: list[str] = []
 
     async def publish_snapshot(snapshot: TdxSnapshot) -> None:
         published.append(snapshot.symbol)
 
-    collector = TdxMinuteCollector(
+    collector = TdxLegacyMinuteCollector(
         provider=provider,
         bridge=bridge,
         period="1m",
@@ -496,14 +496,14 @@ async def test_collector_publishes_snapshot_without_fetching_cached_bars():
 
 @pytest.mark.asyncio
 async def test_collector_publishes_all_dirty_snapshots_without_bar_backpressure():
-    bridge = TdxBridge(queue_max_size=1, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=1, max_subscriptions=100)
     provider = MultiSymbolProvider()
     published: list[TdxSnapshot] = []
 
     async def publish_snapshot(snapshot: TdxSnapshot) -> None:
         published.append(snapshot)
 
-    collector = TdxMinuteCollector(
+    collector = TdxLegacyMinuteCollector(
         provider=provider,
         bridge=bridge,
         period="1m",
@@ -522,11 +522,11 @@ async def test_collector_publishes_all_dirty_snapshots_without_bar_backpressure(
 
 @pytest.mark.asyncio
 async def test_collector_discards_dirty_symbols_when_active_subscriptions_are_known_empty():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     bridge.mark_active([])
     provider = CountingProvider()
 
-    collector = TdxMinuteCollector(
+    collector = TdxLegacyMinuteCollector(
         provider=provider,
         bridge=bridge,
         period="1m",
@@ -542,9 +542,9 @@ async def test_collector_discards_dirty_symbols_when_active_subscriptions_are_kn
 
 @pytest.mark.asyncio
 async def test_collector_keeps_unknown_subscription_state_conservative():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     provider = CountingProvider()
-    collector = TdxMinuteCollector(provider=provider, bridge=bridge, period="1m")
+    collector = TdxLegacyMinuteCollector(provider=provider, bridge=bridge, period="1m")
     collector.mark_dirty("600519.SH")
 
     emitted = await collector.collect_dirty_once()
@@ -556,14 +556,14 @@ async def test_collector_keeps_unknown_subscription_state_conservative():
 
 @pytest.mark.asyncio
 async def test_collector_records_snapshot_publish_error_and_allows_retry():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     publish_calls: list[str] = []
 
     async def failing_publish_snapshot(snapshot: TdxSnapshot) -> None:
         publish_calls.append(snapshot.symbol)
         raise RuntimeError("publish failed")
 
-    collector = TdxMinuteCollector(
+    collector = TdxLegacyMinuteCollector(
         provider=FakeProvider(),
         bridge=bridge,
         period="1m",
@@ -585,8 +585,8 @@ async def test_collector_records_snapshot_publish_error_and_allows_retry():
 @pytest.mark.asyncio
 async def test_subscription_client_enforces_max_subscriptions_with_stable_error():
     adapter = CallbackAdapter()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=2)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=2)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=CallbackCollector(),
@@ -610,9 +610,9 @@ async def test_subscription_client_enforces_max_subscriptions_with_stable_error(
 
 
 def test_subscription_client_preserves_zero_max_subscription_override():
-    client = TdxSubscriptionClient(
+    client = TdxLegacySubscriptionClient(
         adapter=CallbackAdapter(),
-        bridge=TdxBridge(queue_max_size=10, max_subscriptions=100),
+        bridge=TdxLegacyBridge(queue_max_size=10, max_subscriptions=100),
         collector=CallbackCollector(),
         max_subscriptions=0,
     )
@@ -624,8 +624,8 @@ def test_subscription_client_preserves_zero_max_subscription_override():
 async def test_subscription_callback_marks_dirty_without_collecting_bars():
     adapter = CallbackAdapter()
     collector = CallbackCollector()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=collector,
@@ -645,8 +645,8 @@ async def test_subscription_callback_marks_dirty_without_collecting_bars():
 async def test_subscription_callback_records_accepted_quote_diagnostics(caplog):
     adapter = CallbackAdapter()
     collector = CallbackCollector()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=collector,
@@ -656,7 +656,7 @@ async def test_subscription_callback_records_accepted_quote_diagnostics(caplog):
     await client.subscribe(["600519.SH"])
     assert adapter.callback is not None
 
-    with caplog.at_level(logging.INFO, logger="src.datasource.tdx_subscription"):
+    with caplog.at_level(logging.INFO, logger="src.datasource.tdx_legacy.subscription"):
         adapter.callback({"Code": "SH600519", "ErrorId": "0"})
 
     health = bridge.health()
@@ -674,8 +674,8 @@ async def test_subscription_callback_records_accepted_quote_diagnostics(caplog):
 async def test_subscription_callback_accepts_official_json_string_payload(caplog):
     adapter = CallbackAdapter()
     collector = CallbackCollector()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=collector,
@@ -685,7 +685,7 @@ async def test_subscription_callback_accepts_official_json_string_payload(caplog
     await client.subscribe(["600519.SH"])
     assert adapter.callback is not None
 
-    with caplog.at_level(logging.INFO, logger="src.datasource.tdx_subscription"):
+    with caplog.at_level(logging.INFO, logger="src.datasource.tdx_legacy.subscription"):
         adapter.callback('{"Code":"SH600519","ErrorId":"0"}')
     await asyncio.sleep(0)
 
@@ -704,8 +704,8 @@ async def test_subscription_callback_accepts_official_json_string_payload(caplog
 async def test_subscription_callback_records_inactive_quote_diagnostics(caplog):
     adapter = CallbackAdapter()
     collector = CallbackCollector()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=collector,
@@ -715,7 +715,7 @@ async def test_subscription_callback_records_inactive_quote_diagnostics(caplog):
     await client.subscribe(["600519.SH"])
     assert adapter.callback is not None
 
-    with caplog.at_level(logging.WARNING, logger="src.datasource.tdx_subscription"):
+    with caplog.at_level(logging.WARNING, logger="src.datasource.tdx_legacy.subscription"):
         adapter.callback({"Code": "SZ000001", "ErrorId": "0"})
 
     health = bridge.health()
@@ -734,8 +734,8 @@ async def test_subscription_callback_records_inactive_quote_diagnostics(caplog):
 async def test_subscription_callback_records_malformed_quote_diagnostics(caplog):
     adapter = CallbackAdapter()
     collector = CallbackCollector()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=collector,
@@ -745,7 +745,7 @@ async def test_subscription_callback_records_malformed_quote_diagnostics(caplog)
     await client.subscribe(["600519.SH"])
     assert adapter.callback is not None
 
-    with caplog.at_level(logging.WARNING, logger="src.datasource.tdx_subscription"):
+    with caplog.at_level(logging.WARNING, logger="src.datasource.tdx_legacy.subscription"):
         adapter.callback({"ErrorId": "0"})
 
     health = bridge.health()
@@ -763,8 +763,8 @@ async def test_subscription_callback_records_malformed_quote_diagnostics(caplog)
 async def test_subscription_callback_records_invalid_json_string_diagnostics(caplog):
     adapter = CallbackAdapter()
     collector = CallbackCollector()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=collector,
@@ -774,7 +774,7 @@ async def test_subscription_callback_records_invalid_json_string_diagnostics(cap
     await client.subscribe(["600519.SH"])
     assert adapter.callback is not None
 
-    with caplog.at_level(logging.WARNING, logger="src.datasource.tdx_subscription"):
+    with caplog.at_level(logging.WARNING, logger="src.datasource.tdx_legacy.subscription"):
         adapter.callback("not-json")
 
     health = bridge.health()
@@ -789,7 +789,7 @@ async def test_subscription_callback_records_invalid_json_string_diagnostics(cap
 
 
 def test_subscription_client_has_no_synchronous_compatibility_callback_hook():
-    signature = inspect.signature(TdxSubscriptionClient)
+    signature = inspect.signature(TdxLegacySubscriptionClient)
 
     assert "compatibility_callback" not in signature.parameters
 
@@ -800,9 +800,9 @@ async def test_subscription_client_replaces_symbols_without_exceeding_adapter_ca
         max_active=2,
         active=["600519.SH", "000001.SZ"],
     )
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=2)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=2)
     bridge.mark_active(["600519.SH", "000001.SZ"])
-    client = TdxSubscriptionClient(
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=CallbackCollector(),
@@ -821,8 +821,8 @@ async def test_subscription_client_replaces_symbols_without_exceeding_adapter_ca
 @pytest.mark.asyncio
 async def test_subscription_client_limit_check_uses_active_state_after_waiting_for_lock():
     adapter = BlockingSubscribeAdapter()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=1)
-    client = TdxSubscriptionClient(
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=1)
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=CallbackCollector(),
@@ -850,9 +850,9 @@ async def test_subscription_client_rolls_back_active_state_when_sync_subscribe_f
         active=["600519.SH"],
     )
     adapter.fail_on_subscribe_symbols = {"000001.SZ"}
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=2)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=2)
     bridge.mark_active(["600519.SH"])
-    client = TdxSubscriptionClient(
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=CallbackCollector(),
@@ -869,9 +869,9 @@ async def test_subscription_client_rolls_back_active_state_when_sync_subscribe_f
 @pytest.mark.asyncio
 async def test_subscription_client_restores_bridge_and_adapter_after_partial_unsubscribe_failure():
     adapter = PartialUnsubscribeAdapter()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=2)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=2)
     bridge.mark_active(["600519.SH", "000001.SZ"])
-    client = TdxSubscriptionClient(
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=CallbackCollector(),
@@ -888,9 +888,9 @@ async def test_subscription_client_restores_bridge_and_adapter_after_partial_uns
 @pytest.mark.asyncio
 async def test_subscription_client_rollback_failure_does_not_mask_original_exception():
     adapter = RollbackFailingAdapter()
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=2)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=2)
     bridge.mark_active(["600519.SH"])
-    client = TdxSubscriptionClient(
+    client = TdxLegacySubscriptionClient(
         adapter=adapter,
         bridge=bridge,
         collector=CallbackCollector(),
@@ -905,9 +905,9 @@ async def test_subscription_client_rollback_failure_does_not_mask_original_excep
 
 @pytest.mark.asyncio
 async def test_collector_does_not_use_bar_duplicate_keys_for_snapshots():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
     provider = FakeProvider()
-    collector = TdxMinuteCollector(provider=provider, bridge=bridge, period="1m")
+    collector = TdxLegacyMinuteCollector(provider=provider, bridge=bridge, period="1m")
     collector.mark_dirty("600519.SH")
 
     emitted = await collector.collect_dirty_once()
@@ -918,8 +918,8 @@ async def test_collector_does_not_use_bar_duplicate_keys_for_snapshots():
 
 @pytest.mark.asyncio
 async def test_collector_accepts_dicts_and_tdx_snapshot_models():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    collector = TdxMinuteCollector(provider=MixedProvider(), bridge=bridge, period="1m")
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    collector = TdxLegacyMinuteCollector(provider=MixedProvider(), bridge=bridge, period="1m")
     collector.mark_dirty("600519.SH")
 
     emitted = await collector.collect_dirty_once()
@@ -930,8 +930,8 @@ async def test_collector_accepts_dicts_and_tdx_snapshot_models():
 
 @pytest.mark.asyncio
 async def test_collector_records_stale_state_when_no_snapshots_are_returned():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    collector = TdxMinuteCollector(provider=EmptyProvider(), bridge=bridge, period="1m")
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    collector = TdxLegacyMinuteCollector(provider=EmptyProvider(), bridge=bridge, period="1m")
     collector.mark_dirty("600519.SH")
 
     emitted = await collector.collect_dirty_once()
@@ -944,8 +944,8 @@ async def test_collector_records_stale_state_when_no_snapshots_are_returned():
 
 @pytest.mark.asyncio
 async def test_collector_records_error_state_when_provider_raises():
-    bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
-    collector = TdxMinuteCollector(provider=RaisingProvider(), bridge=bridge, period="1m")
+    bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
+    collector = TdxLegacyMinuteCollector(provider=RaisingProvider(), bridge=bridge, period="1m")
     collector.mark_dirty("600519.SH")
 
     emitted = await collector.collect_dirty_once()
@@ -958,7 +958,7 @@ async def test_collector_records_error_state_when_provider_raises():
 
 @pytest.mark.asyncio
 async def test_mock_adapter_emit_hq_update_triggers_stored_callback():
-    adapter = TDXMockAdapter()
+    adapter = TdxLegacyMockAdapter()
     payloads: list[dict[str, str]] = []
 
     await adapter.subscribe_hq(["600519.SH"], payloads.append)
@@ -971,67 +971,67 @@ async def test_mock_adapter_emit_hq_update_triggers_stored_callback():
 async def test_lifespan_creates_runtime_without_overwriting_injected_fakes(monkeypatch):
     import tdx.main
 
-    previous_adapter = tdx.main.tdx_adapter
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_subscription_client = getattr(tdx.main, "tdx_subscription_client", None)
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_subscription_client = getattr(tdx.main, "tdx_legacy_subscription_client", None)
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
-    previous_owned_bridge = getattr(tdx.main, "_tdx_bridge_owned_by_main", None)
-    previous_owned_collector = getattr(tdx.main, "_tdx_collector_owned_by_main", None)
+    previous_owned_bridge = getattr(tdx.main, "_tdx_legacy_bridge_owned_by_main", None)
+    previous_owned_collector = getattr(tdx.main, "_tdx_legacy_collector_owned_by_main", None)
     previous_owned_subscription_client = getattr(
         tdx.main,
-        "_tdx_subscription_client_owned_by_main",
+        "_tdx_legacy_subscription_client_owned_by_main",
         None,
     )
 
     fake_adapter = FakeAdapter()
     fake_provider = FakeProvider()
-    fake_bridge = TdxBridge(queue_max_size=10, max_subscriptions=100)
+    fake_bridge = TdxLegacyBridge(queue_max_size=10, max_subscriptions=100)
 
     async def injected_snapshot_publisher(snapshot: TdxSnapshot) -> None:
         _ = snapshot
 
-    fake_collector = TdxMinuteCollector(
+    fake_collector = TdxLegacyMinuteCollector(
         provider=fake_provider,
         bridge=fake_bridge,
         period="1m",
         collect_delay_seconds=999,
         snapshot_publisher=injected_snapshot_publisher,
     )
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: fake_adapter)
-    tdx.main.tdx_adapter = None
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
+    tdx.main.tdx_legacy_adapter = None
     tdx.main.tdx_provider = fake_provider
-    tdx.main.tdx_bridge = fake_bridge
-    tdx.main.tdx_collector = fake_collector
-    tdx.main.tdx_subscription_client = None
+    tdx.main.tdx_legacy_bridge = fake_bridge
+    tdx.main.tdx_legacy_collector = fake_collector
+    tdx.main.tdx_legacy_subscription_client = None
 
     try:
         async with tdx.main.lifespan(app):
-            assert tdx.main.tdx_adapter is fake_adapter
+            assert tdx.main.tdx_legacy_adapter is fake_adapter
             assert tdx.main.tdx_provider is fake_provider
-            assert tdx.main.tdx_bridge is fake_bridge
-            assert tdx.main.tdx_collector is fake_collector
+            assert tdx.main.tdx_legacy_bridge is fake_bridge
+            assert tdx.main.tdx_legacy_collector is fake_collector
             assert fake_collector.snapshot_publisher is injected_snapshot_publisher
-            assert tdx.main.tdx_subscription_client is not None
+            assert tdx.main.tdx_legacy_subscription_client is not None
             assert fake_collector._task is not None
             assert not fake_collector._task.done()
 
         assert fake_adapter.shutdown_called is True
         assert fake_collector.state == "stopped"
-        assert tdx.main.tdx_adapter is None
+        assert tdx.main.tdx_legacy_adapter is None
         assert tdx.main.tdx_provider is fake_provider
-        assert tdx.main.tdx_bridge is fake_bridge
-        assert tdx.main.tdx_collector is fake_collector
+        assert tdx.main.tdx_legacy_bridge is fake_bridge
+        assert tdx.main.tdx_legacy_collector is fake_collector
         assert fake_collector.snapshot_publisher is injected_snapshot_publisher
-        assert tdx.main.tdx_subscription_client is None
+        assert tdx.main.tdx_legacy_subscription_client is None
     finally:
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_subscription_client = previous_subscription_client
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_subscription_client = previous_subscription_client
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
-        tdx.main._tdx_bridge_owned_by_main = previous_owned_bridge
-        tdx.main._tdx_collector_owned_by_main = previous_owned_collector
-        tdx.main._tdx_subscription_client_owned_by_main = previous_owned_subscription_client
+        tdx.main._tdx_legacy_bridge_owned_by_main = previous_owned_bridge
+        tdx.main._tdx_legacy_collector_owned_by_main = previous_owned_collector
+        tdx.main._tdx_legacy_subscription_client_owned_by_main = previous_owned_subscription_client

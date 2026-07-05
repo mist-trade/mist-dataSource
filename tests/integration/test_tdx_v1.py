@@ -1,6 +1,4 @@
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,15 +10,6 @@ from src.datasource.tdx_http_client import TdxHttpError
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
 from tdx.main import app
 from tdx.routes.v1 import product as tdx_v1_routes
-
-QMT_SPIKE_BLOCKED_DETAILS = json.loads(
-    (
-        Path(__file__).resolve().parents[1]
-        / "fixtures"
-        / "qmt"
-        / "spike_blocked_unsupported_details.json"
-    ).read_text(encoding="utf-8")
-)
 
 
 class FakeTdxProvider:
@@ -590,40 +579,40 @@ async def v1_client() -> AsyncClient:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_adapter = tdx.main.tdx_adapter
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     previous_state_provider = getattr(app.state, "tdx_provider", None)
-    previous_state_bridge = getattr(app.state, "tdx_bridge", None)
-    previous_state_collector = getattr(app.state, "tdx_collector", None)
-    previous_state_adapter = getattr(app.state, "tdx_adapter", None)
+    previous_state_bridge = getattr(app.state, "tdx_legacy_bridge", None)
+    previous_state_collector = getattr(app.state, "tdx_legacy_collector", None)
+    previous_state_adapter = getattr(app.state, "tdx_legacy_adapter", None)
     previous_state_subscription_client = getattr(
         app.state,
-        "tdx_subscription_client",
+        "tdx_legacy_subscription_client",
         None,
     )
     tdx.main.tdx_provider = FakeTdxProvider()
     app.state.tdx_provider = tdx.main.tdx_provider
-    app.state.tdx_bridge = tdx.main.tdx_bridge
-    app.state.tdx_collector = tdx.main.tdx_collector
-    app.state.tdx_adapter = tdx.main.tdx_adapter
-    app.state.tdx_subscription_client = tdx.main.tdx_subscription_client
+    app.state.tdx_legacy_bridge = tdx.main.tdx_legacy_bridge
+    app.state.tdx_legacy_collector = tdx.main.tdx_legacy_collector
+    app.state.tdx_legacy_adapter = tdx.main.tdx_legacy_adapter
+    app.state.tdx_legacy_subscription_client = tdx.main.tdx_legacy_subscription_client
     app.state.ws_manager = tdx.main.ws_manager
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
         app.state.tdx_provider = previous_state_provider
-        app.state.tdx_bridge = previous_state_bridge
-        app.state.tdx_collector = previous_state_collector
-        app.state.tdx_adapter = previous_state_adapter
-        app.state.tdx_subscription_client = previous_state_subscription_client
+        app.state.tdx_legacy_bridge = previous_state_bridge
+        app.state.tdx_legacy_collector = previous_state_collector
+        app.state.tdx_legacy_adapter = previous_state_adapter
+        app.state.tdx_legacy_subscription_client = previous_state_subscription_client
         app.state.ws_manager = tdx.main.ws_manager
 
 
@@ -657,7 +646,7 @@ async def test_providers_returns_tdx_provider_envelope(v1_client: AsyncClient) -
 
 
 @pytest.mark.asyncio
-async def test_providers_returns_tdx_and_qmt_capability_manifests(
+async def test_providers_returns_tdx_capability_manifest_only(
     v1_client: AsyncClient,
 ) -> None:
     response = await v1_client.get("/providers")
@@ -666,18 +655,13 @@ async def test_providers_returns_tdx_and_qmt_capability_manifests(
     body = response.json()
     providers = {provider["id"]: provider for provider in body["data"]["providers"]}
 
-    assert set(providers) == {"tdx", "qmt"}
+    assert set(providers) == {"tdx"}
 
     tdx_families = {
         capability["family"]: capability["status"]
         for capability in providers["tdx"]["capabilities"]
     }
-    qmt_families = {
-        capability["family"]: capability["status"]
-        for capability in providers["qmt"]["capabilities"]
-    }
 
-    assert set(tdx_families) == set(qmt_families)
     assert tdx_families["bars"] == "supported"
     assert tdx_families["snapshots"] == "supported"
     assert tdx_families["sector-members"] == "supported"
@@ -703,246 +687,46 @@ async def test_providers_returns_tdx_and_qmt_capability_manifests(
     tdx_capabilities = {
         capability["family"]: capability for capability in providers["tdx"]["capabilities"]
     }
-    qmt_capabilities = {
-        capability["family"]: capability for capability in providers["qmt"]["capabilities"]
-    }
     assert "get_bars" in tdx_capabilities["bars"]["providerMethods"]
     assert "get_market_data" in tdx_capabilities["bars"]["nativeMethods"]
     assert "get_market_data" not in tdx_capabilities["bars"]["providerMethods"]
-    assert {"local_dat:1d", "local_dat:1m", "local_dat:5m"} <= set(
-        qmt_capabilities["bars"]["nativeMethods"]
-    )
     assert "nativeMethods" in tdx_capabilities["raw-diagnostics"]
     assert tdx_families["formula-metadata"] == "supported"
     assert tdx_families["formula-execution"] == "supported"
     assert tdx_families["formula-batch-execution"] == "supported"
     assert tdx_families["formulas"] == "supported"
-    assert qmt_families["bars"] == "supported"
-    assert qmt_families["financial-data"] == "unsupported"
-    assert "report-data" not in qmt_families
-    assert qmt_families["formula-data"] == "unsupported"
-    assert qmt_families["formula-execution"] == "unsupported"
-    assert qmt_families["formulas"] == "unsupported"
 
 
 @pytest.mark.parametrize(
-    ("path", "payload", "family", "operation"),
+    ("path", "payload"),
     [
         (
-            "/v1/calendar/trading-dates/query",
-            {"provider": "qmt", "market": "SH", "count": 2},
-            "calendar",
-            "trading-dates/query",
+            "/v1/bars/query",
+            {"provider": "qmt", "symbols": ["600519.SH"], "period": "1d"},
         ),
         (
-            "/v1/securities/query",
-            {"provider": "qmt", "market": "5"},
-            "securities",
-            "securities/query",
-        ),
-        (
-            "/v1/securities/info/query",
+            "/v1/snapshots/query",
             {"provider": "qmt", "symbols": ["600519.SH"]},
-            "security-info",
-            "securities/info/query",
         ),
         (
-            "/v1/sectors/list/query",
-            {"provider": "qmt", "listType": 1},
-            "sector-list",
-            "sectors/list/query",
-        ),
-        (
-            "/v1/price-volume/query",
-            {"provider": "qmt", "symbols": ["600519.SH"]},
-            "price-volume",
-            "price-volume/query",
-        ),
-        (
-            "/v1/reference/relations/query",
-            {"provider": "qmt", "symbol": "600519.SH"},
-            "security-relations",
-            "reference/relations/query",
-        ),
-        (
-            "/v1/reference/ipo/query",
-            {"provider": "qmt", "ipoType": 2, "ipoDate": 1},
-            "ipo-info",
-            "reference/ipo/query",
-        ),
-        (
-            "/v1/reference/share-capital/query",
-            {"provider": "qmt", "symbol": "600519.SH", "dateList": ["20250101"]},
-            "share-capital",
-            "reference/share-capital/query",
-        ),
-        (
-            "/v1/reference/dividend-factors/query",
-            {"provider": "qmt", "symbol": "600519.SH"},
-            "dividend-factors",
-            "reference/dividend-factors/query",
-        ),
-        (
-            "/v1/instruments/convertible-bonds/query",
-            {"provider": "qmt", "symbol": "123039.SZ"},
-            "convertible-bonds",
-            "instruments/convertible-bonds/query",
-        ),
-        (
-            "/v1/instruments/tracking-etfs/query",
-            {"provider": "qmt", "indexSymbol": "950162.CSI"},
-            "etf-info",
-            "instruments/tracking-etfs/query",
-        ),
-        (
-            "/v1/finance/financial-data/query",
-            {"provider": "qmt", "symbols": ["600519.SH"], "fields": ["FN193"]},
-            "financial-data",
-            "finance/financial-data/query",
-        ),
-        (
-            "/v1/finance/financial-data/by-date/query",
-            {"provider": "qmt", "symbols": ["600519.SH"], "fields": ["FN193"]},
-            "financial-data",
-            "finance/financial-data/by-date/query",
-        ),
-        (
-            "/v1/finance/single-data/query",
-            {"provider": "qmt", "symbols": ["688318.SH"], "fields": ["GO1"]},
-            "single-finance-value",
-            "finance/single-data/query",
-        ),
-        (
-            "/v1/reports/stock-trade/query",
-            {"provider": "qmt", "symbols": ["688318.SH"], "fields": ["GP3"]},
-            "stock-trade-aggregate",
-            "reports/stock-trade/query",
-        ),
-        (
-            "/v1/reports/stock-trade/by-date/query",
-            {"provider": "qmt", "symbols": ["688318.SH"], "fields": ["GP1"]},
-            "stock-trade-aggregate",
-            "reports/stock-trade/by-date/query",
-        ),
-        (
-            "/v1/reports/sector-trade/query",
-            {"provider": "qmt", "sectorCodes": ["880660.SH"], "fields": ["BK5"]},
-            "sector-trade-aggregate",
-            "reports/sector-trade/query",
-        ),
-        (
-            "/v1/reports/sector-trade/by-date/query",
-            {"provider": "qmt", "sectorCodes": ["880660.SH"], "fields": ["BK9"]},
-            "sector-trade-aggregate",
-            "reports/sector-trade/by-date/query",
-        ),
-        (
-            "/v1/reports/market-trade/query",
-            {"provider": "qmt", "fields": ["SC1"]},
-            "market-trade-aggregate",
-            "reports/market-trade/query",
-        ),
-        (
-            "/v1/reports/market-trade/by-date/query",
-            {"provider": "qmt", "fields": ["SC10"]},
-            "market-trade-aggregate",
-            "reports/market-trade/by-date/query",
-        ),
-        (
-            "/v1/formulas/data/format/query",
-            {"provider": "qmt", "data": {"688318.SH": []}},
-            "formula-data",
-            "formulas/data/format/query",
+            "/v1/sectors/query",
+            {"provider": "qmt", "sector": "通达信88"},
         ),
         (
             "/v1/formulas/data/set",
-            {"provider": "qmt", "stockCode": "688318.SH", "stockData": [{"Close": 1}]},
-            "formula-data",
-            "formulas/data/set",
-        ),
-        (
-            "/v1/formulas/data/set-info",
-            {"provider": "qmt", "stockCode": "688318.SH", "count": 5},
-            "formula-data",
-            "formulas/data/set-info",
-        ),
-        (
-            "/v1/formulas/data/query",
-            {"provider": "qmt"},
-            "formula-data",
-            "formulas/data/query",
-        ),
-        (
-            "/v1/formulas/metadata/query",
-            {"provider": "qmt", "formulaType": 0},
-            "formula-metadata",
-            "formulas/metadata/query",
-        ),
-        (
-            "/v1/formulas/metadata/info/query",
-            {"provider": "qmt", "formulaType": 0, "formulaCode": "MACD"},
-            "formula-metadata",
-            "formulas/metadata/info/query",
-        ),
-        (
-            "/v1/formulas/zb/execute",
-            {"provider": "qmt", "formulaName": "MACD", "formulaArg": "12,26,9"},
-            "formula-execution",
-            "formulas/zb/execute",
-        ),
-        (
-            "/v1/formulas/xg/execute",
-            {"provider": "qmt", "formulaName": "UPN", "formulaArg": "3"},
-            "formula-execution",
-            "formulas/xg/execute",
-        ),
-        (
-            "/v1/formulas/exp/execute",
-            {"provider": "qmt", "formulaName": "CCI", "formulaArg": "12"},
-            "formula-execution",
-            "formulas/exp/execute",
-        ),
-        (
-            "/v1/formulas/batch/xg/execute",
-            {"provider": "qmt", "formulaName": "UPN", "stockList": ["688318.SH"]},
-            "formula-batch-execution",
-            "formulas/batch/xg/execute",
-        ),
-        (
-            "/v1/formulas/batch/zb/execute",
-            {"provider": "qmt", "formulaName": "CYX", "stockList": ["688318.SH"]},
-            "formula-batch-execution",
-            "formulas/batch/zb/execute",
-        ),
-        (
-            "/v1/formulas/batch/exp/execute",
-            {"provider": "qmt", "formulaName": "CCI", "stockList": ["688318.SH"]},
-            "formula-batch-execution",
-            "formulas/batch/exp/execute",
+            {"provider": "qmt", "stockCode": "688318.SH"},
         ),
     ],
 )
 @pytest.mark.asyncio
-async def test_qmt_provider_requests_return_capability_unsupported(
+async def test_tdx_v1_rejects_provider_field(
     v1_client: AsyncClient,
     path: str,
     payload: dict[str, Any],
-    family: str,
-    operation: str,
 ) -> None:
     response = await v1_client.post(path, json=payload)
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is False
-    assert body["provider"] == "qmt"
-    assert body["data"] is None
-    assert body["error"]["code"] == "PROVIDER_CAPABILITY_UNSUPPORTED"
-    assert body["error"]["retryable"] is False
-    assert body["error"]["details"]["provider"] == QMT_SPIKE_BLOCKED_DETAILS["provider"]
-    assert body["error"]["details"]["family"] == family
-    assert body["error"]["details"]["operation"] == operation
-    assert body["error"]["details"]["fallback"] == QMT_SPIKE_BLOCKED_DETAILS["fallback"]
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -992,53 +776,6 @@ async def test_bars_query_passes_fields_and_adjustment_options(v1_client: AsyncC
             "fillData": False,
         }
     ]
-
-
-@pytest.mark.asyncio
-async def test_qmt_bars_query_reads_local_dat_envelope(
-    v1_client: AsyncClient,
-    tmp_path: Path,
-) -> None:
-    import struct
-
-    from src.datasource.contracts import BEIJING_TZ
-    from src.datasource.qmt.local_dat import QmtLocalDatReader
-    from src.datasource.qmt_provider import QmtDatasourceProvider
-
-    code_dir = tmp_path / "SZ" / "86400"
-    code_dir.mkdir(parents=True)
-    timestamp = int(datetime(2026, 7, 1, tzinfo=BEIJING_TZ).timestamp())
-    with (code_dir / "000001.DAT").open("wb") as handle:
-        handle.write(b"QMTDAT00")
-        handle.write(struct.pack("<IIIIIIII", timestamp, 10000, 11000, 9900, 10500, 0, 123, 1))
-        handle.write(struct.pack("<IIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0))
-
-    previous_qmt_provider = getattr(app.state, "qmt_provider", None)
-    app.state.qmt_provider = QmtDatasourceProvider(
-        local_dat_reader=QmtLocalDatReader(
-            data_dir=tmp_path,
-            enabled=True,
-            now=lambda: datetime(2026, 7, 5, 17, 0, tzinfo=BEIJING_TZ),
-            stability_wait_ms=0,
-        )
-    )
-    try:
-        response = await v1_client.post(
-            "/v1/bars/query",
-            json={"provider": "qmt", "symbols": ["000001.SZ"], "period": "1d", "count": 1},
-        )
-    finally:
-        app.state.qmt_provider = previous_qmt_provider
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    assert body["provider"] == "qmt"
-    assert body["data"]["bars"][0]["symbol"] == "000001.SZ"
-    assert body["data"]["bars"][0]["barTime"] == "2026-07-01T00:00:00+08:00"
-    assert body["data"]["bars"][0]["open"] == 10.0
-    assert body["data"]["bars"][0]["volume"] == 12300.0
-    assert body["data"]["bars"][0]["provider"] == "qmt"
 
 
 @pytest.mark.asyncio
@@ -1769,13 +1506,13 @@ async def test_health_handles_non_dict_provider_health() -> None:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_adapter = tdx.main.tdx_adapter
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     tdx.main.tdx_provider = NonDictHealthProvider()
-    tdx.main.tdx_bridge = None
-    tdx.main.tdx_collector = None
+    tdx.main.tdx_legacy_bridge = None
+    tdx.main.tdx_legacy_collector = None
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1785,9 +1522,9 @@ async def test_health_handles_non_dict_provider_health() -> None:
         assert response.json()["tdxHttpReachable"] is False
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
@@ -1796,13 +1533,13 @@ async def test_health_surfaces_provider_health_exceptions() -> None:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_adapter = tdx.main.tdx_adapter
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     tdx.main.tdx_provider = RaisingHealthProvider()
-    tdx.main.tdx_bridge = None
-    tdx.main.tdx_collector = None
+    tdx.main.tdx_legacy_bridge = None
+    tdx.main.tdx_legacy_collector = None
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1815,9 +1552,9 @@ async def test_health_surfaces_provider_health_exceptions() -> None:
         assert body["tdxProviderErrorType"] == "RuntimeError"
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
@@ -1826,23 +1563,23 @@ async def test_lifespan_shutdown_clears_adapter_before_next_health(monkeypatch) 
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_adapter = tdx.main.tdx_adapter
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     fake_adapter = FakeAdapter()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: fake_adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", CloseAwareProvider)
     tdx.main.tdx_provider = None
-    tdx.main.tdx_bridge = None
-    tdx.main.tdx_collector = None
+    tdx.main.tdx_legacy_bridge = None
+    tdx.main.tdx_legacy_collector = None
 
     try:
         async with tdx.main.lifespan(app):
-            assert tdx.main.tdx_adapter is fake_adapter
+            assert tdx.main.tdx_legacy_adapter is fake_adapter
 
         assert fake_adapter.shutdown_called is True
-        assert tdx.main.tdx_adapter is None
+        assert tdx.main.tdx_legacy_adapter is None
 
         tdx.main.tdx_provider = FakeTdxProvider()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1851,9 +1588,9 @@ async def test_lifespan_shutdown_clears_adapter_before_next_health(monkeypatch) 
         assert response.json()["tqInitialized"] is False
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
@@ -1862,18 +1599,18 @@ async def test_lifespan_closes_owned_provider_not_replacement(monkeypatch) -> No
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_adapter = tdx.main.tdx_adapter
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     fake_adapter = FakeAdapter()
     owned_provider = CloseAwareProvider()
     replacement_provider = CloseAwareProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: fake_adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
     tdx.main.tdx_provider = None
-    tdx.main.tdx_bridge = None
-    tdx.main.tdx_collector = None
+    tdx.main.tdx_legacy_bridge = None
+    tdx.main.tdx_legacy_collector = None
 
     try:
         async with tdx.main.lifespan(app):
@@ -1885,9 +1622,9 @@ async def test_lifespan_closes_owned_provider_not_replacement(monkeypatch) -> No
         assert tdx.main.tdx_provider is replacement_provider
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
@@ -1896,17 +1633,17 @@ async def test_lifespan_shutdown_cleans_adapter_when_provider_close_raises(monke
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_adapter = tdx.main.tdx_adapter
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     fake_adapter = FakeAdapter()
     owned_provider = RaisingCloseProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: fake_adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
     tdx.main.tdx_provider = None
-    tdx.main.tdx_bridge = None
-    tdx.main.tdx_collector = None
+    tdx.main.tdx_legacy_bridge = None
+    tdx.main.tdx_legacy_collector = None
 
     try:
         with pytest.raises(RuntimeError, match="provider close failed"):
@@ -1915,12 +1652,12 @@ async def test_lifespan_shutdown_cleans_adapter_when_provider_close_raises(monke
 
         assert owned_provider.close_attempted is True
         assert fake_adapter.shutdown_called is True
-        assert tdx.main.tdx_adapter is None
+        assert tdx.main.tdx_legacy_adapter is None
         assert tdx.main.tdx_provider is None
         assert tdx.main._tdx_provider_owned_by_main is None
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider

@@ -217,9 +217,9 @@ if (-not $Only -or $Only -eq "test") {
     $qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
     if ($qmtBridgeGatewayUrl) {
         Write-Host "  QMT bridge gateway configured: $qmtBridgeGatewayUrl" -ForegroundColor Yellow
-        Write-Host "  Live QMT remains disabled until Windows full-QMT spike evidence is captured." -ForegroundColor Yellow
+        Write-Host "  QMT bridge is configured; use Windows full-QMT evidence before relying on live commands." -ForegroundColor Yellow
     } else {
-        Write-Host "  QMT bridge gateway not configured; QMT provider remains disabled." -ForegroundColor Yellow
+        Write-Host "  QMT bridge gateway not configured; only local DAT paths can be tested." -ForegroundColor Yellow
     }
 }
 

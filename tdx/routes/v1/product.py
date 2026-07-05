@@ -1,14 +1,13 @@
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.datasource.capabilities import ProviderCapabilityUnsupported, build_provider_manifests
+from src.datasource.capabilities import build_provider_manifests
 from src.datasource.contracts import BEIJING_TZ, DatasourceError, ResponseEnvelope, ResponseMeta
-from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.datasource.tdx_http_client import TdxHttpError
 from src.datasource.tdx_models import (
     RawTdxCallRequest,
@@ -56,36 +55,29 @@ MAX_FORMULA_TIMEOUT_MS = 30000
 
 
 class TdxV1Model(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra="forbid",
+    )
 
 
 class SectorQueryRequest(TdxV1Model):
-    provider: Literal["tdx", "qmt"] = "tdx"
     sector: str
 
 
 class FormulaCallRequest(TdxV1Model):
-    provider: Literal["tdx", "qmt"] = "tdx"
     name: str
     args: dict[str, Any] | list[Any] | None = None
     context: dict[str, Any] = Field(default_factory=dict)
 
 
 def _payload_alias(payload: BaseModel) -> dict[str, Any]:
-    data = payload.model_dump(by_alias=True)
-    data.pop("provider", None)
-    return data
+    return payload.model_dump(by_alias=True)
 
 
 def _get_provider(request: Request) -> TdxDatasourceProvider | None:
     return get_tdx_provider(request)
-
-
-def _get_qmt_provider(request: Request) -> QmtDatasourceProvider | None:
-    provider = getattr(request.app.state, "qmt_provider", None)
-    if isinstance(provider, QmtDatasourceProvider):
-        return provider
-    return None
 
 
 def _request_id(request: Request) -> str:
@@ -209,73 +201,25 @@ async def _call_provider(
     request: Request,
     operation: Callable[[TdxDatasourceProvider], Awaitable[Any]],
     *,
-    provider_id: str = "tdx",
     capability_family: str,
     operation_name: str,
-    qmt_operation: Callable[[QmtDatasourceProvider], Awaitable[Any]] | None = None,
 ) -> ResponseEnvelope:
-    if provider_id == "qmt":
-        if qmt_operation is None:
-            return _failure(
-                request,
-                ProviderCapabilityUnsupported(
-                    provider=provider_id,
-                    family=capability_family,
-                    operation=operation_name,
-                    fallback=(
-                        "Use provider 'tdx' or complete full-QMT bridge Windows spike "
-                        "evidence before enabling provider 'qmt'."
-                    ),
-                ),
-                provider=provider_id,
-            )
-
-        qmt_provider = _get_qmt_provider(request)
-        if qmt_provider is None:
-            return ResponseEnvelope.failure(
-                request_id=_request_id(request),
-                provider=provider_id,
-                error=_provider_unavailable(provider_id),
-                meta=_meta(),
-            )
-
-        try:
-            return _success(request, await qmt_operation(qmt_provider), provider=provider_id)
-        except TdxHttpError as exc:
-            return _failure(request, exc, provider=provider_id)
-        except Exception as exc:
-            return _failure(request, exc, provider=provider_id)
-
-    if provider_id != "tdx":
-        return _failure(
-            request,
-            ProviderCapabilityUnsupported(
-                provider=provider_id,
-                family=capability_family,
-                operation=operation_name,
-                fallback=(
-                    "Use provider 'tdx' or complete full-QMT bridge Windows spike "
-                    "evidence before enabling provider 'qmt'."
-                ),
-            ),
-            provider=provider_id,
-        )
-
+    _ = (capability_family, operation_name)
     provider = _get_provider(request)
     if provider is None:
         return ResponseEnvelope.failure(
             request_id=_request_id(request),
-            provider=provider_id,
-            error=_provider_unavailable(provider_id),
+            provider="tdx",
+            error=_provider_unavailable("tdx"),
             meta=_meta(),
         )
 
     try:
-        return _success(request, await operation(provider), provider=provider_id)
+        return _success(request, await operation(provider), provider="tdx")
     except TdxHttpError as exc:
-        return _failure(request, exc, provider=provider_id)
+        return _failure(request, exc, provider="tdx")
     except Exception as exc:
-        return _failure(request, exc, provider=provider_id)
+        return _failure(request, exc, provider="tdx")
 
 
 @router.get("/providers")
@@ -305,22 +249,8 @@ async def query_bars(payload: TdxBarQueryRequest, request: Request):
                 fill_data=payload.fill_data,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="bars",
         operation_name="bars/query",
-        qmt_operation=lambda provider: _wrap(
-            "bars",
-            provider.get_bars(
-                payload.symbols,
-                period=payload.period,
-                start_time=payload.start_time,
-                end_time=payload.end_time,
-                count=payload.count,
-                fields=payload.fields,
-                dividend_type=payload.dividend_type,
-                fill_data=payload.fill_data,
-            ),
-        ),
     )
 
 
@@ -332,7 +262,6 @@ async def query_snapshots(payload: TdxSnapshotQueryRequest, request: Request):
             "snapshots",
             provider.get_snapshots(payload.symbols, fields=payload.fields),
         ),
-        provider_id=payload.provider,
         capability_family="snapshots",
         operation_name="snapshots/query",
     )
@@ -346,7 +275,6 @@ async def query_price_volume(payload: TdxPriceVolumeQueryRequest, request: Reque
             "items",
             provider.get_price_volume(payload.symbols, fields=payload.fields),
         ),
-        provider_id=payload.provider,
         capability_family="price-volume",
         operation_name="price-volume/query",
     )
@@ -365,7 +293,6 @@ async def query_trading_dates(payload: TdxTradingDatesQueryRequest, request: Req
                 count=payload.count,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="calendar",
         operation_name="trading-dates/query",
     )
@@ -376,7 +303,6 @@ async def query_securities(payload: TdxSecuritiesQueryRequest, request: Request)
     return await _call_provider(
         request,
         lambda provider: _wrap("securities", provider.get_securities(payload.market)),
-        provider_id=payload.provider,
         capability_family="securities",
         operation_name="securities/query",
     )
@@ -387,7 +313,6 @@ async def query_security_info(payload: TdxSecurityInfoQueryRequest, request: Req
     return await _call_provider(
         request,
         lambda provider: _wrap("securities", provider.get_security_info(payload.symbols)),
-        provider_id=payload.provider,
         capability_family="security-info",
         operation_name="securities/info/query",
     )
@@ -408,7 +333,6 @@ async def query_sectors(payload: SectorQueryRequest, request: Request):
     return await _call_provider(
         request,
         lambda provider: _wrap("symbols", provider.get_sector_members(payload.sector)),
-        provider_id=payload.provider,
         capability_family="sector-members",
         operation_name="sectors/query",
     )
@@ -419,7 +343,6 @@ async def query_sector_list(payload: TdxSectorListQueryRequest, request: Request
     return await _call_provider(
         request,
         lambda provider: _wrap("sectors", provider.get_sector_list(payload.list_type)),
-        provider_id=payload.provider,
         capability_family="sector-list",
         operation_name="sectors/list/query",
     )
@@ -430,7 +353,6 @@ async def query_security_relations(payload: TdxSecurityRelationsQueryRequest, re
     return await _call_provider(
         request,
         lambda provider: _wrap("relations", provider.get_security_relations(payload.symbol)),
-        provider_id=payload.provider,
         capability_family="security-relations",
         operation_name="reference/relations/query",
     )
@@ -441,7 +363,6 @@ async def query_ipo_info(payload: TdxIpoInfoQueryRequest, request: Request):
     return await _call_provider(
         request,
         lambda provider: _wrap("items", provider.get_ipo_info(payload.ipo_type, payload.ipo_date)),
-        provider_id=payload.provider,
         capability_family="ipo-info",
         operation_name="reference/ipo/query",
     )
@@ -467,7 +388,6 @@ async def query_share_capital(payload: TdxShareCapitalQueryRequest, request: Req
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="share-capital",
         operation_name="reference/share-capital/query",
     )
@@ -485,7 +405,6 @@ async def query_dividend_factors(payload: TdxDividendFactorsQueryRequest, reques
                 payload.end_time,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="dividend-factors",
         operation_name="reference/dividend-factors/query",
     )
@@ -506,7 +425,6 @@ async def query_convertible_bonds(
                 native_method=payload.native_method,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="convertible-bonds",
         operation_name="instruments/convertible-bonds/query",
     )
@@ -517,7 +435,6 @@ async def query_tracking_etfs(payload: TdxTrackingEtfsQueryRequest, request: Req
     return await _call_provider(
         request,
         lambda provider: _wrap("items", provider.get_tracking_etfs(payload.index_symbol)),
-        provider_id=payload.provider,
         capability_family="etf-info",
         operation_name="instruments/tracking-etfs/query",
     )
@@ -537,7 +454,6 @@ async def query_financial_data(payload: TdxFinancialDataQueryRequest, request: R
                 payload.report_type,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="financial-data",
         operation_name="finance/financial-data/query",
     )
@@ -559,7 +475,6 @@ async def query_financial_data_by_date(
                 payload.mmdd,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="financial-data",
         operation_name="finance/financial-data/by-date/query",
     )
@@ -576,7 +491,6 @@ async def query_single_finance_data(
             "items",
             provider.get_single_finance_values(payload.symbols, payload.fields),
         ),
-        provider_id=payload.provider,
         capability_family="single-finance-value",
         operation_name="finance/single-data/query",
     )
@@ -598,7 +512,6 @@ async def query_stock_trade_aggregate(
                 payload.end_time,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="stock-trade-aggregate",
         operation_name="reports/stock-trade/query",
     )
@@ -620,7 +533,6 @@ async def query_stock_trade_aggregate_by_date(
                 payload.mmdd,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="stock-trade-aggregate",
         operation_name="reports/stock-trade/by-date/query",
     )
@@ -642,7 +554,6 @@ async def query_sector_trade_aggregate(
                 payload.end_time,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="sector-trade-aggregate",
         operation_name="reports/sector-trade/query",
     )
@@ -664,7 +575,6 @@ async def query_sector_trade_aggregate_by_date(
                 payload.mmdd,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="sector-trade-aggregate",
         operation_name="reports/sector-trade/by-date/query",
     )
@@ -685,7 +595,6 @@ async def query_market_trade_aggregate(
                 payload.end_time,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="market-trade-aggregate",
         operation_name="reports/market-trade/query",
     )
@@ -706,7 +615,6 @@ async def query_market_trade_aggregate_by_date(
                 payload.mmdd,
             ),
         ),
-        provider_id=payload.provider,
         capability_family="market-trade-aggregate",
         operation_name="reports/market-trade/by-date/query",
     )
@@ -724,7 +632,6 @@ async def query_formula_format_data(payload: TdxFormulaFormatDataRequest, reques
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-data",
         operation_name="formulas/data/format/query",
     )
@@ -739,7 +646,6 @@ async def set_formula_data(payload: TdxFormulaSetDataRequest, request: Request):
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-data",
         operation_name="formulas/data/set",
     )
@@ -754,7 +660,6 @@ async def set_formula_data_info(payload: TdxFormulaSetDataInfoRequest, request: 
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-data",
         operation_name="formulas/data/set-info",
     )
@@ -769,7 +674,6 @@ async def query_formula_data(payload: TdxFormulaGetDataRequest, request: Request
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-data",
         operation_name="formulas/data/query",
     )
@@ -787,7 +691,6 @@ async def query_formula_metadata(payload: TdxFormulaMetadataQueryRequest, reques
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-metadata",
         operation_name="formulas/metadata/query",
     )
@@ -812,7 +715,6 @@ async def query_formula_metadata_info(
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-metadata",
         operation_name="formulas/metadata/info/query",
     )
@@ -841,7 +743,6 @@ async def _execute_formula_route(
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-execution",
         operation_name=operation_name,
     )
@@ -891,7 +792,6 @@ async def _execute_formula_batch_route(
     return await _call_provider(
         request,
         operation,
-        provider_id=payload.provider,
         capability_family="formula-batch-execution",
         operation_name=operation_name,
     )
@@ -935,7 +835,6 @@ async def call_formula(payload: FormulaCallRequest, request: Request):
             "result",
             provider.call_formula(payload.name, payload.args, payload.context),
         ),
-        provider_id=payload.provider,
         capability_family="formulas",
         operation_name="formulas/call",
     )

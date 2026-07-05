@@ -7,7 +7,11 @@ from src.datasource.contracts import DatasourceError, ResponseMeta, normalize_be
 
 
 class TdxModel(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra="forbid",
+    )
 
 
 def _formula_timeout_ms() -> int:
@@ -94,7 +98,6 @@ class TdxSnapshot(TdxModel):
 
 
 class TdxBarQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     period: str
     start_time: str | None = Field(default=None, alias="startTime")
@@ -112,21 +115,18 @@ class TdxBarQueryRequest(TdxModel):
 
 
 class TdxSnapshotQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str] | None = None
     include_raw: bool = Field(default=False, alias="includeRaw")
 
 
 class TdxPriceVolumeQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str] | None = None
     include_raw: bool = Field(default=False, alias="includeRaw")
 
 
 class TdxTradingDatesQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     market: str = "SH"
     start_time: str | None = Field(default=None, alias="startTime")
     end_time: str | None = Field(default=None, alias="endTime")
@@ -134,34 +134,28 @@ class TdxTradingDatesQueryRequest(TdxModel):
 
 
 class TdxSecuritiesQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     market: str = "5"
 
 
 class TdxSecurityInfoQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     include_raw: bool = Field(default=True, alias="includeRaw")
 
 
 class TdxSectorListQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     list_type: int = Field(default=0, alias="listType")
 
 
 class TdxSecurityRelationsQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbol: str
 
 
 class TdxIpoInfoQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     ipo_type: int = Field(default=0, alias="ipoType")
     ipo_date: int = Field(default=0, alias="ipoDate")
 
 
 class TdxShareCapitalQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbol: str
     date_list: list[str] = Field(default_factory=list, alias="dateList")
     count: int = 1
@@ -170,14 +164,12 @@ class TdxShareCapitalQueryRequest(TdxModel):
 
 
 class TdxDividendFactorsQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbol: str
     start_time: str | None = Field(default=None, alias="startTime")
     end_time: str | None = Field(default=None, alias="endTime")
 
 
 class TdxConvertibleBondInfoQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbol: str
     fields: list[str] | None = None
     native_method: Literal["get_kzz_info", "get_cb_info"] = Field(
@@ -187,12 +179,10 @@ class TdxConvertibleBondInfoQueryRequest(TdxModel):
 
 
 class TdxTrackingEtfsQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     index_symbol: str = Field(alias="indexSymbol")
 
 
 class TdxFinancialDataQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str]
     start_time: str = Field(default="", alias="startTime")
@@ -201,7 +191,6 @@ class TdxFinancialDataQueryRequest(TdxModel):
 
 
 class TdxFinancialDataByDateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str]
     year: int = 0
@@ -209,13 +198,11 @@ class TdxFinancialDataByDateQueryRequest(TdxModel):
 
 
 class TdxSingleFinanceValueQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str]
 
 
 class TdxStockTradeAggregateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str]
     start_time: str = Field(default="", alias="startTime")
@@ -223,7 +210,6 @@ class TdxStockTradeAggregateQueryRequest(TdxModel):
 
 
 class TdxStockTradeAggregateByDateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     symbols: list[str]
     fields: list[str]
     year: int = 0
@@ -231,7 +217,6 @@ class TdxStockTradeAggregateByDateQueryRequest(TdxModel):
 
 
 class TdxSectorTradeAggregateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     sector_codes: list[str] = Field(alias="sectorCodes")
     fields: list[str]
     start_time: str = Field(default="", alias="startTime")
@@ -239,7 +224,6 @@ class TdxSectorTradeAggregateQueryRequest(TdxModel):
 
 
 class TdxSectorTradeAggregateByDateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     sector_codes: list[str] = Field(alias="sectorCodes")
     fields: list[str]
     year: int = 0
@@ -247,27 +231,23 @@ class TdxSectorTradeAggregateByDateQueryRequest(TdxModel):
 
 
 class TdxMarketTradeAggregateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     fields: list[str]
     start_time: str = Field(default="", alias="startTime")
     end_time: str = Field(default="", alias="endTime")
 
 
 class TdxMarketTradeAggregateByDateQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     fields: list[str]
     year: int = 0
     mmdd: int = 0
 
 
 class TdxFormulaFormatDataRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     data: dict[str, Any] = Field(default_factory=dict)
     timeout_ms: int = Field(default_factory=_formula_timeout_ms, alias="timeoutMs")
 
 
 class TdxFormulaSetDataRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     stock_code: str = Field(alias="stockCode")
     stock_period: str = Field(default="1d", alias="stockPeriod")
     stock_data: list[dict[str, Any]] = Field(default_factory=_empty_stock_data, alias="stockData")
@@ -277,7 +257,6 @@ class TdxFormulaSetDataRequest(TdxModel):
 
 
 class TdxFormulaSetDataInfoRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     stock_code: str = Field(alias="stockCode")
     stock_period: str = Field(default="1d", alias="stockPeriod")
     start_time: str = Field(default="", alias="startTime")
@@ -288,25 +267,21 @@ class TdxFormulaSetDataInfoRequest(TdxModel):
 
 
 class TdxFormulaGetDataRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     timeout_ms: int = Field(default_factory=_formula_timeout_ms, alias="timeoutMs")
 
 
 class TdxFormulaMetadataQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     formula_type: int = Field(default=0, alias="formulaType")
     timeout_ms: int = Field(default_factory=_formula_timeout_ms, alias="timeoutMs")
 
 
 class TdxFormulaMetadataInfoQueryRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     formula_type: int = Field(default=0, alias="formulaType")
     formula_code: str = Field(alias="formulaCode")
     timeout_ms: int = Field(default_factory=_formula_timeout_ms, alias="timeoutMs")
 
 
 class TdxFormulaExecutionRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     formula_name: str = Field(alias="formulaName")
     formula_arg: str = Field(default="", alias="formulaArg")
     xsflag: int | None = None
@@ -314,7 +289,6 @@ class TdxFormulaExecutionRequest(TdxModel):
 
 
 class TdxFormulaBatchExecutionRequest(TdxModel):
-    provider: Literal["tdx", "qmt"] = "tdx"
     formula_name: str = Field(alias="formulaName")
     formula_arg: str = Field(default="", alias="formulaArg")
     xsflag: int | None = None

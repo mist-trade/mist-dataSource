@@ -3,13 +3,13 @@ from typing import Any, cast
 
 from fastapi import FastAPI
 
-from src.adapter import create_tdx_adapter
+from src.adapter_legacy import create_tdx_legacy_adapter
 from src.core.config import settings
-from src.datasource.tdx_bridge import TdxBridge
-from src.datasource.tdx_collector import TdxMinuteCollector
+from src.datasource.tdx_legacy.bridge import TdxLegacyBridge
+from src.datasource.tdx_legacy.collector import TdxLegacyMinuteCollector
+from src.datasource.tdx_legacy.subscription import TdxLegacySubscriptionClient
 from src.datasource.tdx_models import TdxSnapshot
 from src.datasource.tdx_provider import TdxDatasourceProvider
-from src.datasource.tdx_subscription import TdxSubscriptionClient
 from src.ws.manager import ConnectionManager
 from src.ws.protocol import ws_quote
 
@@ -31,7 +31,7 @@ class TdxRuntime:
         collector: Any | None = None,
         subscription_client: Any | None = None,
         ws_manager: Any | None = None,
-        adapter_factory: AdapterFactory = create_tdx_adapter,
+        adapter_factory: AdapterFactory = create_tdx_legacy_adapter,
         provider_factory: ProviderFactory = TdxDatasourceProvider,
         bridge_factory: BridgeFactory | None = None,
         collector_factory: CollectorFactory | None = None,
@@ -158,15 +158,15 @@ class TdxRuntime:
 
     def sync_app_state(self, target_app: FastAPI) -> None:
         target_app.state.tdx_runtime = self
-        target_app.state.tdx_adapter = self.adapter
+        target_app.state.tdx_legacy_adapter = self.adapter
         target_app.state.tdx_provider = self.provider
-        target_app.state.tdx_bridge = self.bridge
-        target_app.state.tdx_collector = self.collector
-        target_app.state.tdx_subscription_client = self.subscription_client
+        target_app.state.tdx_legacy_bridge = self.bridge
+        target_app.state.tdx_legacy_collector = self.collector
+        target_app.state.tdx_legacy_subscription_client = self.subscription_client
         target_app.state.ws_manager = self.ws_manager
 
-    def _default_bridge_factory(self) -> TdxBridge:
-        return TdxBridge(
+    def _default_bridge_factory(self) -> TdxLegacyBridge:
+        return TdxLegacyBridge(
             queue_max_size=settings.tdx.ws_queue_max_size,
             max_subscriptions=settings.tdx.max_subscriptions,
         )
@@ -176,8 +176,8 @@ class TdxRuntime:
         provider: Any,
         bridge: Any,
         snapshot_publisher: Callable[[TdxSnapshot], Any],
-    ) -> TdxMinuteCollector:
-        return TdxMinuteCollector(
+    ) -> TdxLegacyMinuteCollector:
+        return TdxLegacyMinuteCollector(
             provider=provider,
             bridge=bridge,
             period=settings.tdx.minute_period,
@@ -189,8 +189,8 @@ class TdxRuntime:
         adapter: Any,
         bridge: Any,
         collector: Any,
-    ) -> TdxSubscriptionClient:
-        return TdxSubscriptionClient(
+    ) -> TdxLegacySubscriptionClient:
+        return TdxLegacySubscriptionClient(
             adapter=adapter,
             bridge=bridge,
             collector=collector,
@@ -204,8 +204,8 @@ class TdxRuntime:
 
     async def health(self, *, instance: str = "tdx") -> dict[str, Any]:
         provider_health = await _tdx_provider_health(self.provider)
-        bridge_health = _tdx_bridge_health(self.bridge)
-        collector_health = _tdx_collector_health(self.collector)
+        bridge_health = _tdx_legacy_bridge_health(self.bridge)
+        collector_health = _tdx_legacy_collector_health(self.collector)
         connection_count = _read_int(self.ws_manager, "connection_count", 0)
         return {
             "status": "ok",
@@ -290,7 +290,7 @@ async def _tdx_provider_health(provider: Any | None) -> dict[str, Any]:
         }
 
 
-def _tdx_bridge_health(bridge: Any | None) -> dict[str, Any]:
+def _tdx_legacy_bridge_health(bridge: Any | None) -> dict[str, Any]:
     if bridge is None:
         return {
             "subscribedCount": 0,
@@ -378,7 +378,7 @@ def _tdx_bridge_health(bridge: Any | None) -> dict[str, Any]:
     }
 
 
-def _tdx_collector_health(collector: Any | None) -> dict[str, Any]:
+def _tdx_legacy_collector_health(collector: Any | None) -> dict[str, Any]:
     if collector is None:
         return {
             "lastMinuteBarAt": None,

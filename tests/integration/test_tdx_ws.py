@@ -143,30 +143,30 @@ def client():
     """Create TestClient with lifespan (adapter initialization)."""
     import tdx.main
 
-    previous_adapter = tdx.main.tdx_adapter
+    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_bridge
-    previous_collector = tdx.main.tdx_collector
-    previous_subscription_client = tdx.main.tdx_subscription_client
-    previous_owned_adapter = tdx.main._tdx_adapter_owned_by_main
+    previous_bridge = tdx.main.tdx_legacy_bridge
+    previous_collector = tdx.main.tdx_legacy_collector
+    previous_subscription_client = tdx.main.tdx_legacy_subscription_client
+    previous_owned_adapter = tdx.main._tdx_legacy_adapter_owned_by_main
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
-    previous_owned_bridge = tdx.main._tdx_bridge_owned_by_main
-    previous_owned_collector = tdx.main._tdx_collector_owned_by_main
-    previous_owned_subscription_client = tdx.main._tdx_subscription_client_owned_by_main
+    previous_owned_bridge = tdx.main._tdx_legacy_bridge_owned_by_main
+    previous_owned_collector = tdx.main._tdx_legacy_collector_owned_by_main
+    previous_owned_subscription_client = tdx.main._tdx_legacy_subscription_client_owned_by_main
     try:
         with TestClient(app) as client:
             yield client
     finally:
-        tdx.main.tdx_adapter = previous_adapter
+        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_bridge = previous_bridge
-        tdx.main.tdx_collector = previous_collector
-        tdx.main.tdx_subscription_client = previous_subscription_client
-        tdx.main._tdx_adapter_owned_by_main = previous_owned_adapter
+        tdx.main.tdx_legacy_bridge = previous_bridge
+        tdx.main.tdx_legacy_collector = previous_collector
+        tdx.main.tdx_legacy_subscription_client = previous_subscription_client
+        tdx.main._tdx_legacy_adapter_owned_by_main = previous_owned_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
-        tdx.main._tdx_bridge_owned_by_main = previous_owned_bridge
-        tdx.main._tdx_collector_owned_by_main = previous_owned_collector
-        tdx.main._tdx_subscription_client_owned_by_main = previous_owned_subscription_client
+        tdx.main._tdx_legacy_bridge_owned_by_main = previous_owned_bridge
+        tdx.main._tdx_legacy_collector_owned_by_main = previous_owned_collector
+        tdx.main._tdx_legacy_subscription_client_owned_by_main = previous_owned_subscription_client
 
 
 def test_ws_ping_pong(client):
@@ -313,7 +313,7 @@ def test_ws_subscription_commands_go_through_subscription_client(monkeypatch):
     import tdx.main
 
     subscription_client = ObservedSubscriptionClient()
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", subscription_client)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", subscription_client)
 
     with (
         TestClient(app) as callback_client,
@@ -342,11 +342,11 @@ def test_ws_callback_marks_dirty_and_collector_emits_snapshot_quote(monkeypatch)
 
     adapter = CallbackCapturingAdapter()
     provider = FakeRealtimeProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: provider)
-    monkeypatch.setattr(tdx.main, "tdx_bridge", None)
-    monkeypatch.setattr(tdx.main, "tdx_collector", None)
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_bridge", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_collector", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", None)
 
     with (
         TestClient(app) as callback_client,
@@ -369,12 +369,12 @@ def test_ws_callback_marks_dirty_and_collector_emits_snapshot_quote(monkeypatch)
         adapter.callback({"Code": "SH600519", "ErrorId": "0"})
 
         callback_client.portal.call(asyncio.sleep, 0)
-        assert tdx.main.tdx_collector.dirty_symbols == {"600519.SH"}
+        assert tdx.main.tdx_legacy_collector.dirty_symbols == {"600519.SH"}
         assert provider.snapshot_calls == []
         with pytest.raises(Empty):
             received.get(timeout=0.2)
 
-        callback_client.portal.call(tdx.main.tdx_collector.collect_dirty_once)
+        callback_client.portal.call(tdx.main.tdx_legacy_collector.collect_dirty_once)
 
         try:
             status, payload = received.get(timeout=2)
@@ -404,11 +404,11 @@ def test_ws_collector_publishes_snapshot_quote_only(monkeypatch):
 
     adapter = CallbackCapturingAdapter()
     provider = FakeRealtimeProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: provider)
-    monkeypatch.setattr(tdx.main, "tdx_bridge", None)
-    monkeypatch.setattr(tdx.main, "tdx_collector", None)
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_bridge", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_collector", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", None)
 
     with (
         TestClient(app) as callback_client,
@@ -420,7 +420,7 @@ def test_ws_collector_publishes_snapshot_quote_only(monkeypatch):
         assert adapter.callback is not None
 
         adapter.callback({"Code": "SH600519", "ErrorId": "0"})
-        callback_client.portal.call(tdx.main.tdx_collector.collect_dirty_once)
+        callback_client.portal.call(tdx.main.tdx_legacy_collector.collect_dirty_once)
 
         quote_payload = ws.receive_json()
 
@@ -442,11 +442,11 @@ def test_ws_callback_after_disconnect_does_not_update_bridge_health(monkeypatch)
 
     adapter = CallbackCapturingAdapter()
     provider = FakeRealtimeProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: provider)
-    monkeypatch.setattr(tdx.main, "tdx_bridge", None)
-    monkeypatch.setattr(tdx.main, "tdx_collector", None)
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_bridge", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_collector", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", None)
 
     with TestClient(app) as callback_client:
         with callback_client.websocket_connect("/ws/quote/closing-client") as ws:
@@ -459,7 +459,7 @@ def test_ws_callback_after_disconnect_does_not_update_bridge_health(monkeypatch)
         health = callback_client.get("/health").json()
 
     assert health["lastCallbackAt"] is None
-    assert tdx.main.tdx_collector is None
+    assert tdx.main.tdx_legacy_collector is None
 
 
 def test_ws_callback_after_unsubscribe_is_ignored(monkeypatch):
@@ -467,11 +467,11 @@ def test_ws_callback_after_unsubscribe_is_ignored(monkeypatch):
 
     adapter = CallbackCapturingAdapter()
     provider = FakeRealtimeProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: provider)
-    monkeypatch.setattr(tdx.main, "tdx_bridge", None)
-    monkeypatch.setattr(tdx.main, "tdx_collector", None)
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_bridge", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_collector", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", None)
 
     with (
         TestClient(app) as callback_client,
@@ -489,7 +489,7 @@ def test_ws_callback_after_unsubscribe_is_ignored(monkeypatch):
         health = callback_client.get("/health").json()
 
     assert health["lastCallbackAt"] is None
-    assert tdx.main.tdx_collector is None
+    assert tdx.main.tdx_legacy_collector is None
 
 
 def test_ws_subscription_failure_restores_previous_active_state(monkeypatch):
@@ -497,11 +497,11 @@ def test_ws_subscription_failure_restores_previous_active_state(monkeypatch):
 
     adapter = CallbackCapturingAdapter()
     provider = FakeRealtimeProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: provider)
-    monkeypatch.setattr(tdx.main, "tdx_bridge", None)
-    monkeypatch.setattr(tdx.main, "tdx_collector", None)
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_bridge", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_collector", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", None)
 
     with (
         TestClient(app) as callback_client,
@@ -552,11 +552,11 @@ def test_ws_snapshot_failure_records_collector_error_without_marketdata_fallback
     adapter = CallbackCapturingAdapter()
     provider = FakeRealtimeProvider()
     provider.fail_snapshot = True
-    monkeypatch.setattr(tdx.main, "create_tdx_adapter", lambda: adapter)
+    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: provider)
-    monkeypatch.setattr(tdx.main, "tdx_bridge", None)
-    monkeypatch.setattr(tdx.main, "tdx_collector", None)
-    monkeypatch.setattr(tdx.main, "tdx_subscription_client", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_bridge", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_collector", None)
+    monkeypatch.setattr(tdx.main, "tdx_legacy_subscription_client", None)
 
     with (
         TestClient(app) as callback_client,
@@ -568,9 +568,9 @@ def test_ws_snapshot_failure_records_collector_error_without_marketdata_fallback
         assert adapter.callback is not None
 
         adapter.callback({"Code": "600519.SH", "ErrorId": "0"})
-        emitted = callback_client.portal.call(tdx.main.tdx_collector.collect_dirty_once)
+        emitted = callback_client.portal.call(tdx.main.tdx_legacy_collector.collect_dirty_once)
 
         assert emitted == 0
         assert provider.snapshot_calls == [["600519.SH"]]
         assert provider.collect_calls == []
-        assert tdx.main.tdx_collector.last_error_code == "TDX_COLLECTOR_SNAPSHOT_ERROR"
+        assert tdx.main.tdx_legacy_collector.last_error_code == "TDX_COLLECTOR_SNAPSHOT_ERROR"

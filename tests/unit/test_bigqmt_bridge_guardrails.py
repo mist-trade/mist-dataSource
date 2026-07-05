@@ -10,6 +10,9 @@ QMT_CLIENT = PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 ENV_WINDOWS_EXAMPLE = PROJECT_ROOT / ".env.windows.example"
 V1_PRODUCT_ROUTES = PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py"
+QMT_V1_PRODUCT_ROUTES = PROJECT_ROOT / "qmt" / "routes" / "v1" / "product.py"
+QMT_MAIN = PROJECT_ROOT / "qmt" / "main.py"
+QMT_BRIDGE_ROUTES = PROJECT_ROOT / "qmt" / "routes" / "bridge.py"
 QMT_LOCAL_DAT_READER = PROJECT_ROOT / "src" / "datasource" / "qmt" / "local_dat.py"
 
 
@@ -63,6 +66,17 @@ def test_builtin_bridge_polling_uses_run_time_not_market_event_callbacks() -> No
     assert "subscribe_quote" not in source
 
 
+def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
+    bridge_source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+    spike_source = SPIKE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "http://127.0.0.1:9002/qmt/bridge" in bridge_source
+    assert "http://127.0.0.1:9002/qmt/bridge" in spike_source
+    assert 'STATE.gateway_url + "/health"' in spike_source
+    assert "127.0.0.1:9012" not in bridge_source
+    assert "127.0.0.1:9012" not in spike_source
+
+
 def test_spike_script_is_the_only_qmt_builtin_script_allowed_to_probe_runtime_features() -> None:
     bridge_imports = _imported_top_level_names(ast.parse(BRIDGE_SCRIPT.read_text(encoding="utf-8")))
     spike_imports = _imported_top_level_names(ast.parse(SPIKE_SCRIPT.read_text(encoding="utf-8")))
@@ -71,16 +85,15 @@ def test_spike_script_is_the_only_qmt_builtin_script_allowed_to_probe_runtime_fe
     assert bridge_imports.isdisjoint({"threading", "multiprocessing", "subprocess"})
 
 
-def test_spike_script_records_run_time_and_websocket_evidence() -> None:
+def test_spike_script_records_run_time_without_websocket_probe() -> None:
     source = SPIKE_SCRIPT.read_text(encoding="utf-8")
 
     assert "mist_qmt_spike_tick" in source
     assert ".run_time(" in source
     assert "tickCount" in source
-    assert "websocketDuplex" in source
-    assert "websocketCommandLoop" in source
-    assert "spike-command-loop" in source
-    assert "single-thread-bounded-blocking-loop" in source
+    assert "websocket" not in source.lower()
+    assert "Sec-WebSocket" not in source
+    assert "spike-command-loop" not in source
 
 
 def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() -> None:
@@ -114,8 +127,8 @@ def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() 
     assert violations == []
 
 
-def test_qmt_local_dat_binary_parsing_stays_out_of_v1_routes() -> None:
-    source = V1_PRODUCT_ROUTES.read_text(encoding="utf-8")
+def test_qmt_local_dat_binary_parsing_stays_out_of_qmt_v1_routes() -> None:
+    source = QMT_V1_PRODUCT_ROUTES.read_text(encoding="utf-8")
 
     forbidden_route_tokens = {
         "QmtLocalDatReader",
@@ -133,6 +146,40 @@ def test_qmt_local_dat_binary_parsing_stays_out_of_v1_routes() -> None:
 
     assert violations == []
     assert "QmtDatasourceProvider" in source
+
+
+def test_tdx_v1_routes_do_not_import_or_branch_to_qmt() -> None:
+    source = V1_PRODUCT_ROUTES.read_text(encoding="utf-8")
+
+    forbidden_tokens = {
+        "QmtDatasourceProvider",
+        "qmt_provider",
+        "provider_id",
+        "qmt_operation",
+        "provider == \"qmt\"",
+        "provider=qmt",
+    }
+
+    assert [token for token in forbidden_tokens if token in source] == []
+
+
+def test_qmt_service_does_not_expose_legacy_adapter_or_websocket_routes() -> None:
+    main_source = QMT_MAIN.read_text(encoding="utf-8")
+    bridge_source = QMT_BRIDGE_ROUTES.read_text(encoding="utf-8")
+
+    forbidden_tokens = {
+        "/api/qmt/",
+        "create_qmt_adapter",
+        "QMTMockAdapter",
+        "QmtDataAdapter",
+        "ws_router",
+        "prefix=\"/ws\"",
+        "@router.websocket",
+        "qmt/bridge/ws",
+    }
+    combined = main_source + "\n" + bridge_source
+
+    assert [token for token in forbidden_tokens if token in combined] == []
 
 
 def test_qmt_local_dat_reader_has_no_legacy_qmt_runtime_dependencies() -> None:

@@ -30,13 +30,13 @@ class QMTSettings(BaseSettings):
     )
     host: str = "0.0.0.0"
     port: int = 9002
-    bridge_gateway_url: str = "http://127.0.0.1:9012/qmt/bridge"
+    bridge_gateway_url: str = "http://127.0.0.1:9002/qmt/bridge"
     bridge_spike_evidence_dir: str = ""
     local_dat_enabled: bool = False
     local_dat_dir: str = ""
     local_dat_periods: str = "1d,1m,5m"
     local_dat_block_after: str = "18:00"
-    local_dat_on_block: str = "fallback_bridge"
+    local_dat_on_block: str = "retryable_error"
     local_dat_stability_wait_ms: int = 500
 
 

@@ -14,12 +14,12 @@ async def tdx_client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async HTTP client for testing TDX API."""
     # Initialize adapter in tdx.main for testing
     import tdx.main
-    from src.adapter import create_tdx_adapter
+    from src.adapter_legacy import create_tdx_legacy_adapter
 
     # Initialize the adapter in the tdx.main module
-    tdx.main.tdx_adapter = create_tdx_adapter()
-    tdx_app.state.tdx_adapter = tdx.main.tdx_adapter
-    await tdx.main.tdx_adapter.initialize()
+    tdx.main.tdx_legacy_adapter = create_tdx_legacy_adapter()
+    tdx_app.state.tdx_legacy_adapter = tdx.main.tdx_legacy_adapter
+    await tdx.main.tdx_legacy_adapter.initialize()
 
     try:
         async with AsyncClient(
@@ -27,24 +27,22 @@ async def tdx_client() -> AsyncGenerator[AsyncClient, None]:
         ) as client:
             yield client
     finally:
-        if tdx.main.tdx_adapter:
-            await tdx.main.tdx_adapter.shutdown()
-            tdx.main.tdx_adapter = None
-            tdx_app.state.tdx_adapter = None
+        if tdx.main.tdx_legacy_adapter:
+            await tdx.main.tdx_legacy_adapter.shutdown()
+            tdx.main.tdx_legacy_adapter = None
+            tdx_app.state.tdx_legacy_adapter = None
 
 
 @pytest.fixture
 async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async HTTP client for testing QMT API."""
     import qmt.main
-    from src.adapter import create_qmt_adapter
+    from src.datasource.qmt.command_gateway import QmtCommandGateway
 
-    # Initialize the adapter in the qmt.main module
-    qmt.main.qmt_adapter = create_qmt_adapter(
-        path="", account_id=""
-    )
-    qmt_app.state.qmt_adapter = qmt.main.qmt_adapter
-    await qmt.main.qmt_adapter.initialize()
+    previous_gateway = getattr(qmt.main, "qmt_command_gateway", None)
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt_app.state.qmt_command_gateway = gateway
 
     try:
         async with AsyncClient(
@@ -52,7 +50,5 @@ async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
         ) as client:
             yield client
     finally:
-        if qmt.main.qmt_adapter:
-            await qmt.main.qmt_adapter.shutdown()
-            qmt.main.qmt_adapter = None
-            qmt_app.state.qmt_adapter = None
+        qmt.main.qmt_command_gateway = previous_gateway
+        qmt_app.state.qmt_command_gateway = previous_gateway

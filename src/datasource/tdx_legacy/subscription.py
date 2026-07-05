@@ -8,21 +8,21 @@ from typing import Any, cast
 
 from src.core.config import settings
 from src.core.logging import get_logger
-from src.datasource.tdx_bridge import TdxBridge
+from src.datasource.tdx_legacy.bridge import TdxLegacyBridge
 from src.datasource.tdx_normalization import dedupe_normalized_symbols, normalize_symbol
 
 TDX_SUBSCRIBE_LIMIT_EXCEEDED = "TDX_SUBSCRIBE_LIMIT_EXCEEDED"
 logger = get_logger(__name__)
 
 
-class TdxSubscriptionClient:
+class TdxLegacySubscriptionClient:
     """Coordinate TDX SDK subscriptions without owning SDK initialization."""
 
     def __init__(
         self,
         *,
         adapter: Any,
-        bridge: TdxBridge,
+        bridge: TdxLegacyBridge,
         collector: Any,
         max_subscriptions: int | None = None,
     ) -> None:

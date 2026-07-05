@@ -1,8 +1,8 @@
 """Full-QMT command bridge routes."""
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.datasource.qmt.command_gateway import (
@@ -14,7 +14,11 @@ router = APIRouter()
 
 
 class BridgeModel(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra="forbid",
+    )
 
 
 class OwnerRequest(BridgeModel):
@@ -36,6 +40,12 @@ class ResultRequest(BridgeModel):
     error: dict[str, Any] | None = None
 
 
+class CommandRequest(BridgeModel):
+    method: Literal["health", "get_market_data_ex", "get_full_tick", "get_stock_list_in_sector"]
+    params: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds")
+
+
 def _get_gateway_from_state(state: Any) -> QmtCommandGateway:
     gateway = getattr(state, "qmt_command_gateway", None)
     if gateway is None:
@@ -46,6 +56,39 @@ def _get_gateway_from_state(state: Any) -> QmtCommandGateway:
 
 def get_gateway(request: Request) -> QmtCommandGateway:
     return _get_gateway_from_state(request.app.state)
+
+
+@router.post("/commands")
+async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str, Any]:
+    gateway = get_gateway(request)
+    command = gateway.enqueue(
+        payload.method,
+        payload.params,
+        timeout_seconds=payload.timeout_seconds,
+    )
+    return {
+        "commandId": command.command_id,
+        "method": command.method,
+        "params": command.params,
+        "timeoutSeconds": command.timeout_seconds,
+    }
+
+
+@router.get("/commands/{command_id}")
+async def get_command_result(command_id: str, request: Request, response: Response) -> dict[str, Any]:
+    gateway = get_gateway(request)
+    gateway.expire_timed_out()
+    result = gateway.result_for(command_id)
+    if result is None:
+        response.status_code = 202
+        return {"commandId": command_id, "status": "pending"}
+    return {
+        "commandId": result.command_id,
+        "ok": result.ok,
+        "completedAt": result.completed_at,
+        "result": result.result,
+        "error": result.error,
+    }
 
 
 @router.post("/owner")
@@ -107,114 +150,3 @@ async def bridge_health(request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
     gateway.expire_timed_out()
     return gateway.health()
-
-
-@router.websocket("/ws")
-async def bridge_websocket(websocket: WebSocket) -> None:
-    owner_id = websocket.query_params.get("ownerId") or "qmt-bridge-ws"
-    mode = websocket.query_params.get("mode") or ""
-    gateway = _get_gateway_from_state(websocket.app.state)
-    await websocket.accept()
-    try:
-        gateway.register_owner(owner_id)
-    except QmtBridgeOwnershipError as exc:
-        await websocket.send_json(
-            {
-                "type": "error",
-                "code": "QMT_BRIDGE_OWNER_CONFLICT",
-                "message": str(exc),
-                "retryable": False,
-            }
-        )
-        await websocket.close(code=4409)
-        return
-
-    await websocket.send_json({"type": "bridge.ready", "ownerId": owner_id})
-    if mode == "spike-command-loop":
-        await _run_spike_command_loop(websocket, owner_id)
-        return
-
-    try:
-        while True:
-            message = await websocket.receive_json()
-            message_type = str(message.get("type", ""))
-            gateway.heartbeat(owner_id)
-            if message_type == "ping":
-                await websocket.send_json(
-                    {
-                        "type": "pong",
-                        "id": message.get("id"),
-                        "ownerId": owner_id,
-                    }
-                )
-                continue
-            if message_type == "hello":
-                await websocket.send_json(
-                    {
-                        "type": "hello.ack",
-                        "id": message.get("id"),
-                        "ownerId": owner_id,
-                    }
-                )
-                continue
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "id": message.get("id"),
-                    "code": "QMT_BRIDGE_WS_UNSUPPORTED_MESSAGE",
-                    "message": "Unsupported QMT bridge websocket message",
-                    "retryable": False,
-                }
-            )
-    except WebSocketDisconnect:
-        return
-
-
-async def _run_spike_command_loop(websocket: WebSocket, owner_id: str) -> None:
-    symbol = websocket.query_params.get("symbol") or "000001.SZ"
-    commands: list[dict[str, Any]] = [
-        {
-            "type": "bridge.command",
-            "id": "spike-health",
-            "method": "health",
-            "params": {},
-        },
-        {
-            "type": "bridge.command",
-            "id": "spike-market-data",
-            "method": "get_market_data_ex",
-            "params": {
-                "fields": ["close"],
-                "symbols": [symbol],
-                "period": "1d",
-                "count": 1,
-            },
-        },
-    ]
-    results: list[dict[str, Any]] = []
-    try:
-        for command in commands:
-            await websocket.send_json(command)
-            message = await websocket.receive_json()
-            if message.get("type") != "bridge.result":
-                await websocket.send_json(
-                    {
-                        "type": "error",
-                        "id": command["id"],
-                        "code": "QMT_BRIDGE_WS_UNEXPECTED_MESSAGE",
-                        "message": "Expected bridge.result from QMT spike client",
-                        "retryable": True,
-                    }
-                )
-                return
-            results.append(message)
-        await websocket.send_json(
-            {
-                "type": "bridge.done",
-                "ownerId": owner_id,
-                "commandCount": len(commands),
-                "results": results,
-            }
-        )
-    except WebSocketDisconnect:
-        return

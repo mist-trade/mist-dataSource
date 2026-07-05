@@ -151,3 +151,6 @@ Thumbs.db
 .uv-cache/
 .ruff_cache/
 !uv.lock
+
+
+/.worktrees/

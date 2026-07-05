@@ -88,7 +88,7 @@ def test_tdx_route_packages_separate_legacy_v1_and_websocket_boundaries() -> Non
 
     assert legacy_modules
     assert normalized_modules
-    assert websocket_modules == {"tdx.routes.ws"}
+    assert websocket_modules == {"tdx.routes.legacy.ws"}
     assert all(module.startswith("tdx.routes.legacy.") for module in legacy_modules)
     assert all(module.startswith("tdx.routes.v1") for module in normalized_modules)
 
@@ -112,7 +112,7 @@ async def test_legacy_tdx_routes_emit_deprecation_headers() -> None:
 def test_tdx_websocket_route_stays_outside_rest_route_packages() -> None:
     websocket_route = _route_by_path("/ws/quote/{client_id}")
 
-    assert websocket_route.module == "tdx.routes.ws"
+    assert websocket_route.module == "tdx.routes.legacy.ws"
 
 
 def test_registered_route_helper_uses_included_router_shape() -> None:

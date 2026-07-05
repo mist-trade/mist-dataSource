@@ -54,7 +54,7 @@ def _write_minute_dat(root: Path, symbol: str, period_code: str, records: list[t
             )
 
 
-def test_daily_dat_reads_even_records_and_normalizes_bars(tmp_path: Path) -> None:
+def test_daily_dat_reads_even_records_as_qmt_market_data(tmp_path: Path) -> None:
     _write_daily_dat(
         tmp_path,
         "000001.SZ",
@@ -72,20 +72,24 @@ def test_daily_dat_reads_even_records_and_normalizes_bars(tmp_path: Path) -> Non
         stability_wait_ms=0,
     )
 
-    bars = reader.read_bars(["000001.SZ"], period="1d", start_time=None, end_time=None, count=1)
+    result = reader.read_market_data(
+        ["000001.SZ"],
+        period="1d",
+        start_time=None,
+        end_time=None,
+        count=1,
+        fields=[],
+        include_raw=False,
+    )
 
-    assert len(bars) == 1
-    bar = bars[0]
-    assert bar.symbol == "000001.SZ"
-    assert bar.period == "1d"
-    assert bar.barTime == "2026-07-02T00:00:00+08:00"
-    assert bar.open == 10.5
-    assert bar.high == 12.0
-    assert bar.low == 10.4
-    assert bar.close == 11.8
-    assert bar.volume == 45600
-    assert bar.amount == 0
-    assert bar.provider == "qmt"
+    market_data = result["marketData"]["000001.SZ"]
+    assert market_data["open"] == {"20260702": 10.5}
+    assert market_data["high"] == {"20260702": 12.0}
+    assert market_data["low"] == {"20260702": 10.4}
+    assert market_data["close"] == {"20260702": 11.8}
+    assert market_data["volume"] == {"20260702": 456.0}
+    assert market_data["amount"] == {"20260702": 0.0}
+    assert result["source"] == "local_dat"
 
 
 def test_minute_dat_detects_supported_record_format(tmp_path: Path) -> None:
@@ -105,23 +109,21 @@ def test_minute_dat_detects_supported_record_format(tmp_path: Path) -> None:
         stability_wait_ms=0,
     )
 
-    bars = reader.read_bars(
+    result = reader.read_market_data(
         ["000001.SZ"],
         period="1m",
         start_time="2026-07-01T09:31:00+08:00",
         end_time="2026-07-01T09:32:00+08:00",
         count=None,
+        fields=["open", "close", "volume", "amount"],
+        include_raw=False,
     )
 
-    assert [bar.barTime for bar in bars] == [
-        "2026-07-01T09:31:00+08:00",
-        "2026-07-01T09:32:00+08:00",
-    ]
-    assert bars[0].open == 10.29
-    assert bars[1].close == 10.38
-    assert bars[0].volume == 1200.0
-    assert bars[0].amount == 12345.6
-    assert all(bar.provider == "qmt" for bar in bars)
+    market_data = result["marketData"]["000001.SZ"]
+    assert market_data["open"]["20260701093100"] == 10.29
+    assert market_data["close"]["20260701093200"] == 10.38
+    assert market_data["volume"]["20260701093100"] == 1200.0
+    assert market_data["amount"]["20260701093100"] == 12345.6
 
 
 def test_five_minute_dat_uses_300_period_directory(tmp_path: Path) -> None:
@@ -140,12 +142,20 @@ def test_five_minute_dat_uses_300_period_directory(tmp_path: Path) -> None:
         stability_wait_ms=0,
     )
 
-    bars = reader.read_bars(["000001.SZ"], period="5m", start_time=None, end_time=None, count=1)
+    result = reader.read_market_data(
+        ["000001.SZ"],
+        period="5m",
+        start_time=None,
+        end_time=None,
+        count=1,
+        fields=["close"],
+        include_raw=True,
+    )
 
-    assert len(bars) == 1
-    assert bars[0].period == "5m"
-    assert bars[0].barTime == "2026-07-01T09:35:00+08:00"
-    assert bars[0].close == 10.38
+    assert result["marketData"]["000001.SZ"]["close"] == {"20260701093500": 10.38}
+    assert result["rawMeta"]["symbols"]["000001.SZ"]["period_code"] == "300"
+    assert result["rawMeta"]["symbols"]["000001.SZ"]["record_size"] == 40
+    assert result["rawMeta"]["symbols"]["000001.SZ"]["struct_format"] == "<QIIIIdd"
 
 
 def test_dat_read_after_block_time_returns_retryable_error(tmp_path: Path) -> None:
@@ -158,7 +168,15 @@ def test_dat_read_after_block_time_returns_retryable_error(tmp_path: Path) -> No
     )
 
     with pytest.raises(QmtLocalDatError) as exc_info:
-        reader.read_bars(["000001.SZ"], period="1d", start_time=None, end_time=None, count=1)
+        reader.read_market_data(
+            ["000001.SZ"],
+            period="1d",
+            start_time=None,
+            end_time=None,
+            count=1,
+            fields=[],
+            include_raw=False,
+        )
 
     assert exc_info.value.code == "QMT_LOCAL_DAT_BLOCKED"
     assert exc_info.value.retryable is True

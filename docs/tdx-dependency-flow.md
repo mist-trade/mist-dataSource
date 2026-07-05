@@ -32,7 +32,7 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 - **底层依赖 tq SDK** 的方法 = 调用链 ① 全部 + 调用链 ③ 的订阅部分
 - **走 HTTP（不依赖 tq）** 的方法 = 调用链 ② 全部 + 调用链 ③ 的快照拉取部分
-- `tdx/services/tdx_service.py` 的 `TDXService` 是**孤儿代码**——全局搜索确认无任何 route 引用，也未挂到 `app.state`
+- 原 `tdx/services/tdx_service.py` 孤儿服务层已经移除；当前 TDX 运行时只保留 legacy route→adapter、v1 route→provider→HTTP、WS subscription/collector 三条链路
 
 ---
 
@@ -43,17 +43,17 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 ### 不变的部分
 
 - **三条调用链的拓扑完全不变**：`/api/tdx/*` 仍走 adapter，`/v1/*` 仍走 provider→HTTP，`/ws/*` 仍走 subscription+adapter。
-- **旧/新 REST 文件边界已经分离**：旧式 adapter REST 位于 `tdx/routes/legacy/*`，normalized REST 位于 `tdx/routes/v1/*`，WebSocket 仍位于 `tdx/routes/ws.py`。
-- **`tdx_service` 仍是孤儿**：grep 全仓库确认零引用，未挂到 `app.state`（见 [第 11 节](#11-孤儿代码与遗留说明)）。
-- **WS 订阅链路三组件**（subscription / bridge / collector）协作关系不变。
-- **`main.py` lifespan 启动/关闭顺序、`app.state` 键集合**不变。
+- **旧/新 REST 文件边界已经分离**：旧式 adapter REST 位于 `tdx/routes/legacy/*`，normalized REST 位于 `tdx/routes/v1/*`，WebSocket 仍位于 `tdx/routes/legacy/ws.py`。
+- **旧 `tdx_service` 孤儿层已移除**：当前没有 `tdx/services/*.py` 业务服务层接线。
+- **WS 订阅链路三组件**（subscription / bridge / collector）协作关系不变，但源码已归入 `tdx_legacy` 命名空间。
+- **`main.py` lifespan 启动/关闭顺序**不变；`app.state` 中旧 SDK/WS 链路键已统一加 `tdx_legacy_` 前缀。
 
 ### 变化的部分
 
 | 变化 | 影响范围 | 性质 |
 |---|---|---|
-| **路由依赖注入重构** | `tdx/routes/legacy/*`、`tdx/routes/v1/*` 与 `qmt/routes/*` 全部路由 | 纯形式重构：`_get_adapter` + 内联 `if not adapter: 503` → `require_tdx_adapter`（集中抛 503）。**调用链不变** |
-| **`tdx/routes/dependencies.py` 新增 `require_tdx_adapter`** | 依赖层 | 见 [第 4 节](#4-调用链对照表) |
+| **路由依赖注入重构** | `tdx/routes/legacy/*`、`tdx/routes/v1/*` 与 `qmt/routes/*` 全部路由 | 纯形式重构：`_get_adapter` + 内联 `if not adapter: 503` → `require_tdx_legacy_adapter`（集中抛 503）。**调用链不变** |
+| **TDX route dependencies 拆分** | `tdx/routes/dependencies.py`、`tdx/routes/legacy/dependencies.py` | V1 root dependency 只暴露 `get_tdx_provider`；legacy dependency 承载旧 adapter/WS helper。见 [第 4 节](#4-调用链对照表) |
 | **provider 拆分为 facade + operations/normalizers** | `src/datasource/tdx_provider.py`、`src/datasource/tdx/operations/*`、`src/datasource/tdx/normalizers/*` | `TdxDatasourceProvider` 保持外部 facade，HTTP/RPC 参数映射进入 operation 模块，native shape 归一化进入 normalizer 模块。方法表见 [第 6.2 节](#62-provider-方法清单全部走-http不碰-adaptertq) |
 | **新增 `capabilities.py`** | `src/datasource/capabilities.py` | provider 能力清单，供 `/providers` 端点用。详见 [第 7 节](#7-能力清单capabilitiespy) |
 
@@ -65,21 +65,20 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 |---|---|---|---|
 | **路由层** | `tdx/routes/legacy/*.py` | 旧式 HTTP 端点（`/api/tdx/*`） | 间接（①） |
 | | `tdx/routes/v1/*.py` | normalized HTTP 端点（`/v1/*` + `/providers`） | 不间接（②） |
-| | `tdx/routes/ws.py` | WebSocket 端点 | 间接（③） |
-| **服务层** | `tdx/services/tdx_service.py` | 复合业务（**孤儿，未接线**） | 依赖 adapter |
+| | `tdx/routes/legacy/ws.py` | WebSocket 端点 | 间接（③） |
 | **datasource 层** | `src/datasource/tdx_provider.py` | provider facade / public import boundary | 否（走 httpx） |
 | | `src/datasource/tdx/operations/*.py` | provider capability operation modules | 否（走 httpx） |
 | | `src/datasource/tdx/normalizers/*.py` | TDX native shape normalization | 否 |
 | | `src/datasource/tdx_http_client.py` | HTTP/JSON-RPC 客户端 | 否（走 httpx） |
-| | `src/datasource/tdx_subscription.py` | WS 订阅协调器 | 是（调 `adapter.subscribe_hq`） |
-| | `src/datasource/tdx_bridge.py` | 订阅内存状态容器 | 否（纯内存） |
-| | `src/datasource/tdx_collector.py` | 脏标记 → 定时拉快照 | 否（走 provider HTTP） |
+| | `src/datasource/tdx_legacy/subscription.py` | WS 订阅协调器 | 是（调 `adapter.subscribe_hq`） |
+| | `src/datasource/tdx_legacy/bridge.py` | 订阅内存状态容器 | 否（纯内存） |
+| | `src/datasource/tdx_legacy/collector.py` | 脏标记 → 定时拉快照 | 否（走 provider HTTP） |
 | | `src/datasource/tdx_normalization.py` | 数据归一化纯函数 | 否 |
 | | `src/datasource/tdx_models.py` | Pydantic 模型 | 否 |
 | | `src/datasource/capabilities.py` | provider 能力清单（元数据，**新增**） | 否 |
 | | `src/datasource/contracts.py` | 公共基类/时区/错误模型 | 否 |
-| **adapter 层** | `src/adapter/tdx/client.py` | **直接对接 tq SDK 的唯一入口** | 是 |
-| | `src/adapter/mock/tdx_mock.py` | macOS 开发替身 | 否 |
+| **adapter 层** | `src/adapter_legacy/tdx/client.py` | **直接对接 tq SDK 的唯一入口** | 是 |
+| | `src/adapter_legacy/mock/tdx_mock.py` | macOS 开发替身 | 否 |
 
 ---
 
@@ -87,20 +86,23 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 | 路由文件 | 前缀 | 调用链 | 依赖注入函数 |
 |---|---|---|---|
-| `legacy/market.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `legacy/stock.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `legacy/financial.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `legacy/value.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `legacy/sector.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `legacy/etf.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
-| `legacy/client.py` | `/api/tdx` | `route → adapter` | `require_tdx_adapter` |
+| `legacy/market.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
+| `legacy/stock.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
+| `legacy/financial.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
+| `legacy/value.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
+| `legacy/sector.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
+| `legacy/etf.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
+| `legacy/client.py` | `/api/tdx` | `route → adapter` | `require_tdx_legacy_adapter` |
 | `v1/product.py` | `/`（路径含 `/v1/`） | `route → provider → http_client` | `get_tdx_provider` |
-| `ws.py` | `/ws` | `route → subscription_client(+adapter) + bridge + collector` | `get_ws_manager` / `get_tdx_bridge` / `get_tdx_subscription_client` |
+| `legacy/ws.py` | `/ws` | `route → subscription_client(+adapter) + bridge + collector` | `get_ws_manager` / `get_tdx_legacy_bridge` / `get_tdx_legacy_subscription_client` |
 
-> `tdx/routes/dependencies.py` 提供 6 个 getter：
-> - `get_tdx_adapter` —— 读 `tdx_adapter`，可能返回 `None`（路由层一般不直接用）
-> - `require_tdx_adapter` —— **新增**。在 `get_tdx_adapter` 基础上判空，为 `None` 直接抛 `HTTPException(503)`。`/api/tdx/*` 七个路由统一改用它，消除了原先每个端点内联的 `if not adapter: 503` 样板
-> - `get_tdx_provider` / `get_tdx_bridge` / `get_tdx_subscription_client` / `get_ws_manager`
+> `tdx/routes/dependencies.py` 只提供 V1 provider getter：
+> - `get_tdx_provider` —— 读 `tdx_provider`，供 `/providers` 与 `/v1/*` normalized routes 使用
+>
+> `tdx/routes/legacy/dependencies.py` 提供 legacy adapter/WS getter：
+> - `get_tdx_legacy_adapter` —— 读 `tdx_legacy_adapter`，可能返回 `None`（路由层一般不直接用）
+> - `require_tdx_legacy_adapter` —— **新增**。在 `get_tdx_legacy_adapter` 基础上判空，为 `None` 直接抛 `HTTPException(503)`。`/api/tdx/*` 七个路由统一改用它，消除了原先每个端点内联的 `if not adapter: 503` 样板
+> - `get_tdx_legacy_bridge` / `get_tdx_legacy_subscription_client` / `get_ws_manager`
 >
 > **没有 `_get_service`**——`tdx_service` 不参与依赖注入。
 
@@ -108,12 +110,12 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 ## 5. 底层 tq SDK 依赖（adapter 层）
 
-`src/adapter/tdx/client.py` 是整个仓库里**唯一直接调用 `tqcenter.tq` 的地方**。
+`src/adapter_legacy/tdx/client.py` 是整个仓库里**唯一直接调用 `tqcenter.tq` 的地方**。
 
 ### 5.1 核心设计
 
 ```python
-TDXAdapter(MarketDataAdapter)
+TdxLegacyAdapter(TdxLegacyAdapterBase)
   ├─ _load_tq_module(sdk_path)   # importlib 加载 tqcenter.py，取出 tq 类对象
   ├─ _call_tq(name, *args)       # ★ 所有业务方法访问 SDK 的唯一入口
   │     └─ asyncio.to_thread(getattr(self._tq, name), *args)  # 同步 SDK → 异步包装
@@ -148,15 +150,15 @@ TDXAdapter(MarketDataAdapter)
 
 ### 5.4 mock 切换
 
-工厂函数 `create_tdx_adapter()` 位于 `src/adapter/__init__.py`（**不在** `tdx/__init__.py`）：
+工厂函数 `create_tdx_legacy_adapter()` 位于 `src/adapter_legacy/__init__.py`（**不在** `tdx/__init__.py`）：
 
 ```python
-def create_tdx_adapter() -> TdxDataAdapter:
+def create_tdx_legacy_adapter() -> TdxLegacyAdapterProtocol:
     if settings.is_production:          # APP_ENV=production
-        from src.adapter.tdx.client import TDXAdapter
-        return TDXAdapter()             # 真实 adapter（延迟导入）
+        from src.adapter_legacy.tdx.client import TdxLegacyAdapter
+        return TdxLegacyAdapter()             # 真实 adapter（延迟导入）
     else:
-        return TDXMockAdapter()         # 开发态替身，读 tests/fixtures/tdx/*.json
+        return TdxLegacyMockAdapter()         # 开发态替身，读 tests/fixtures/tdx/*.json
 ```
 
 - 决策依据：`settings.is_production`（`src/core/config.py`，`app_env == "production"`）
@@ -221,12 +223,11 @@ def create_tdx_adapter() -> TdxDataAdapter:
 | `ProviderCapability` | 单项能力：`family` / `status(supported\|planned\|unsupported)` / `stability` / `providerMethods` / `nativeMethods` / `unsupportedReason` |
 | `ProviderManifest` | 单个 provider 的清单：`id` / `name` / `status` / `capabilities[]` |
 
-### 7.2 两个能力字典
+### 7.2 能力字典
 
 - `TDX_CAPABILITY_STATUSES`（46-160 行）：约 30 个能力族，绝大部分 `supported`，少数 `planned`（`benchmarks` / `security-search` / `reference-data` / `instrument-data`）
-- `QMT_CAPABILITY_STATUSES`（162-239 行）：绝大多数 `unsupported` 或 `planned`（QMT 尚未实现）
 
-`build_provider_manifests(*, tdx_status)` 据此构造 TDX + QMT 两个 `ProviderManifest`。
+`build_provider_manifests(*, tdx_status)` 据此构造 TDX `ProviderManifest`。QMT 已拆成独立 `:9002` 服务，不再通过 TDX `/providers` 暴露。
 
 ### 7.3 `providerMethods` 与 `nativeMethods` 字段语义
 
@@ -238,7 +239,7 @@ def create_tdx_adapter() -> TdxDataAdapter:
 "raw-diagnostics": providerMethods=["raw_call"]
 ```
 
-`ProviderCapability.nativeMethods` 表示该能力背后的 TDX/QMT 原生方法名，例如：
+`ProviderCapability.nativeMethods` 表示该能力背后的 TDX 原生方法名，例如：
 
 ```python
 "bars":             nativeMethods=["get_market_data"]
@@ -246,7 +247,7 @@ def create_tdx_adapter() -> TdxDataAdapter:
 "websocket-subscriptions": nativeMethods=["subscribe_hq", "unsubscribe_hq", "get_subscribe_hq_stock_list"]
 ```
 
-`TDX_CAPABILITY_STATUSES` / `QMT_CAPABILITY_STATUSES` 的第三列仍记录 native backing methods；`TDX_PROVIDER_METHODS` / `QMT_PROVIDER_METHODS` 记录 facade/provider 方法名。读 `/providers` 响应时应按这两个字段区分产品方法与底层 provider 能力。
+`TDX_CAPABILITY_STATUSES` 的第三列仍记录 native backing methods；`TDX_PROVIDER_METHODS` 记录 facade/provider 方法名。读 `/providers` 响应时应按这两个字段区分产品方法与底层 provider 能力。
 
 ---
 
@@ -256,11 +257,11 @@ def create_tdx_adapter() -> TdxDataAdapter:
 
 | 组件 | 文件 | 职责 | 依赖 adapter? |
 |---|---|---|---|
-| `TdxSubscriptionClient` | `tdx_subscription.py` | 订阅协调器 | **是**（调 `adapter.subscribe_hq/unsubscribe_hq`） |
-| `TdxBridge` | `tdx_bridge.py` | 运行时内存状态（leader 选举、订阅集合、事件队列、回调计数） | 否（纯内存） |
-| `TdxMinuteCollector` | `tdx_collector.py` | 脏标记 → 定时拉快照 | 否（走 provider HTTP） |
+| `TdxLegacySubscriptionClient` | `tdx_legacy/subscription.py` | 订阅协调器 | **是**（调 `adapter.subscribe_hq/unsubscribe_hq`） |
+| `TdxLegacyBridge` | `tdx_legacy/bridge.py` | 运行时内存状态（leader 选举、订阅集合、事件队列、回调计数） | 否（纯内存） |
+| `TdxLegacyMinuteCollector` | `tdx_legacy/collector.py` | 脏标记 → 定时拉快照 | 否（走 provider HTTP） |
 
-### 8.2 `TdxSubscriptionClient` 方法（datasource 层中唯一真正依赖 adapter 的组件）
+### 8.2 `TdxLegacySubscriptionClient` 方法（datasource 层中唯一真正依赖 adapter 的组件）
 
 | 方法 | 用途 | 调 adapter? |
 |---|---|---|
@@ -271,13 +272,13 @@ def create_tdx_adapter() -> TdxDataAdapter:
 
 > 每个公开方法在 `except` 分支都会尽力把 adapter 的订阅状态恢复到 `previous_active` 并重新绑定回调，避免 bridge 状态与 SDK 实际订阅状态不一致。
 
-### 8.3 `TdxBridge`（纯内存状态容器）
+### 8.3 `TdxLegacyBridge`（纯内存状态容器）
 
 注意它叫 "bridge" 但**与 adapter 无关**，名字易引起误解。doc string 明确："Runtime-only bridge state shared by TDX WebSocket connections."
 
 核心成员：`claim_leader`, `disconnect`, `plan_sync`, `mark_active`, `enqueue_bar`, `record_callback`, `record_quote_callback`, `record_queue_depth`, `report_backpressure`, `health`, `make_ready_message`, `make_error_message`。
 
-### 8.4 `TdxMinuteCollector`（两条通道的汇合点）
+### 8.4 `TdxLegacyMinuteCollector`（两条通道的汇合点）
 
 - **回调入口**（SDK 通道）：`mark_dirty_from_callback(payload)` —— 从 SDK 回调线程经 `call_soon_threadsafe` 把 symbol 标记为 dirty
 - **采集循环**（HTTP 通道）：`collect_dirty_once()` —— 取 dirty 符号 → 过滤活跃符号 → `provider.get_snapshots(symbols)`（**HTTP**）→ 发布
@@ -301,11 +302,11 @@ collect_dirty_once → provider.get_snapshots(HTTP) → snapshot_publisher → w
 启动顺序严格按依赖拓扑（`tdx/main.py`）：
 
 ```
-1. tdx_adapter = create_tdx_adapter(); await adapter.initialize()
+1. tdx_legacy_adapter = create_tdx_legacy_adapter(); await adapter.initialize()
 2. tdx_provider = TdxDatasourceProvider()                         # 独立 HTTP 通道
-3. tdx_bridge = TdxBridge(queue_max_size, max_subscriptions)      # WS 状态黑板
-4. tdx_collector = TdxMinuteCollector(provider, bridge, ...)      # 横跨两通道
-5. tdx_subscription_client = TdxSubscriptionClient(adapter, bridge, collector, ...)
+3. tdx_legacy_bridge = TdxLegacyBridge(queue_max_size, max_subscriptions)      # WS 状态黑板
+4. tdx_legacy_collector = TdxLegacyMinuteCollector(provider, bridge, ...)      # 横跨两通道
+5. tdx_legacy_subscription_client = TdxLegacySubscriptionClient(adapter, bridge, collector, ...)
 6. await collector.start()
 7. _sync_app_state(app)
 ```
@@ -314,11 +315,11 @@ collect_dirty_once → provider.get_snapshots(HTTP) → snapshot_publisher → w
 
 | app.state 键 | 类型 |
 |---|---|
-| `tdx_adapter` | `TDXAdapter` / `TDXMockAdapter` |
+| `tdx_legacy_adapter` | `TdxLegacyAdapter` / `TdxLegacyMockAdapter` |
 | `tdx_provider` | `TdxDatasourceProvider` |
-| `tdx_bridge` | `TdxBridge` |
-| `tdx_collector` | `TdxMinuteCollector` |
-| `tdx_subscription_client` | `TdxSubscriptionClient` |
+| `tdx_legacy_bridge` | `TdxLegacyBridge` |
+| `tdx_legacy_collector` | `TdxLegacyMinuteCollector` |
+| `tdx_legacy_subscription_client` | `TdxLegacySubscriptionClient` |
 | `ws_manager` | `ConnectionManager` |
 
 > **注意：`tdx_service` 没有挂上去**——再次印证 service 层未接入运行时。
@@ -329,10 +330,10 @@ collect_dirty_once → provider.get_snapshots(HTTP) → snapshot_publisher → w
 
 ## 10. 依赖判定汇总
 
-### 🟦 底层依赖 tq SDK 的方法（通过 TDXAdapter）
+### 🟦 底层依赖 tq SDK 的方法（通过 TdxLegacyAdapter）
 
-- **adapter 层**：`TDXAdapter` 的所有非 `NotImplementedError` 方法（见 [5.2](#52-直接调用-tq-sdk-的方法清单)）
-- **subscription 层**：`TdxSubscriptionClient.subscribe / sync / unsubscribe`
+- **adapter 层**：`TdxLegacyAdapter` 的所有非 `NotImplementedError` 方法（见 [5.2](#52-直接调用-tq-sdk-的方法清单)）
+- **subscription 层**：`TdxLegacySubscriptionClient.subscribe / sync / unsubscribe`
 - **路由层**：`/api/tdx/*` 全部 33 端点 + `/ws/quote` 的订阅动作
 
 ### 🟩 走 HTTP（替代 tq）的方法
@@ -343,24 +344,22 @@ collect_dirty_once → provider.get_snapshots(HTTP) → snapshot_publisher → w
 
 ### ⬜ 纯数据/内存（不依赖任何外部）
 
-- `tdx_normalization.py`、`tdx_models.py`、`tdx_bridge.py` 全部
+- `tdx_normalization.py`、`tdx_models.py`、`tdx_legacy/bridge.py` 全部
 - `tdx_http_client.py`（依赖 httpx，但不依赖 adapter/tq）
 - `tdx_provider.py` 内所有 `_normalize_*` / `_unwrap_*` / `_native_*` 工具函数
 
 ### 🔴 孤儿代码
 
-- `tdx/services/tdx_service.py`：`TDXService.get_sector_overview` 无任何 route 引用，即便被调也是 `route → service → adapter`，不经过 provider
+- 当前 TDX 运行时代码未发现已接线外的 `tdx/services/*.py` 孤儿服务层。
 
 ---
 
 ## 11. 孤儿代码与遗留说明
 
-### 11.1 `TDXService`（services/tdx_service.py）
+### 11.1 `TDXService`
 
-- 文件 docstring（第 6-8 行）自述："大部分 routes 直接调用 adapter 方法，service layer 主要用于 DataFrame 序列化和复合业务逻辑"
-- 定义了模块级单例 `tdx_service = TDXService()`，但全局搜索确认**无任何 route import**
-- 唯一方法 `get_sector_overview(sector)` 组合调用 `adapter.get_stock_list_in_sector` + `adapter.get_market_data`，即便被调也是 `route → service → adapter`，不经过 provider
-- 辅助函数 `_serialize_result` 递归把 pandas DataFrame 转 JSON 结构，同样无人调用
+- 原 `tdx/services/tdx_service.py` 已删除。
+- 当前 route 层没有导入 `tdx.services`，`app.state` 也不挂服务层单例。
 
 ### 11.2 `tdx/config.py`
 

@@ -62,7 +62,7 @@ $runtimeChecks = Get-Content (Join-Path $ProjectDir "scripts\run-runtime-checks.
 $tdxWinswInstall = Get-Content (Join-Path $ProjectDir "scripts\winsw\install-tdx-datasource.ps1") -Raw
 $tdxWinswSmoke = Get-Content (Join-Path $ProjectDir "scripts\winsw\test-tdx-datasource.ps1") -Raw
 Assert-Match "default TDX SDK path" $windowsEnvExample "TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user"
-Assert-Match "default QMT bridge gateway" $windowsEnvExample "QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9012/qmt/bridge"
+Assert-Match "default QMT bridge gateway" $windowsEnvExample "QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9002/qmt/bridge"
 Assert-Match "TDX comment points SDK path to user directory" $windowsEnvExample "TDX_SDK_PATH points to the user directory that contains tqcenter.py."
 Assert-Match "TDX comment keeps DLL in parent directory" $windowsEnvExample "TPythClient.dll stays one level above TDX_SDK_PATH."
 Assert-Match "default uv python package index" $windowsEnvExample "UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"

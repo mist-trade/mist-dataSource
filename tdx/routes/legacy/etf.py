@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, Query, Request
 
-from tdx.routes.dependencies import call_tdx_adapter, require_tdx_adapter
+from tdx.routes.legacy.dependencies import call_tdx_legacy_adapter, require_tdx_legacy_adapter
 
 router = APIRouter()
 
@@ -24,11 +24,11 @@ async def get_kzz_info(
     Returns:
         {"data": dict}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
     field_list = [f.strip() for f in fields.split(",")] if fields else []
 
-    data = await call_tdx_adapter(adapter.get_kzz_info(stock_code, field_list))
+    data = await call_tdx_legacy_adapter(adapter.get_kzz_info(stock_code, field_list))
     return {"data": data}
 
 
@@ -45,9 +45,9 @@ async def get_ipo_info(
     Returns:
         {"data": list[dict]}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_ipo_info(ipo_type, ipo_date))
+    data = await call_tdx_legacy_adapter(adapter.get_ipo_info(ipo_type, ipo_date))
     return {"data": data}
 
 
@@ -63,7 +63,7 @@ async def get_trackzs_etf_info(
     Returns:
         {"data": list[dict]}
     """
-    adapter = require_tdx_adapter(request)
+    adapter = require_tdx_legacy_adapter(request)
 
-    data = await call_tdx_adapter(adapter.get_trackzs_etf_info(zs_code))
+    data = await call_tdx_legacy_adapter(adapter.get_trackzs_etf_info(zs_code))
     return {"data": data}

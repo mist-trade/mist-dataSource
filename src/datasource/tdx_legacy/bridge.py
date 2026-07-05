@@ -21,7 +21,7 @@ class SubscriptionPlan:
     error_message: str | None = None
 
 
-class TdxBridge:
+class TdxLegacyBridge:
     """Runtime-only bridge state shared by TDX WebSocket connections."""
 
     def __init__(self, *, queue_max_size: int, max_subscriptions: int) -> None:

@@ -1,121 +1,94 @@
-# QMT Provider Alignment Notes
+# QMT Native Datasource Notes
 
-Reviewed on 2026-07-04 against the full-QMT built-in Python direction.
+Reviewed on 2026-07-05 against the full-QMT built-in Python direction.
 
-This note records how QMT should converge with the provider-neutral datasource
-contract. New Mist collection code should target the normalized `/v1`
-datasource contract, the same way it targets TDX. QMT provider implementation
-must use the full QMT client's built-in Python bridge after Windows spike
-evidence validates the runtime.
+QMT is no longer modeled as a TDX-compatible provider inside the TDX service.
+Mist should call TDX on `:9001` and QMT on `:9002` as two separate datasource
+services. Cross-provider row shaping, chart unification, and backtest input
+normalization belong in Mist backend or strategy code, not inside the QMT
+datasource.
 
 ## Current Boundary
 
-- Production QMT access through the old local SDK adapter path is removed.
-- `qmt/builtin_bridge/mist_qmt_bridge.py` is the default full-QMT built-in
-  Python scaffold. It currently uses standard-library HTTP polling and one
-  serial command lane, but production transport remains spike-gated.
-- The bridge must run as one normal QMT built-in strategy script. Do not enable
-  the editor's separate-process option for the production bridge, because it
-  changes the runtime boundary away from the controlled built-in script model.
-- WebSocket duplex is a first-class Windows spike candidate. QMT must initiate
-  the outbound connection to the datasource gateway; after that, the datasource
-  may push command messages over the same connection.
-- The WebSocket spike must prove more than connectivity. In
-  `mode=spike-command-loop`, the datasource pushes a health command and a
-  `get_market_data_ex` command to the QMT script; the script executes both in
-  one bounded single-thread loop and returns structured results on the same
-  connection.
-- The current bridge scaffold is driven by `run_time` so the spike can prove
-  whether timer callbacks fire outside trading hours. Production must not rely
-  on `run_time` until that evidence is captured. It also must not depend on
-  `handlebar` K-line events or `subscribe` quote callbacks for command intake.
-- `qmt/builtin_bridge/mist_qmt_spike.py` is the Windows evidence script for
-  library/network capability and process/execution-model checks.
-- `src/adapter/mock/qmt_mock.py` remains the macOS/Linux development fixture for
-  legacy route tests and contract fixtures.
-- `/api/qmt/*` is not the product-facing cross-provider contract. It is a
-  diagnostic or migration surface until normalized QMT provider routes are
-  promoted.
-- `/v1` is the provider-neutral contract for NestJS and Mist collection code.
+- TDX service `:9001` exposes TDX `/v1` contracts and TDX WebSocket quote
+  streaming only.
+- QMT service `:9002` exposes `/health`, `:9002/v1/bars/query`, and the
+  full-QMT HTTP polling bridge endpoints used by the built-in Python script.
+- QMT native `marketData` is returned as column-oriented JSON shaped after
+  `ContextInfo.get_market_data_ex(..., subscribe=False)`: `{field: {stime:
+  value}}`.
+- QMT does not implement `src.adapter_legacy.base.TdxLegacyAdapterBase`. That adapter
+  package is now TDX-only legacy glue; QMT source code lives under
+  `src/datasource/qmt_provider.py` and `src/datasource/qmt/*`.
+- Historical QMT bars map to `get_market_data_ex(..., subscribe=False)` and do
+  not trigger quote subscription.
+- QMT production bridge transport is stdlib HTTP polling only:
+  `commands -> owner -> poll -> result -> health`.
+- QMT built-in production script must not use third-party packages, threads,
+  subprocesses, separate Python processes, local port listeners, or WebSocket
+  transport.
 
-## First Parity Target Set
+## Native Bars
 
-| Capability family | Full-QMT method candidates | Target `/v1` contract | Status |
-| --- | --- | --- | --- |
-| `bars` | configured local DAT reader for historical `1d`/`1m`/`5m`; bridge-backed native bars later | `/v1/bars/query` | Supported for configured local DAT historical bars; bridge-native bars remain spike-gated. |
-| `snapshots` | `get_full_tick` | `/v1/snapshots/query` | Spike-blocked until native shape is captured. |
-| `calendar` | trading calendar functions from built-in docs | `/v1/calendar/trading-dates/query` | Spike-blocked until native shape is captured. |
-| `securities` | sector/list functions from built-in docs | `/v1/securities/query` | Spike-blocked until mapping is verified. |
-| `security-info` | instrument detail functions from built-in docs | `/v1/securities/info/query` | Spike-blocked until mapping is verified. |
-| `sector-list` | sector list functions from built-in docs | `/v1/sectors/list/query` | Spike-blocked until mapping is verified. |
-| `sector-members` | `get_stock_list_in_sector` | `/v1/sectors/query` | Spike-blocked until native shape is captured. |
+`POST :9002/v1/bars/query` accepts QMT-style snake_case request parameters:
 
-## Later Candidates
+```json
+{
+  "fields": [],
+  "stock_list": ["000001.SZ"],
+  "period": "1d",
+  "start_time": "",
+  "end_time": "",
+  "count": -1,
+  "dividend_type": "none",
+  "fill_data": true,
+  "include_raw": false
+}
+```
 
-| Area | Alignment decision |
-| --- | --- |
-| Reference/instrument data | Keep `/v1` responses unsupported until native shapes are verified and normalized fixtures exist. |
-| Finance/report data | Keep unsupported until table names, report periods, and field shapes are verified against full QMT. |
-| Formula data/execution | Keep unsupported until full-QMT formula capabilities and limits are verified. |
-| User-sector mutations | Admin/operator-only. Requires a separate admin spec before product exposure. |
-| Account/trading methods | Out of scope for this market datasource. Requires a separate trading/account design. |
+The first implementation reads configured full-QMT local DAT files for `1d`,
+`1m`, and `5m`. It is historical-only and does not subscribe. Daily volume is
+kept in the DAT native unit; it is not converted to TDX share volume.
 
-## Runtime Startup
+Example response shape:
 
-QMT live startup remains disabled in runtime checks until both Windows spikes
-are captured. The default bridge model is:
+```json
+{
+  "ok": true,
+  "provider": "qmt",
+  "data": {
+    "marketData": {
+      "000001.SZ": {
+        "open": {"20260701": 10.05},
+        "close": {"20260701": 10.16},
+        "volume": {"20260701": 906890.0},
+        "amount": {"20260701": 915838549.0}
+      }
+    },
+    "source": "local_dat"
+  }
+}
+```
 
-1. Mist datasource command gateway runs outside QMT.
-2. A single normal full-QMT built-in Python script owns one outbound command
-   channel to the gateway.
-3. The bridge executes one command lane serially.
-4. The datasource exposes only normalized `/v1` and WebSocket contracts to
-   backend consumers.
+`include_raw=true` adds DAT parse evidence under `rawMeta`, including
+`period_code`, `record_size`, `header_size`, `struct_format`, `price_scale`,
+and `source_path`.
 
-The open transport question is HTTP polling versus WebSocket duplex. WebSocket
-can become the production transport only if the Windows spike proves QMT can
-keep a normal single-script WebSocket client connected, receive
-datasource-pushed commands, execute QMT native calls, return results
-bidirectionally, recover cleanly, and avoid blocking QMT. The timer question is
-separate: if WebSocket still needs a pump callback, `run_time` must be proven to
-fire outside trading hours before production can depend on it.
+## Bridge Commands
 
-## Local DAT Bars Fast Path
-
-Full-QMT historical downloads can be read from the local `datadir` as a
-bars-only fast path for `1d`, `1m`, and `5m`. This path is not a bridge
-replacement. It is only for historical `/v1/bars/query` responses after the
-operator has explicitly configured the full-QMT data directory.
-
-Default safeguards:
-
-1. `QMT_LOCAL_DAT_ENABLED` must be enabled before the reader is considered.
-2. `QMT_LOCAL_DAT_DIR` must point to the full-QMT data directory.
-3. `QMT_LOCAL_DAT_BLOCK_AFTER` defaults to `18:00` China time so reads avoid
-   the operator's evening update job.
-4. `QMT_LOCAL_DAT_ON_BLOCK` chooses `retryable_error`, `fallback_bridge`, or
-   `allow`; the default is `fallback_bridge`.
-5. The reader must stat the file before and after a short wait. If size or
-   modification time changes, the file is treated as unstable and is not
-   parsed.
-
-DAT data must normalize into the same bar contract as bridge-backed QMT bars:
-same symbol format, period, `barTime`, OHLCV fields, `amount`, `receivedAt`,
-and `provider=qmt`. Non-bars provider families must not use DAT files.
-
-Third-party packages, local port listening, threads, processes, subprocesses,
-and QMT editor separate-process execution remain outside the default production
-bridge unless separate Windows evidence proves them safe and follow-up design
-work approves them.
+The bridge command gateway is intentionally narrow and stays under
+`/qmt/bridge/*`; it is not part of the TDX `/v1` contract. Operators or future
+QMT product code enqueue one whitelisted command through
+`POST :9002/qmt/bridge/commands`, then the full-QMT built-in Python script polls
+and posts the result. The initial whitelist is `health`, `get_market_data_ex`,
+`get_full_tick`, and `get_stock_list_in_sector`.
 
 ## Verification Owners
 
-- Provider manifest parity is guarded by
-  `tests/unit/test_qmt_datasource_alignment.py`.
-- Full-QMT bridge guardrails are guarded by
+- Native QMT bars are guarded by `tests/unit/test_qmt_local_dat_reader.py`,
+  `tests/unit/test_qmt_provider.py`, and `tests/integration/test_qmt_v1.py`.
+- Full-QMT HTTP polling bridge behavior is guarded by
+  `tests/unit/test_qmt_command_gateway.py` and
+  `tests/integration/test_qmt_bridge_routes.py`.
+- Static cleanup guardrails are guarded by
   `tests/unit/test_bigqmt_bridge_guardrails.py`.
-- Command gateway behavior is guarded by
-  `tests/unit/test_qmt_command_gateway.py`.
-- Normalized `/v1` QMT requests should continue returning explicit unavailable
-  or unsupported responses until each family gets a real full-QMT provider
-  implementation and fixture-backed tests.
