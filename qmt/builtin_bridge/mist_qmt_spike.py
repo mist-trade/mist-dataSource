@@ -58,8 +58,22 @@ class SpikeState:
     run_time_schedule: dict[str, Any]
 
 
+DEFAULT_DATASOURCE_ROOT = r"F:\quant\MistAPI\datasource"
+DEFAULT_SPIKE_OUTPUT_NAME = "mist_qmt_spike_output.json"
+
+
+def _default_output_path() -> str:
+    configured_path = os.environ.get("MIST_QMT_SPIKE_OUTPUT_PATH", "").strip()
+    if configured_path:
+        return configured_path
+    datasource_root = os.environ.get("MIST_DATASOURCE_ROOT", DEFAULT_DATASOURCE_ROOT).strip()
+    if not datasource_root:
+        datasource_root = DEFAULT_DATASOURCE_ROOT
+    return os.path.join(datasource_root, "logs", "qmt", DEFAULT_SPIKE_OUTPUT_NAME)
+
+
 STATE = SpikeState()
-STATE.output_path = r"C:\Temp\mist_qmt_spike_output.json"
+STATE.output_path = _default_output_path()
 STATE.gateway_url = os.environ.get("QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge")
 STATE.results = {}
 STATE.run_time_ticks = 0

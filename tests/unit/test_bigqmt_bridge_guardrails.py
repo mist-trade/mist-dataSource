@@ -96,6 +96,20 @@ def test_spike_script_records_run_time_without_websocket_probe() -> None:
     assert "spike-command-loop" not in source
 
 
+def test_spike_output_defaults_under_datasource_logs_not_c_temp() -> None:
+    source = SPIKE_SCRIPT.read_text(encoding="utf-8")
+    windows_env = ENV_WINDOWS_EXAMPLE.read_text(encoding="utf-8")
+
+    assert "C:\\Temp" not in source
+    assert "MIST_QMT_SPIKE_OUTPUT_PATH" in source
+    assert "F:\\quant\\MistAPI\\datasource" in source
+    assert "logs" in source
+    assert "qmt" in source
+    assert "mist_qmt_spike_output.json" in source
+    assert "os.makedirs" in source
+    assert "MIST_QMT_SPIKE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_spike_output.json" in windows_env
+
+
 def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() -> None:
     forbidden_method_names = {
         "cancel_order",

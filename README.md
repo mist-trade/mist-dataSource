@@ -346,6 +346,7 @@ QMT bridge 预期配置：
 QMT_HOST=127.0.0.1
 QMT_PORT=9002
 QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9002/qmt/bridge
+MIST_QMT_SPIKE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_spike_output.json
 ```
 
 当前 QMT 服务只暴露 native `/v1/bars/query` 和 HTTP polling bridge；TDX
