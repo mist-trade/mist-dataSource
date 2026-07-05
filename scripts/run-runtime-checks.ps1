@@ -492,10 +492,13 @@ function Test-ProviderManifest {
     Assert-ArrayNotEmpty -Value $providers.data.providers -Name "providers"
 
     $providerIds = @($providers.data.providers | ForEach-Object { $_.id })
-    foreach ($providerId in @("tdx", "qmt")) {
+    foreach ($providerId in @("tdx")) {
         if ($providerIds -notcontains $providerId) {
             throw "Provider manifest is missing provider '$providerId'."
         }
+    }
+    if ($providerIds -contains "qmt") {
+        throw "TDX provider manifest must not include provider 'qmt'. Use QMT service :9002 for QMT bars."
     }
 
     foreach ($provider in $providers.data.providers) {

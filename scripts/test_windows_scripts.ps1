@@ -127,6 +127,12 @@ Assert-Match "runtime checks query normalized bars" $runtimeChecks "/v1/bars/que
 Assert-Match "runtime checks query normalized snapshots" $runtimeChecks "/v1/snapshots/query"
 Assert-Match "runtime checks query sectors" $runtimeChecks "/v1/sectors/query"
 Assert-Match "runtime checks query provider manifest" $runtimeChecks "/providers"
+Assert-Match "runtime checks require TDX provider manifest" $runtimeChecks 'foreach ($providerId in @("tdx"))'
+if ($runtimeChecks -match [regex]::Escape('foreach ($providerId in @("tdx", "qmt"))')) {
+    throw "runtime checks must not require QMT in the TDX provider manifest."
+}
+Assert-Match "runtime checks reject QMT provider manifest" $runtimeChecks "TDX provider manifest must not include provider 'qmt'"
+Write-Host "  [PASS] runtime checks do not require QMT provider manifest" -ForegroundColor Green
 Assert-Match "runtime checks query sector list" $runtimeChecks "/v1/sectors/list/query"
 Assert-Match "runtime checks query trading dates" $runtimeChecks "/v1/calendar/trading-dates/query"
 Assert-Match "runtime checks query securities" $runtimeChecks "/v1/securities/query"
