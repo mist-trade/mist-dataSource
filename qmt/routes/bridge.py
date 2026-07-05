@@ -16,6 +16,8 @@ router = APIRouter()
 
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 REALTIME_COMMAND_METHODS = {"get_full_tick"}
+CN_REALTIME_MARKETS = {"SH", "SZ", "BJ"}
+HK_REALTIME_MARKETS = {"HK"}
 
 
 class BridgeModel(BaseModel):
@@ -71,11 +73,50 @@ def _bridge_now(request: Request) -> datetime:
     return now_value.astimezone(BEIJING_TZ)
 
 
-def _is_a_share_trading_session(now: datetime) -> bool:
+def _is_realtime_trading_session(now: datetime, symbols: list[str]) -> bool:
     if now.weekday() >= 5:
         return False
-    hhmm = now.hour * 100 + now.minute
-    return (930 <= hhmm <= 1130) or (1300 <= hhmm <= 1500)
+    markets = _markets_from_symbols(symbols)
+    return any(_is_market_realtime_session(now, market) for market in markets)
+
+
+def _markets_from_symbols(symbols: list[str]) -> set[str]:
+    markets: set[str] = set()
+    for symbol in symbols:
+        text = str(symbol).upper().strip()
+        if "." not in text:
+            continue
+        suffix = text.rsplit(".", 1)[1]
+        if suffix in CN_REALTIME_MARKETS:
+            markets.add("CN")
+        elif suffix in HK_REALTIME_MARKETS:
+            markets.add("HK")
+    return markets or {"UNKNOWN"}
+
+
+def _is_market_realtime_session(now: datetime, market: str) -> bool:
+    minute_of_day = now.hour * 60 + now.minute
+    if market == "CN":
+        return _in_minutes(minute_of_day, 9, 15, 11, 35) or _in_minutes(
+            minute_of_day, 13, 0, 15, 5
+        )
+    if market == "HK":
+        return _in_minutes(minute_of_day, 9, 0, 12, 5) or _in_minutes(
+            minute_of_day, 13, 0, 16, 10
+        )
+    return _in_minutes(minute_of_day, 9, 0, 16, 10)
+
+
+def _in_minutes(
+    value: int,
+    start_hour: int,
+    start_minute: int,
+    end_hour: int,
+    end_minute: int,
+) -> bool:
+    start = start_hour * 60 + start_minute
+    end = end_hour * 60 + end_minute
+    return start <= value <= end
 
 
 @router.post("/commands")
@@ -83,15 +124,18 @@ async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str
     gateway = get_gateway(request)
     if payload.method in REALTIME_COMMAND_METHODS:
         now = _bridge_now(request)
-        if not _is_a_share_trading_session(now):
+        symbols = _symbols_from_params(payload.params)
+        if not _is_realtime_trading_session(now, symbols):
             raise HTTPException(
                 status_code=409,
                 detail={
                     "code": "QMT_REALTIME_OUTSIDE_TRADING_SESSION",
-                    "message": "QMT realtime bridge command is outside A-share trading session",
+                    "message": "QMT realtime bridge command is outside market trading session",
                     "retryable": True,
                     "details": {
                         "method": payload.method,
+                        "markets": sorted(_markets_from_symbols(symbols)),
+                        "symbols": symbols,
                         "beijingTime": now.isoformat(),
                     },
                 },
@@ -107,6 +151,13 @@ async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str
         "params": command.params,
         "timeoutSeconds": command.timeout_seconds,
     }
+
+
+def _symbols_from_params(params: dict[str, Any]) -> list[str]:
+    value = params.get("symbols", [])
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return []
 
 
 @router.get("/commands/{command_id}")

@@ -133,6 +133,59 @@ async def test_qmt_bridge_command_route_rejects_realtime_command_outside_trading
     assert gateway.health()["pendingCount"] == 0
 
 
+@pytest.mark.parametrize(
+    ("symbol", "now"),
+    [
+        ("000001.SZ", datetime(2026, 7, 6, 11, 31, tzinfo=BEIJING)),
+        ("000001.SZ", datetime(2026, 7, 6, 15, 2, tzinfo=BEIJING)),
+        ("00700.HK", datetime(2026, 7, 6, 9, 5, tzinfo=BEIJING)),
+        ("00700.HK", datetime(2026, 7, 6, 16, 5, tzinfo=BEIJING)),
+    ],
+)
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_allows_realtime_command_for_market_boundary_windows(
+    qmt_client,
+    symbol: str,
+    now: datetime,
+):
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_bridge_now = lambda: now
+
+    response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={
+            "method": "get_full_tick",
+            "params": {"symbols": [symbol]},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["method"] == "get_full_tick"
+    assert gateway.health()["pendingCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_rejects_hk_realtime_after_closing_auction(qmt_client):
+    gateway = QmtCommandGateway()
+    qmt.main.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_command_gateway = gateway
+    qmt.main.app.state.qmt_bridge_now = lambda: datetime(2026, 7, 6, 16, 11, tzinfo=BEIJING)
+
+    response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={
+            "method": "get_full_tick",
+            "params": {"symbols": ["00700.HK"]},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "QMT_REALTIME_OUTSIDE_TRADING_SESSION"
+    assert gateway.health()["pendingCount"] == 0
+
+
 @pytest.mark.asyncio
 async def test_qmt_bridge_command_route_allows_historical_command_outside_trading_session(qmt_client):
     gateway = QmtCommandGateway()
