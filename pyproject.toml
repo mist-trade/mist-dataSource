@@ -41,6 +41,9 @@ target-version = "py312"
 select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
 ignore = ["E501", "B008", "B904"]
 
+[tool.ruff.lint.per-file-ignores]
+"qmt/builtin_bridge/*.py" = ["F401", "UP006", "UP035"]
+
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"

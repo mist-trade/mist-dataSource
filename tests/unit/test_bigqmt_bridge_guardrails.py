@@ -14,6 +14,7 @@ QMT_V1_PRODUCT_ROUTES = PROJECT_ROOT / "qmt" / "routes" / "v1" / "product.py"
 QMT_MAIN = PROJECT_ROOT / "qmt" / "main.py"
 QMT_BRIDGE_ROUTES = PROJECT_ROOT / "qmt" / "routes" / "bridge.py"
 QMT_LOCAL_DAT_READER = PROJECT_ROOT / "src" / "datasource" / "qmt" / "local_dat.py"
+PYPROJECT = PROJECT_ROOT / "pyproject.toml"
 
 
 def test_qmt_production_docs_do_not_recommend_miniqmt_or_xtquant() -> None:
@@ -143,6 +144,15 @@ def test_qmt_builtin_scripts_are_python36_compatible() -> None:
                 violations.append(f"{path.relative_to(PROJECT_ROOT)} contains {token}")
 
     assert violations == []
+
+
+def test_ruff_keeps_qmt_builtin_scripts_python36_typing_compatible() -> None:
+    source = PYPROJECT.read_text(encoding="utf-8")
+
+    assert '"qmt/builtin_bridge/*.py"' in source
+    assert "F401" in source
+    assert "UP006" in source
+    assert "UP035" in source
 
 
 def test_spike_output_defaults_under_datasource_logs_not_c_temp() -> None:
