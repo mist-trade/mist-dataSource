@@ -1,7 +1,7 @@
 """Full-QMT command bridge routes."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -67,7 +67,11 @@ def get_gateway(request: Request) -> QmtCommandGateway:
 
 def _bridge_now(request: Request) -> datetime:
     clock = getattr(request.app.state, "qmt_bridge_now", None)
-    now_value = clock() if callable(clock) else datetime.now(BEIJING_TZ)
+    now_value = datetime.now(BEIJING_TZ)
+    if callable(clock):
+        candidate = clock()
+        if isinstance(candidate, datetime):
+            now_value = candidate
     if now_value.tzinfo is None:
         return now_value.replace(tzinfo=BEIJING_TZ)
     return now_value.astimezone(BEIJING_TZ)
@@ -156,7 +160,7 @@ async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str
 def _symbols_from_params(params: dict[str, Any]) -> list[str]:
     value = params.get("symbols", [])
     if isinstance(value, list):
-        return [str(item) for item in value]
+        return [str(item) for item in cast(list[Any], value)]
     return []
 
 

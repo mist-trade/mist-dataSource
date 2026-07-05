@@ -153,6 +153,7 @@ def test_ruff_keeps_qmt_builtin_scripts_python36_typing_compatible() -> None:
     assert "F401" in source
     assert "UP006" in source
     assert "UP035" in source
+    assert 'exclude = ["tests", "qmt/builtin_bridge"]' in source
 
 
 def test_spike_output_defaults_under_datasource_logs_not_c_temp() -> None:
