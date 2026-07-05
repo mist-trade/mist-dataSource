@@ -48,6 +48,7 @@ class BridgeState:
     owner_id: str
     gateway_url: str
     poll_interval_seconds: int
+    tick_count: int
     last_error: str
     last_poll_at: str
     started_at: str
@@ -57,6 +58,7 @@ STATE = BridgeState()
 STATE.owner_id = "bigqmt-" + str(os.getpid())
 STATE.gateway_url = os.environ.get("QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge")
 STATE.poll_interval_seconds = 1
+STATE.tick_count = 0
 STATE.last_error = ""
 STATE.last_poll_at = ""
 STATE.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -68,13 +70,23 @@ def init(ContextInfo: BridgeContextInfo) -> None:
         start_time = time.strftime("%Y-%m-%d %H:%M:%S")
         STATE.started_at = start_time
         ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", start_time)
+        print(
+            "mist_qmt_bridge scheduled ownerId="
+            + STATE.owner_id
+            + " startTime="
+            + start_time
+            + " gateway="
+            + STATE.gateway_url
+        )
     except Exception:
         STATE.last_error = traceback.format_exc()
+        print("mist_qmt_bridge schedule error " + STATE.last_error)
 
 
 def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
     """Poll one batch of commands and post results."""
     try:
+        STATE.tick_count += 1
         STATE.last_poll_at = time.strftime("%Y-%m-%d %H:%M:%S")
         _register_owner()
         poll_payload = _post_json(
@@ -85,6 +97,7 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
         commands = (
             cast(List[Any], commands_value) if isinstance(commands_value, list) else []
         )
+        _log_tick(len(commands))
         for command_value in commands:
             if not isinstance(command_value, dict):
                 continue
@@ -102,6 +115,7 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
             )
     except Exception:
         STATE.last_error = traceback.format_exc()
+        _log_tick(0)
 
 
 def _register_owner() -> Dict[str, Any]:
@@ -113,6 +127,22 @@ def _register_owner() -> Dict[str, Any]:
             "lastPollAt": STATE.last_poll_at,
         },
     )
+
+
+def _log_tick(command_count: int) -> None:
+    if STATE.tick_count <= 5 or STATE.tick_count % 30 == 0:
+        print(
+            "mist_qmt_bridge tick ownerId="
+            + STATE.owner_id
+            + " tickCount="
+            + str(STATE.tick_count)
+            + " lastPollAt="
+            + STATE.last_poll_at
+            + " commandCount="
+            + str(command_count)
+            + " lastError="
+            + STATE.last_error[:200]
+        )
 
 
 def _post_json(url: str, payload: Mapping[str, Any]) -> Dict[str, Any]:

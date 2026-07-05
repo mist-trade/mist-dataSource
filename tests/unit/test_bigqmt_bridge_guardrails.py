@@ -74,6 +74,16 @@ def test_builtin_bridge_run_time_starts_from_current_time_for_after_hours_smoke(
     assert 'ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", start_time)' in source
 
 
+def test_builtin_bridge_prints_low_frequency_tick_heartbeat_for_qmt_ui() -> None:
+    source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "tick_count" in source
+    assert "STATE.tick_count += 1" in source
+    assert "mist_qmt_bridge tick" in source
+    assert "STATE.tick_count <= 5" in source
+    assert "STATE.tick_count % 30 == 0" in source
+
+
 def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
     bridge_source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
     spike_source = SPIKE_SCRIPT.read_text(encoding="utf-8")
