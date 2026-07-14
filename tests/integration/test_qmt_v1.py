@@ -95,12 +95,11 @@ async def test_qmt_v1_bars_query_rejects_tdx_style_fields(qmt_client) -> None:
     assert response.status_code == 422
 
 
-def test_qmt_route_table_contains_only_native_v1_health_and_http_bridge() -> None:
+def test_qmt_http_route_table_keeps_native_v1_health_and_http_bridge() -> None:
     paths = set(qmt.main.app.openapi()["paths"])
 
     assert "/health" in paths
     assert "/v1/bars/query" in paths
     assert {"/qmt/bridge/owner", "/qmt/bridge/poll", "/qmt/bridge/result", "/qmt/bridge/health"} <= paths
     assert not any(path.startswith("/api/qmt/") for path in paths)
-    assert "/ws/quote/{client_id}" not in paths
     assert "/qmt/bridge/ws" not in paths

@@ -237,7 +237,7 @@ def test_tdx_v1_routes_do_not_import_or_branch_to_qmt() -> None:
     assert [token for token in forbidden_tokens if token in source] == []
 
 
-def test_qmt_service_does_not_expose_legacy_adapter_or_websocket_routes() -> None:
+def test_qmt_service_does_not_restore_legacy_adapter_or_bridge_websocket_routes() -> None:
     main_source = QMT_MAIN.read_text(encoding="utf-8")
     bridge_source = QMT_BRIDGE_ROUTES.read_text(encoding="utf-8")
 
@@ -246,8 +246,6 @@ def test_qmt_service_does_not_expose_legacy_adapter_or_websocket_routes() -> Non
         "create_qmt_adapter",
         "QMTMockAdapter",
         "QmtDataAdapter",
-        "ws_router",
-        "prefix=\"/ws\"",
         "@router.websocket",
         "qmt/bridge/ws",
     }

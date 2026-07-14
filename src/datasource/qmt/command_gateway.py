@@ -141,27 +141,42 @@ class QmtCommandGateway:
     def expire_timed_out(self) -> list[str]:
         now = self._clock()
         expired: list[str] = []
+        pending: deque[QmtCommand] = deque()
+        for command in self._pending:
+            if now - command.created_at <= command.timeout_seconds:
+                pending.append(command)
+                continue
+            expired.append(command.command_id)
+            self._record_timeout(command, now)
+        self._pending = pending
         for command_id, in_flight in list(self._in_flight.items()):
             command = in_flight.command
             if now - in_flight.claimed_at <= command.timeout_seconds:
                 continue
             expired.append(command_id)
             self._in_flight.pop(command_id, None)
-            self._results[command_id] = QmtCommandResult(
-                command_id=command_id,
-                ok=False,
-                completed_at=now,
-                error={
-                    "code": "QMT_COMMAND_TIMEOUT",
-                    "message": f"QMT command timed out: {command.method}",
-                    "retryable": True,
-                    "details": {"method": command.method},
-                },
-            )
+            self._record_timeout(command, now)
         return expired
+
+    def _record_timeout(self, command: QmtCommand, now: float) -> None:
+        self._results[command.command_id] = QmtCommandResult(
+            command_id=command.command_id,
+            ok=False,
+            completed_at=now,
+            error={
+                "code": "QMT_COMMAND_TIMEOUT",
+                "message": f"QMT command timed out: {command.method}",
+                "retryable": True,
+                "details": {"method": command.method},
+            },
+        )
 
     def result_for(self, command_id: str) -> QmtCommandResult | None:
         return self._results.get(command_id)
+
+    def take_result(self, command_id: str) -> QmtCommandResult | None:
+        """Return and remove a result consumed by an internal long-running client."""
+        return self._results.pop(command_id, None)
 
     def raise_if_failed(self, command_id: str) -> None:
         result = self.result_for(command_id)
