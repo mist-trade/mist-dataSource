@@ -115,12 +115,6 @@ def _clear_experimental() -> None:
     tdx_experimental_ws_manager = None
 
 
-def _is_legacy_ws_route(route: Any) -> bool:
-    """Identify the legacy /ws/quote WebSocket route for conditional removal."""
-    path = getattr(getattr(route, "path", None), "regex", None)
-    return path is not None and "/ws/quote" in getattr(path, "pattern", "")
-
-
 def _sync_globals_from_runtime(runtime: TdxRuntime) -> None:
     global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
     global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
@@ -288,15 +282,10 @@ app.include_router(value_router, prefix="/api/tdx", tags=["Value"], deprecated=T
 app.include_router(sector_router, prefix="/api/tdx", tags=["Sector"], deprecated=True)
 app.include_router(etf_router, prefix="/api/tdx", tags=["ETF"], deprecated=True)
 app.include_router(client_router, prefix="/api/tdx", tags=["Client"], deprecated=True)
-app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 
 # Legacy realtime WS route only mounted under mode=legacy.
-if _realtime_mode() != "legacy":
-    # Remove the legacy /ws/quote route — it must not accept connections when
-    # realtime is experimental or off.
-    app.router.routes = [
-        r for r in app.router.routes if not _is_legacy_ws_route(r)
-    ]
+if _realtime_mode() == "legacy":
+    app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 
 # Experimental builtin-bridge routes + WS (only when builtin_experimental).
 if _realtime_mode() == "builtin_experimental":

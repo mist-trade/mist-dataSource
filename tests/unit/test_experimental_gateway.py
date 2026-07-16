@@ -99,6 +99,29 @@ class TestOwnerRegistration:
         )
         assert r1["streamEpoch"] != r2["streamEpoch"]
 
+    def test_fresh_owner_refuses_eviction_by_different_owner(
+        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+    ) -> None:
+        """A fresh owner must NOT be evicted by a different owner."""
+        async_loop.run_until_complete(
+            gateway.register_owner(
+                owner_id="bridge-1",
+                bridge_build_id="sha",
+                bridge_artifact_sha256="9f2c",
+                **CONTRACT_KWARGS,
+            )
+        )
+        with pytest.raises(GatewayError) as exc_info:
+            async_loop.run_until_complete(
+                gateway.register_owner(
+                    owner_id="bridge-2",
+                    bridge_build_id="sha",
+                    bridge_artifact_sha256="9f2c",
+                    **CONTRACT_KWARGS,
+                )
+            )
+        assert exc_info.value.code == "TDX_BRIDGE_OWNER_ACTIVE"
+
 
 class TestSubscriptionConvergence:
     def test_converged_after_clean_reconcile(
@@ -154,6 +177,64 @@ class TestSubscriptionConvergence:
                 desired_revision=rev,
                 applied_revision=rev,
                 active=["600519.SH"],  # missing 000001.SZ
+                rejected=[],
+            )
+            assert res["converged"] is False
+
+        async_loop.run_until_complete(run())
+
+    def test_non_convergence_clears_observed_native(
+        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+    ) -> None:
+        """After a converged set, a non-converged result must clear observedNative
+        so stale symbols can no longer post snapshots."""
+
+        async def run() -> None:
+            await gateway.register_owner(
+                owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
+            )
+            rev1 = await gateway.sync_desired(["600519.SH", "000001.SZ"])
+            await gateway.post_result(
+                lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
+                desired_revision=rev1,
+                applied_revision=rev1,
+                active=["600519.SH", "000001.SZ"],
+                rejected=[],
+            )
+            rev2 = await gateway.sync_desired(["600519.SH"])
+            await gateway.post_result(
+                lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
+                desired_revision=rev2,
+                applied_revision=rev2,
+                active=["600519.SH", "000001.SZ"],
+                rejected=[],
+            )
+            with pytest.raises((GatewayError, Exception)):
+                await gateway.post_snapshot(
+                    lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
+                    symbol="000001.SZ",
+                    producer_sequence=1,
+                    captured_at="2026-07-16T14:30:01.000+08:00",
+                    native={**_native_snapshot(), "Code": "000001.SZ"},
+                )
+
+        async_loop.run_until_complete(run())
+
+    def test_stale_revision_result_ignored(
+        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+    ) -> None:
+        """post_result for a stale desired_revision must not converge."""
+
+        async def run() -> None:
+            await gateway.register_owner(
+                owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
+            )
+            await gateway.sync_desired(["600519.SH"])
+            res = await gateway.post_result(
+                lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
+                desired_revision=-999,
+                applied_revision=-999,
+                active=["600519.SH"],
                 rejected=[],
             )
             assert res["converged"] is False

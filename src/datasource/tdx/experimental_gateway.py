@@ -123,7 +123,15 @@ class ExperimentalTdxRealtimeGateway:
             draft_revision=draft_revision,
         )
         async with self._lock:
-            # Evict previous owner if present.
+            # Refuse to evict a fresh owner (must be stale or absent).
+            if self._owner is not None and self._is_owner_fresh():
+                existing = self._owner
+                if existing.owner_id != owner_id:
+                    raise GatewayError(
+                        "TDX_BRIDGE_OWNER_ACTIVE",
+                        f"another fresh owner {existing.owner_id!r} is active",
+                        retryable=True,
+                    )
             self._owner_generation_counter += 1
             generation = self._owner_generation_counter
             stream_epoch = self._new_stream_epoch(owner_id, generation)
@@ -177,7 +185,10 @@ class ExperimentalTdxRealtimeGateway:
 
     @staticmethod
     def _new_stream_epoch(owner_id: str, generation: int) -> str:
-        return f"{owner_id}-gen-{generation}"
+        # Include a high-resolution timestamp so epoch is globally unique across
+        # process restarts (counter resets to 0 on restart).
+        ts = f"{time.time_ns()}"
+        return f"{owner_id}-gen-{generation}-{ts}"
 
     @staticmethod
     def _new_lease_token() -> str:
@@ -247,7 +258,7 @@ class ExperimentalTdxRealtimeGateway:
         *,
         lease_token: str,
         desired_revision: int,
-        applied_revision: int,  # noqa: ARG002  # terminal-reported, convergence computed from desired+active
+        applied_revision: int,
         active: list[str],
         rejected: list[dict[str, Any]],
     ) -> dict[str, Any]:
@@ -255,21 +266,27 @@ class ExperimentalTdxRealtimeGateway:
         owner = self._require_owner(lease_token)
         async with self._lock:
             owner.last_seen_monotonic = time.monotonic()
+            # Stale revision gate: ignore results for revisions other than current desired.
+            if desired_revision != self._desired_revision:
+                return {"converged": False, "convergedRevision": self._converged_revision}
             self._attempted_revision = desired_revision
             self._last_applied_active = dedupe_normalized_symbols(active)
             self._last_rejected = rejected
-            # Converged only if: reporting current desired, no rejections,
-            # active == desired exactly.
             desired_set = set(self._desired_symbols)
             active_set = set(self._last_applied_active)
+            # applied_revision must match desired_revision (sanity: terminal applied what it polled).
             converged = (
-                desired_revision == self._desired_revision
+                applied_revision == desired_revision
                 and len(rejected) == 0
                 and active_set == desired_set
             )
             if converged:
                 self._converged_revision = desired_revision
                 self._observed_native_symbols = active_set
+            else:
+                # On non-convergence, clear observedNative so stale symbols
+                # can no longer post snapshots until convergence is re-achieved.
+                self._observed_native_symbols = set()
             return {
                 "converged": converged,
                 "convergedRevision": self._converged_revision,
