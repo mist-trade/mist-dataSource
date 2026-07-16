@@ -100,7 +100,9 @@ def _init_experimental() -> None:
         """Broadcast stream_started when owner generation changes."""
         if tdx_experimental_ws_manager is not None:
             await tdx_experimental_ws_manager.broadcast(
-                ws_stream_started("tdx", {"streamEpoch": stream_epoch, "mode": "builtin_experimental"})
+                ws_stream_started(
+                    "tdx", {"streamEpoch": stream_epoch, "mode": "builtin_experimental"}
+                )
             )
 
     tdx_experimental_gateway = ExperimentalTdxRealtimeGateway(
@@ -119,7 +121,12 @@ def _sync_globals_from_runtime(runtime: TdxRuntime) -> None:
     global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
     global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
     global _tdx_legacy_subscription_client_owned_by_main
-    global tdx_legacy_adapter, tdx_legacy_bridge, tdx_legacy_collector, tdx_provider, tdx_legacy_subscription_client
+    global \
+        tdx_legacy_adapter, \
+        tdx_legacy_bridge, \
+        tdx_legacy_collector, \
+        tdx_provider, \
+        tdx_legacy_subscription_client
 
     tdx_legacy_adapter = runtime.adapter
     tdx_provider = runtime.provider
@@ -146,7 +153,12 @@ def _clear_owned_globals_after_stop(
     global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
     global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
     global _tdx_legacy_subscription_client_owned_by_main
-    global tdx_legacy_adapter, tdx_legacy_bridge, tdx_legacy_collector, tdx_provider, tdx_legacy_subscription_client
+    global \
+        tdx_legacy_adapter, \
+        tdx_legacy_bridge, \
+        tdx_legacy_collector, \
+        tdx_provider, \
+        tdx_legacy_subscription_client
 
     if tdx_legacy_subscription_client is owned_subscription_client:
         tdx_legacy_subscription_client = None
@@ -184,10 +196,13 @@ async def lifespan(_app: FastAPI):
     runtime = _runtime_from_globals()
     tdx_runtime = runtime
     # Always start the runtime: it initializes the historical HTTP provider
-    # (adapter + provider) which backs /v1/* routes. The realtime components
-    # (collector/bridge/subscription) are also initialized but only the legacy
-    # WS route is mounted under mode=legacy.
+    # (adapter + provider) which backs /v1/* routes.
     await runtime.start()
+    # Under builtin_experimental/off, stop the legacy realtime components
+    # (collector background loop, bridge, subscription client) — only
+    # historical HTTP provider should remain active.
+    if mode != "legacy" and runtime.collector is not None and hasattr(runtime.collector, "stop"):
+        await runtime.collector.stop()
     _sync_globals_from_runtime(runtime)
     if mode == "builtin_experimental":
         _init_experimental()

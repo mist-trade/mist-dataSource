@@ -197,13 +197,21 @@ class ExperimentalTdxRealtimeGateway:
     # --- subscription control -----------------------------------------
 
     async def sync_desired(self, symbols: list[str]) -> int:
-        """Set the desired subscription set (full replace). Returns new revision."""
+        """Set the desired subscription set (full replace). Returns new revision.
+
+        Immediately invalidates convergence: a new revision means the old
+        observedNative set is stale until the terminal reports a matching result.
+        """
         cleaned = dedupe_normalized_symbols(symbols)[: self.max_subscriptions]
         async with self._lock:
             if cleaned == self._desired_symbols:
                 return self._desired_revision
             self._desired_symbols = cleaned
             self._desired_revision += 1
+            # Invalidate convergence: old observedNative is stale for the new revision.
+            self._converged_revision = -1
+            self._observed_native_symbols = set()
+            self._sequences.clear()
             return self._desired_revision
 
     async def add_desired(self, symbols: list[str]) -> int:
@@ -216,6 +224,9 @@ class ExperimentalTdxRealtimeGateway:
                 return self._desired_revision
             self._desired_symbols = merged
             self._desired_revision += 1
+            self._converged_revision = -1
+            self._observed_native_symbols = set()
+            self._sequences.clear()
             return self._desired_revision
 
     async def remove_desired(self, symbols: list[str]) -> int:
@@ -226,6 +237,9 @@ class ExperimentalTdxRealtimeGateway:
                 return self._desired_revision
             self._desired_symbols = merged
             self._desired_revision += 1
+            self._converged_revision = -1
+            self._observed_native_symbols = set()
+            self._sequences.clear()
             return self._desired_revision
 
     # --- poll / result ------------------------------------------------
@@ -237,8 +251,8 @@ class ExperimentalTdxRealtimeGateway:
         applied_revision: int = -1,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Terminal polls for desired state."""
-        owner = self._require_owner(lease_token)
         async with self._lock:
+            owner = self._require_owner_locked(lease_token)
             owner.last_seen_monotonic = time.monotonic()
             return {
                 "desiredRevision": self._desired_revision,
@@ -263,8 +277,8 @@ class ExperimentalTdxRealtimeGateway:
         rejected: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Terminal reports reconcile outcome (four-state convergence)."""
-        owner = self._require_owner(lease_token)
         async with self._lock:
+            owner = self._require_owner_locked(lease_token)
             owner.last_seen_monotonic = time.monotonic()
             # Stale revision gate: ignore results for revisions other than current desired.
             if desired_revision != self._desired_revision:
@@ -309,14 +323,16 @@ class ExperimentalTdxRealtimeGateway:
         producer_sequence is used for HTTP-retry idempotency: a duplicate
         (same producer_sequence for same symbol+epoch) is dropped, not re-broadcast.
         Sequence reservation happens synchronously before any await publish.
+        Lease/epoch validation is inside the lock to prevent cross-generation
+        concurrent penetration.
         """
-        owner = self._require_owner(lease_token)
         # Validate captured_at is RFC3339 (reject non-conforming timestamps).
         self._validate_rfc3339(captured_at, field_name="capturedAt")
         # Strict decode (raises ExperimentalDecoderError on bad data).
         snapshot = decode_experimental_tdx_snapshot(symbol, native, expected_code=symbol)
-        # Converged-symbol gate: only accept symbols in the converged set.
+        # All state access under lock.
         async with self._lock:
+            owner = self._require_owner_locked(lease_token)
             owner.last_seen_monotonic = time.monotonic()
             if symbol not in self._observed_native_symbols:
                 raise GatewayError(
@@ -423,7 +439,13 @@ class ExperimentalTdxRealtimeGateway:
 
     # --- helpers -------------------------------------------------------
 
-    def _require_owner(self, lease_token: str) -> BridgeOwner:
+    def _require_owner_locked(self, lease_token: str) -> BridgeOwner:
+        """Validate lease — MUST be called while holding self._lock.
+
+        This prevents the concurrency window where lease is checked outside
+        the lock, then a new owner registers (new epoch) before the lock is
+        acquired, allowing a stale lease to write into the new epoch's state.
+        """
         owner = self._owner
         if owner is None or not self._is_owner_fresh():
             raise GatewayError("TDX_BRIDGE_NO_OWNER", "no active bridge owner", retryable=True)
