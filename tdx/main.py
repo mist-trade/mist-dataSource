@@ -65,15 +65,18 @@ def _sync_app_state(target_app: FastAPI) -> None:
 
 
 def _runtime_from_globals() -> TdxRuntime:
+    mode = _realtime_mode()
+    no_rt = mode != "legacy"
     return TdxRuntime(
         adapter=tdx_legacy_adapter,
         provider=tdx_provider,
-        bridge=tdx_legacy_bridge,
-        collector=tdx_legacy_collector,
-        subscription_client=tdx_legacy_subscription_client,
+        bridge=None if no_rt else tdx_legacy_bridge,
+        collector=None if no_rt else tdx_legacy_collector,
+        subscription_client=None if no_rt else tdx_legacy_subscription_client,
         ws_manager=ws_manager,
         adapter_factory=create_tdx_legacy_adapter,
         provider_factory=TdxDatasourceProvider,
+        realtime_disabled=no_rt,
     )
 
 
@@ -96,12 +99,17 @@ def _init_experimental() -> None:
 
     tdx_experimental_ws_manager = _CM()
 
-    async def _broadcast_epoch_change(stream_epoch: str) -> None:
+    async def _broadcast_epoch_change(stream_epoch: str, generation: int = 0) -> None:
         """Broadcast stream_started when owner generation changes."""
         if tdx_experimental_ws_manager is not None:
             await tdx_experimental_ws_manager.broadcast(
                 ws_stream_started(
-                    "tdx", {"streamEpoch": stream_epoch, "mode": "builtin_experimental"}
+                    "tdx",
+                    {
+                        "streamEpoch": stream_epoch,
+                        "generation": generation,
+                        "mode": "builtin_experimental",
+                    },
                 )
             )
 
@@ -195,14 +203,10 @@ async def lifespan(_app: FastAPI):
     mode = _realtime_mode()
     runtime = _runtime_from_globals()
     tdx_runtime = runtime
-    # Always start the runtime: it initializes the historical HTTP provider
-    # (adapter + provider) which backs /v1/* routes.
+    # start() initializes adapter+provider (historical HTTP). When
+    # realtime_disabled (builtin_experimental/off), bridge/collector/subscription
+    # are NOT initialized — true runtime isolation.
     await runtime.start()
-    # Under builtin_experimental/off, stop the legacy realtime components
-    # (collector background loop, bridge, subscription client) — only
-    # historical HTTP provider should remain active.
-    if mode != "legacy" and runtime.collector is not None and hasattr(runtime.collector, "stop"):
-        await runtime.collector.stop()
     _sync_globals_from_runtime(runtime)
     if mode == "builtin_experimental":
         _init_experimental()

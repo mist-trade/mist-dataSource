@@ -66,6 +66,7 @@ async def experimental_tdx_realtime(websocket: WebSocket, client_id: str) -> Non
                 "draftRevision": ACCEPTED_DRAFT_REVISION,
                 "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 "currentStreamEpoch": owner.stream_epoch if owner else None,
+                "currentGeneration": owner.generation if owner else None,
                 "datasourceBuildId": "mist-datasource-experimental",
                 "bridgeBuildId": owner.bridge_build_id if owner else None,
             },

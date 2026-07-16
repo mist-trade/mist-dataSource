@@ -156,6 +156,7 @@ class ExperimentalTdxRealtimeGateway:
             result = {
                 "leaseToken": lease_token,
                 "streamEpoch": stream_epoch,
+                "generation": generation,
                 "acceptedContractTuple": {
                     "payloadType": ACCEPTED_PAYLOAD_TYPE,
                     "schemaVersion": ACCEPTED_SCHEMA_VERSION,
@@ -163,9 +164,13 @@ class ExperimentalTdxRealtimeGateway:
                     "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 },
             }
-        # Broadcast stream_started to already-connected WS clients (outside lock).
+        # Broadcast stream_started outside the lock, but only if this generation
+        # is still current (prevents stale out-of-order broadcast if a newer
+        # same-owner registration completed while we were waiting to broadcast).
         if self.on_epoch_change is not None:
-            await self.on_epoch_change(stream_epoch)
+            current: Any = self._owner
+            if current is not None and current.generation == generation:
+                await self.on_epoch_change(stream_epoch, generation)
         return result
 
     def _validate_contract_tuple(
@@ -209,9 +214,11 @@ class ExperimentalTdxRealtimeGateway:
             self._desired_symbols = cleaned
             self._desired_revision += 1
             # Invalidate convergence: old observedNative is stale for the new revision.
+            # Do NOT clear _sequences — outbound sequence must be monotonic per
+            # epoch, not per revision. Clearing it would reset sequence to 0 and
+            # cause Mist to reject the next frame as duplicate/out-of-order.
             self._converged_revision = -1
             self._observed_native_symbols = set()
-            self._sequences.clear()
             return self._desired_revision
 
     async def add_desired(self, symbols: list[str]) -> int:
@@ -226,7 +233,6 @@ class ExperimentalTdxRealtimeGateway:
             self._desired_revision += 1
             self._converged_revision = -1
             self._observed_native_symbols = set()
-            self._sequences.clear()
             return self._desired_revision
 
     async def remove_desired(self, symbols: list[str]) -> int:
@@ -239,7 +245,6 @@ class ExperimentalTdxRealtimeGateway:
             self._desired_revision += 1
             self._converged_revision = -1
             self._observed_native_symbols = set()
-            self._sequences.clear()
             return self._desired_revision
 
     # --- poll / result ------------------------------------------------

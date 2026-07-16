@@ -37,12 +37,16 @@ class TdxRuntime:
         collector_factory: CollectorFactory | None = None,
         subscription_client_factory: SubscriptionClientFactory | None = None,
         ws_manager_factory: WsManagerFactory = ConnectionManager,
+        realtime_disabled: bool = False,
     ) -> None:
         self.adapter = adapter
         self.provider = provider
-        self.bridge = bridge
-        self.collector = collector
-        self.subscription_client = subscription_client
+        self._realtime_disabled = realtime_disabled
+        # When realtime is disabled, force bridge/collector/subscription to None
+        # so start() skips their initialization entirely.
+        self.bridge = None if realtime_disabled else bridge
+        self.collector = None if realtime_disabled else collector
+        self.subscription_client = None if realtime_disabled else subscription_client
         self.ws_manager = ws_manager or ws_manager_factory()
 
         self._adapter_factory = adapter_factory
@@ -70,28 +74,30 @@ class TdxRuntime:
                 self.provider = self._provider_factory()
                 self._owns_provider = True
 
-            if self.bridge is None:
-                self.bridge = self._bridge_factory()
-                self._owns_bridge = True
+            # Skip legacy realtime components when realtime_disabled.
+            if not self._realtime_disabled:
+                if self.bridge is None:
+                    self.bridge = self._bridge_factory()
+                    self._owns_bridge = True
 
-            if self.collector is None:
-                self.collector = self._collector_factory(
-                    self.provider,
-                    self.bridge,
-                    self._publish_collector_snapshot,
-                )
-                self._owns_collector = True
+                if self.collector is None:
+                    self.collector = self._collector_factory(
+                        self.provider,
+                        self.bridge,
+                        self._publish_collector_snapshot,
+                    )
+                    self._owns_collector = True
 
-            if self.subscription_client is None:
-                self.subscription_client = self._subscription_client_factory(
-                    self.adapter,
-                    self.bridge,
-                    self.collector,
-                )
-                self._owns_subscription_client = True
+                if self.subscription_client is None:
+                    self.subscription_client = self._subscription_client_factory(
+                        self.adapter,
+                        self.bridge,
+                        self.collector,
+                    )
+                    self._owns_subscription_client = True
 
-            if hasattr(self.collector, "start"):
-                await self.collector.start()
+                if hasattr(self.collector, "start"):
+                    await self.collector.start()
         except Exception:
             await self.stop()
             raise
