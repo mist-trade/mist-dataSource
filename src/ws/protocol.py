@@ -25,6 +25,8 @@ class WSMessage(BaseModel):
         "subscribed",
         "unsubscribed",
         "error",
+        "tdx.experimental.snapshot",
+        "stream_started",
     ]
     provider: str | None = None
     data: dict[str, Any]
@@ -89,3 +91,22 @@ def ws_subscription_ack(
 def ws_quote(provider: str, data: dict[str, Any]) -> WSMessage:
     """Create a quote event message."""
     return WSMessage(type="quote", provider=provider, data=data)
+
+
+def ws_experimental_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:
+    """Create an experimental TDX realtime snapshot frame.
+
+    Distinct from ``ws_quote`` (which uses ``type="quote"`` and re-enters legacy
+    aggregation semantics). The experimental consumer only listens for this
+    type.
+    """
+    return WSMessage(type="tdx.experimental.snapshot", provider=provider, data=data)
+
+
+def ws_stream_started(provider: str, data: dict[str, Any]) -> WSMessage:
+    """Create a stream_started control event (owner generation changed).
+
+    Already-connected clients receive this; late-connecting clients recover the
+    epoch via ``ready``.
+    """
+    return WSMessage(type="stream_started", provider=provider, data=data)

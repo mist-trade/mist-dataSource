@@ -20,6 +20,8 @@ class TDXSettings(BaseSettings):
     max_subscriptions: int = 100
     ws_queue_max_size: int = 1000
     formula_timeout_ms: int = 10000
+    realtime_mode: str = "legacy"  # legacy | builtin_experimental | off
+    experimental_ws_client_id: str = "mist-backend-tdx-experimental"
 
 
 class QMTSettings(BaseSettings):

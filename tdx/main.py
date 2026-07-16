@@ -37,6 +37,10 @@ tdx_legacy_collector: Any | None = None
 tdx_legacy_subscription_client: Any | None = None
 ws_manager = ConnectionManager()
 tdx_runtime: TdxRuntime | None = None
+# Experimental builtin-bridge components (only active when realtime_mode ==
+# "builtin_experimental"). Isolated from legacy ws_manager.
+tdx_experimental_gateway: Any | None = None
+tdx_experimental_ws_manager: Any | None = None
 LEGACY_TDX_API_DEPRECATION_HEADERS = {
     "Deprecation": "true",
     "Link": '</v1/bars/query>; rel="successor-version"',
@@ -56,6 +60,8 @@ def _sync_app_state(target_app: FastAPI) -> None:
     target_app.state.tdx_legacy_collector = tdx_legacy_collector
     target_app.state.tdx_legacy_subscription_client = tdx_legacy_subscription_client
     target_app.state.ws_manager = ws_manager
+    target_app.state.tdx_experimental_gateway = tdx_experimental_gateway
+    target_app.state.tdx_experimental_ws_manager = tdx_experimental_ws_manager
 
 
 def _runtime_from_globals() -> TdxRuntime:
@@ -69,6 +75,50 @@ def _runtime_from_globals() -> TdxRuntime:
         adapter_factory=create_tdx_legacy_adapter,
         provider_factory=TdxDatasourceProvider,
     )
+
+
+def _realtime_mode() -> str:
+    """Validated TDX_REALTIME_MODE accessor. Raises on unknown value."""
+    mode = (settings.tdx.realtime_mode or "legacy").strip().lower()
+    if mode not in ("legacy", "builtin_experimental", "off"):
+        raise RuntimeError(
+            f"invalid TDX_REALTIME_MODE={mode!r}; expected legacy|builtin_experimental|off"
+        )
+    return mode
+
+
+def _init_experimental() -> None:
+    """Instantiate experimental gateway + isolated WS manager (global state)."""
+    global tdx_experimental_gateway, tdx_experimental_ws_manager
+    from src.datasource.tdx.experimental_gateway import ExperimentalTdxRealtimeGateway
+    from src.ws.manager import ConnectionManager as _CM
+    from src.ws.protocol import ws_stream_started
+
+    tdx_experimental_ws_manager = _CM()
+
+    async def _broadcast_epoch_change(stream_epoch: str) -> None:
+        """Broadcast stream_started when owner generation changes."""
+        if tdx_experimental_ws_manager is not None:
+            await tdx_experimental_ws_manager.broadcast(
+                ws_stream_started("tdx", {"streamEpoch": stream_epoch, "mode": "builtin_experimental"})
+            )
+
+    tdx_experimental_gateway = ExperimentalTdxRealtimeGateway(
+        max_subscriptions=settings.tdx.max_subscriptions,
+        on_epoch_change=_broadcast_epoch_change,
+    )
+
+
+def _clear_experimental() -> None:
+    global tdx_experimental_gateway, tdx_experimental_ws_manager
+    tdx_experimental_gateway = None
+    tdx_experimental_ws_manager = None
+
+
+def _is_legacy_ws_route(route: Any) -> bool:
+    """Identify the legacy /ws/quote WebSocket route for conditional removal."""
+    path = getattr(getattr(route, "path", None), "regex", None)
+    return path is not None and "/ws/quote" in getattr(path, "pattern", "")
 
 
 def _sync_globals_from_runtime(runtime: TdxRuntime) -> None:
@@ -136,10 +186,18 @@ async def lifespan(_app: FastAPI):
         None
     """
     global tdx_runtime
+    mode = _realtime_mode()
     runtime = _runtime_from_globals()
     tdx_runtime = runtime
+    # Always start the runtime: it initializes the historical HTTP provider
+    # (adapter + provider) which backs /v1/* routes. The realtime components
+    # (collector/bridge/subscription) are also initialized but only the legacy
+    # WS route is mounted under mode=legacy.
     await runtime.start()
     _sync_globals_from_runtime(runtime)
+    if mode == "builtin_experimental":
+        _init_experimental()
+    # mode == "off": runtime started (historical HTTP available), no realtime.
     _sync_app_state(_app)
 
     try:
@@ -160,6 +218,8 @@ async def lifespan(_app: FastAPI):
                 owned_collector=owned_collector,
                 owned_subscription_client=owned_subscription_client,
             )
+            if mode == "builtin_experimental":
+                _clear_experimental()
             if tdx_runtime is runtime:
                 tdx_runtime = None
             _sync_app_state(_app)
@@ -212,6 +272,14 @@ async def health():
     return await _runtime_from_globals().health(instance="tdx")
 
 
+@app.get("/health/experimental")
+async def experimental_health():
+    """Experimental bridge health (only meaningful when builtin_experimental)."""
+    if tdx_experimental_gateway is not None:
+        return await tdx_experimental_gateway.health()
+    return {"tdxExperimentalBridgeReady": False, "mode": _realtime_mode()}
+
+
 app.include_router(v1_router, tags=["V1"])
 app.include_router(market_router, prefix="/api/tdx", tags=["Market"], deprecated=True)
 app.include_router(stock_router, prefix="/api/tdx", tags=["Stock"], deprecated=True)
@@ -221,3 +289,19 @@ app.include_router(sector_router, prefix="/api/tdx", tags=["Sector"], deprecated
 app.include_router(etf_router, prefix="/api/tdx", tags=["ETF"], deprecated=True)
 app.include_router(client_router, prefix="/api/tdx", tags=["Client"], deprecated=True)
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
+
+# Legacy realtime WS route only mounted under mode=legacy.
+if _realtime_mode() != "legacy":
+    # Remove the legacy /ws/quote route — it must not accept connections when
+    # realtime is experimental or off.
+    app.router.routes = [
+        r for r in app.router.routes if not _is_legacy_ws_route(r)
+    ]
+
+# Experimental builtin-bridge routes + WS (only when builtin_experimental).
+if _realtime_mode() == "builtin_experimental":
+    from tdx.routes.experimental import router as experimental_bridge_router
+    from tdx.routes.experimental_ws import router as experimental_ws_router
+
+    app.include_router(experimental_bridge_router, tags=["ExperimentalBridge"])
+    app.include_router(experimental_ws_router, tags=["ExperimentalWebSocket"])
