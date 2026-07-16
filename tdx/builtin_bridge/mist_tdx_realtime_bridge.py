@@ -145,9 +145,8 @@ class BridgeOwner:
         self.stream_epoch = resp.get("streamEpoch")
         self.applied_revision = -1
         self._active_native = set()
-        print(
-            f"[mist-bridge] registered: epoch={self.stream_epoch} lease={self.lease_token[:12]} build={BRIDGE_BUILD_ID}"
-        )
+        # Do NOT log lease token (even partial) — per golden contract.
+        print(f"[mist-bridge] registered: epoch={self.stream_epoch} build={BRIDGE_BUILD_ID}")
         return True
 
 
@@ -162,6 +161,14 @@ class TqCenterWrapper:
         self._is_fake = False
 
     def initialize(self) -> None:
+        # Fail-closed: if MIST_BRIDGE_USE_FAKE_TQ is NOT set, missing tqcenter
+        # is a fatal error (production must not silently send fake data).
+        use_fake = os.environ.get("MIST_BRIDGE_USE_FAKE_TQ", "") == "1"
+        if use_fake:
+            print("[mist-bridge] MIST_BRIDGE_USE_FAKE_TQ=1, using fake (test only)")
+            self._tq = _FakeTq()
+            self._is_fake = True
+            return
         try:
             from tqcenter import tq  # type: ignore[import-not-found]
 
@@ -170,9 +177,11 @@ class TqCenterWrapper:
             self._is_fake = False
             print("[mist-bridge] tqcenter initialized (real SDK)")
         except ImportError:
-            print("[mist-bridge] tqcenter not available, using fake (macOS dev)")
-            self._tq = _FakeTq()
-            self._is_fake = True
+            raise SystemExit(
+                "[mist-bridge] FATAL: tqcenter not available and MIST_BRIDGE_USE_FAKE_TQ!=1."
+                " This script must run inside the TDX terminal. Set MIST_BRIDGE_USE_FAKE_TQ=1"
+                " only for testing."
+            )
 
     def subscribe_hq(self, codes: list[str], callback) -> None:
         self._tq.subscribe_hq(codes, callback)
@@ -268,8 +277,13 @@ def run_bridge() -> None:
         except Exception:
             pass  # Never raise in callback.
 
-    # Register with gateway.
-    while not owner.register():
+    # Register with gateway (retry on network error).
+    while True:
+        try:
+            if owner.register():
+                break
+        except Exception as e:
+            print(f"[mist-bridge] registration error: {e}")
         print("[mist-bridge] waiting to register...")
         time.sleep(POLL_INTERVAL_SECONDS)
 
@@ -316,8 +330,17 @@ def run_bridge() -> None:
                     owner._active_native.update(batch)
                     print(f"[mist-bridge] subscribed: {batch}")
 
-            # 3. Report result (convergence).
-            active_list = list(owner._active_native)
+            # 3. Verify native subscription set matches desired (fail-closed).
+            native_list = tq_wrapper.get_subscribe_hq_stock_list()
+            native_set = {_format_code(s) for s in native_list}
+            rejected = []
+            for sym in desired_symbols:
+                # Check if symbol is in native subscription list (SDK actually subscribed).
+                if sym not in native_set:
+                    rejected.append({"symbol": sym, "reason": "not in native subscription set"})
+            # Report active = actual native set ∩ desired (not blindly optimistic).
+            active_list = [s for s in desired_symbols if s in native_set]
+            owner._active_native = set(active_list)
             result_resp = _post_json(
                 BRIDGE_ENDPOINT + "/result",
                 {
@@ -325,7 +348,7 @@ def run_bridge() -> None:
                     "desiredRevision": desired_revision,
                     "appliedRevision": desired_revision,
                     "active": active_list,
-                    "rejected": [],
+                    "rejected": rejected,
                 },
             )
             if result_resp.get("converged"):

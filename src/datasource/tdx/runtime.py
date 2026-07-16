@@ -65,7 +65,11 @@ class TdxRuntime:
 
     async def start(self) -> None:
         try:
-            if self.adapter is None:
+            # SDK adapter only needed for legacy realtime (subscribe_hq).
+            # SDK adapter only needed for legacy realtime (subscribe_hq).
+            # Historical HTTP provider uses TdxHttpClient, not the adapter.
+            # Skip adapter init when realtime_disabled to avoid SDK ownership.
+            if not self._realtime_disabled and self.adapter is None:
                 self.adapter = self._adapter_factory()
                 self._owns_adapter = True
                 await self.adapter.initialize()

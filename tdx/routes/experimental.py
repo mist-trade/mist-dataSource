@@ -181,7 +181,9 @@ async def sync_desired(body: SyncDesiredRequest, request: Request) -> dict[str, 
     This is the production desired-state entry point: Mist or an operator
     calls this to tell the gateway which symbols the terminal bridge should
     subscribe to. The terminal polls this via /tdx/bridge/poll.
+    Loopback-only: must be called from the same machine (Mist backend).
     """
+    _require_loopback(request)
     gateway = _get_gateway(request)
     revision = await gateway.sync_desired(body.symbols)
     return {"desiredRevision": revision, "symbolCount": len(body.symbols)}

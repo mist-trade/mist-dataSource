@@ -94,6 +94,10 @@ class ExperimentalTdxRealtimeGateway:
     _attempted_revision: int = -1
     _converged_revision: int = -1
     _observed_native_symbols: set[str] = field(default_factory=lambda: set[str]())
+    # Last active set reported by terminal (used for reconcile diff in poll).
+    # This is SEPARATE from _observed_native_symbols (converged set): it persists
+    # across desired-revision changes so unsubscribe can be computed correctly.
+    _last_reported_active: set[str] = field(default_factory=lambda: set[str]())
     # Per-instrument outbound sequence fence.
     _sequences: dict[str, _InstrumentState] = field(
         default_factory=lambda: dict[str, _InstrumentState]()
@@ -152,6 +156,7 @@ class ExperimentalTdxRealtimeGateway:
             self._attempted_revision = -1
             self._converged_revision = -1
             self._observed_native_symbols = set()
+            self._last_reported_active = set()
             self._sequences.clear()
             result = {
                 "leaseToken": lease_token,
@@ -263,12 +268,15 @@ class ExperimentalTdxRealtimeGateway:
                 "desiredRevision": self._desired_revision,
                 "desiredSymbols": list(self._desired_symbols),
                 "streamEpoch": owner.stream_epoch,
-                # Reconcile instructions: unsubscribe extras first, then subscribe.
+                # Reconcile instructions based on _last_reported_active (what the
+                # terminal actually has), NOT _observed_native_symbols (converged set
+                # which is cleared on desired change). This ensures unsubscribe is
+                # correctly computed even after desired shrinks.
                 "unsubscribe": [
-                    s for s in self._observed_native_symbols if s not in self._desired_symbols
+                    s for s in self._last_reported_active if s not in self._desired_symbols
                 ],
                 "subscribe": [
-                    s for s in self._desired_symbols if s not in self._observed_native_symbols
+                    s for s in self._desired_symbols if s not in self._last_reported_active
                 ],
             }
 
@@ -290,6 +298,7 @@ class ExperimentalTdxRealtimeGateway:
                 return {"converged": False, "convergedRevision": self._converged_revision}
             self._attempted_revision = desired_revision
             self._last_applied_active = dedupe_normalized_symbols(active)
+            self._last_reported_active = set(self._last_applied_active)
             self._last_rejected = rejected
             desired_set = set(self._desired_symbols)
             active_set = set(self._last_applied_active)
