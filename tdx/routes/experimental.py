@@ -168,3 +168,20 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
 async def bridge_health(request: Request) -> dict[str, Any]:
     gateway = _get_gateway(request)
     return await gateway.health()
+
+
+class SyncDesiredRequest(BaseModel):
+    symbols: list[str] = Field(default_factory=list)
+
+
+@router.post("/tdx/bridge/desired")
+async def sync_desired(body: SyncDesiredRequest, request: Request) -> dict[str, Any]:
+    """Set the desired subscription set (full replace).
+
+    This is the production desired-state entry point: Mist or an operator
+    calls this to tell the gateway which symbols the terminal bridge should
+    subscribe to. The terminal polls this via /tdx/bridge/poll.
+    """
+    gateway = _get_gateway(request)
+    revision = await gateway.sync_desired(body.symbols)
+    return {"desiredRevision": revision, "symbolCount": len(body.symbols)}
