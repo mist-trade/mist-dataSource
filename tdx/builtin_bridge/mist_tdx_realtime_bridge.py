@@ -331,16 +331,18 @@ def run_bridge() -> None:
                     print(f"[mist-bridge] subscribed: {batch}")
 
             # 3. Verify native subscription set matches desired (fail-closed).
+            # Report the FULL normalized native set — gateway checks convergence
+            # via active_set == desired_set. If native has extras, gateway correctly
+            # stays non-converged (not hidden by intersection).
             native_list = tq_wrapper.get_subscribe_hq_stock_list()
             native_set = {_format_code(s) for s in native_list}
             rejected = []
             for sym in desired_symbols:
-                # Check if symbol is in native subscription list (SDK actually subscribed).
                 if sym not in native_set:
                     rejected.append({"symbol": sym, "reason": "not in native subscription set"})
-            # Report active = actual native set ∩ desired (not blindly optimistic).
-            active_list = [s for s in desired_symbols if s in native_set]
-            owner._active_native = set(active_list)
+            # Report active = full normalized native set (NOT desired ∩ native).
+            active_list = sorted(native_set)
+            owner._active_native = native_set
             result_resp = _post_json(
                 BRIDGE_ENDPOINT + "/result",
                 {

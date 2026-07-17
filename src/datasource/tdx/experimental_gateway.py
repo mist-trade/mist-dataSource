@@ -107,6 +107,9 @@ class ExperimentalTdxRealtimeGateway:
     _last_rejected: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
     # Async lock for state transitions.
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Separate lock to serialize epoch-change broadcasts (prevents out-of-order
+    # broadcast when concurrent same-owner registrations interleave).
+    _broadcast_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     # --- owner / lease -------------------------------------------------
 
@@ -169,13 +172,14 @@ class ExperimentalTdxRealtimeGateway:
                     "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 },
             }
-        # Broadcast stream_started outside the lock, but only if this generation
-        # is still current (prevents stale out-of-order broadcast if a newer
-        # same-owner registration completed while we were waiting to broadcast).
+        # Broadcast stream_started, serialized by _broadcast_lock to guarantee
+        # in-generation-order delivery. Also re-check generation after acquiring
+        # broadcast lock to skip stale broadcasts.
         if self.on_epoch_change is not None:
-            current: Any = self._owner
-            if current is not None and current.generation == generation:
-                await self.on_epoch_change(stream_epoch, generation)
+            async with self._broadcast_lock:
+                current: Any = self._owner
+                if current is not None and current.generation == generation:
+                    await self.on_epoch_change(stream_epoch, generation)
         return result
 
     def _validate_contract_tuple(
