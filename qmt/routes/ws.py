@@ -54,11 +54,14 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
 
     collector.claim_leader(client_id)
     ready_data = collector.ready_contract()
+    bridge = collector.gateway.health()
     ready_data.update(
         {
             "leaderClientId": collector.leader_client_id,
             "active": list(collector.active_subscriptions),
-            "collectorReady": collector.gateway.health()["ready"],
+            "collectorReady": bridge["ready"],
+            "ownerGeneration": bridge["ownerGeneration"],
+            "ownerId": bridge["ownerId"],
         }
     )
     await websocket.send_text(ws_ready("qmt", ready_data).to_json())
