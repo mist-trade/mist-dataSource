@@ -367,25 +367,37 @@ def run_bridge() -> None:
                     continue
                 captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
                 captured_at += _tz_offset_suffix()
-                try:
-                    snap_resp = _post_json(
-                        BRIDGE_ENDPOINT + "/snapshot",
-                        {
-                            "leaseToken": owner.lease_token,
-                            "symbol": code,
-                            "producerSequence": owner.next_producer_sequence(),
-                            "capturedAt": captured_at,
-                            "native": native,
-                        },
-                    )
-                    if not snap_resp.get("accepted"):
+                # Use a fixed producerSequence for this snapshot; retry with SAME
+                # sequence/body so gateway dedup handles network failures.
+                producer_seq = owner.next_producer_sequence()
+                snapshot_body = {
+                    "leaseToken": owner.lease_token,
+                    "symbol": code,
+                    "producerSequence": producer_seq,
+                    "capturedAt": captured_at,
+                    "native": native,
+                }
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        snap_resp = _post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)
+                        if snap_resp.get("accepted"):
+                            break  # Success.
                         err = snap_resp.get("error", {})
-                        if err.get("code") in ("TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE",):
-                            pass  # Expected on retry.
+                        if err.get("code") == "TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE":
+                            break  # Gateway already has it (prior attempt succeeded).
+                        print(f"[mist-bridge] snapshot rejected for {code}: {err}")
+                        break  # Non-retryable rejection.
+                    except urllib.error.URLError as e:
+                        if attempt < max_retries - 1:
+                            print(
+                                f"[mist-bridge] snapshot POST retry {attempt + 1}/{max_retries} for {code}: {e}"
+                            )
+                            time.sleep(0.5)
                         else:
-                            print(f"[mist-bridge] snapshot rejected for {code}: {err}")
-                except urllib.error.URLError as e:
-                    print(f"[mist-bridge] snapshot POST error for {code}: {e}")
+                            print(
+                                f"[mist-bridge] snapshot POST failed for {code} after {max_retries} retries: {e}"
+                            )
 
             time.sleep(POLL_INTERVAL_SECONDS)
 

@@ -30,6 +30,7 @@ router = APIRouter()
 
 class OwnerRegisterRequest(BaseModel):
     ownerId: str
+    mode: str  # Golden requires mode in owner registration.
     bridgeBuildId: str
     bridgeArtifactSha256: str
     acquisitionProfile: str = ACCEPTED_ACQUISITION_PROFILE
@@ -39,6 +40,7 @@ class OwnerRegisterRequest(BaseModel):
 
 class PollRequest(BaseModel):
     leaseToken: str
+    streamEpoch: str  # Golden requires streamEpoch in subsequent requests.
     appliedRevision: int = -1
 
 
@@ -49,6 +51,7 @@ class RejectedItem(BaseModel):
 
 class ResultRequest(BaseModel):
     leaseToken: str
+    streamEpoch: str  # Golden requires streamEpoch.
     desiredRevision: int
     appliedRevision: int
     active: list[str] = Field(default_factory=lambda: list[str]())
@@ -57,6 +60,7 @@ class ResultRequest(BaseModel):
 
 class SnapshotRequest(BaseModel):
     leaseToken: str
+    streamEpoch: str  # Golden requires streamEpoch.
     symbol: str
     producerSequence: int
     capturedAt: str

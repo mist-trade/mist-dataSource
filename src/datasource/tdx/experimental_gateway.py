@@ -382,19 +382,46 @@ class ExperimentalTdxRealtimeGateway:
 
     @staticmethod
     def _validate_rfc3339(value: str, *, field_name: str) -> None:
-        """Reject non-RFC3339 timestamps."""
+        """Strict RFC3339 validation: require date-time WITH timezone offset.
+
+        Rejects pure dates ("2026-07-17") and offset-less times
+        ("2026-07-17T14:30:00"). This is stricter than normalize_beijing_iso
+        (which fills missing offset with Beijing TZ) — experimental gateway
+        requires the terminal to provide a complete timestamp.
+        """
+        stripped = value.strip()
+        # Must contain 'T' (date-time, not date-only).
+        if "T" not in stripped and "t" not in stripped:
+            raise GatewayError(
+                "TDX_BRIDGE_INVALID_TIMESTAMP",
+                f"{field_name} is not RFC3339 (missing time separator): {value!r}",
+                retryable=False,
+            )
+        # Must contain timezone offset after the date part.
+        time_part = stripped[10:]
+        has_offset = "Z" in time_part or "z" in time_part or "+" in time_part or "-" in time_part
+        if not has_offset:
+            raise GatewayError(
+                "TDX_BRIDGE_INVALID_TIMESTAMP",
+                f"{field_name} is not RFC3339 (missing timezone offset): {value!r}",
+                retryable=False,
+            )
+        # Must parse as valid datetime.
         from src.datasource.contracts import normalize_beijing_iso
 
         try:
-            result = normalize_beijing_iso(value)
-        except (ValueError, TypeError):
-            result = None
-        if result is None:
+            if normalize_beijing_iso(value) is None:
+                raise GatewayError(
+                    "TDX_BRIDGE_INVALID_TIMESTAMP",
+                    f"{field_name} is not a parseable RFC3339 timestamp: {value!r}",
+                    retryable=False,
+                )
+        except (ValueError, TypeError) as exc:
             raise GatewayError(
                 "TDX_BRIDGE_INVALID_TIMESTAMP",
                 f"{field_name} is not a valid RFC3339 timestamp: {value!r}",
                 retryable=False,
-            )
+            ) from exc
 
     def _build_wire_frame(
         self,
