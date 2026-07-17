@@ -66,6 +66,7 @@ def test_qmt_websocket_ready_ping_and_subscription_contract():
         assert ready["type"] == "ready"
         assert ready["provider"] == "qmt"
         assert ready["data"]["payloadType"] == "qmt.experimental.snapshot"
+        assert ready["data"]["mode"] == "builtin_experimental"
         assert ready["data"]["schemaVersion"] == 0
         assert ready["data"]["draftRevision"] == 1
         assert ready["data"]["acquisitionProfile"] == "qmt.get_full_tick.v0"
@@ -186,6 +187,10 @@ def test_qmt_experimental_replay_uses_real_ws_and_command_bridge_wiring():
         assert owner.status_code == 200
         assert client.portal is not None
         client.portal.call(app.state.qmt_realtime_collector.collect_once)
+        started = ws.receive_json()
+        assert started["type"] == "stream_started"
+        assert started["data"]["ownerGeneration"] == 1
+        assert started["data"]["streamEpoch"] != epoch
         command = client.post(
             "/qmt/bridge/poll", json={"ownerId": "replay-owner", "limit": 1}
         ).json()["commands"][0]
@@ -215,5 +220,5 @@ def test_qmt_experimental_replay_uses_real_ws_and_command_bridge_wiring():
         assert snapshot["type"] == "qmt.experimental.snapshot"
         assert snapshot["data"]["symbol"] == "600030.SH"
         assert snapshot["data"]["sequence"] == 1
-        assert snapshot["data"]["streamEpoch"] != epoch
+        assert snapshot["data"]["streamEpoch"] == started["data"]["streamEpoch"]
         assert snapshot["data"]["native"]["lastPrice"] == 29.15

@@ -96,15 +96,18 @@ async def test_collector_sequence_is_monotonic_and_owner_replacement_rotates_epo
     gateway = QmtCommandGateway(clock=lambda: monotonic[0], owner_stale_after_seconds=1.0)
     gateway.register_owner("owner-a")
     published = []
+    epochs = []
     collector = QmtRealtimeCollector(
         gateway=gateway,
         publisher=published.append,
+        epoch_publisher=epochs.append,
         now=lambda: datetime(2026, 7, 14, 10, 0, tzinfo=BEIJING),
     )
     collector.sync_subscriptions(["600030.SH"])
 
     await collector.collect_once()
     first_epoch = collector.stream_epoch
+    assert epochs[-1]["ownerGeneration"] == 1
     command = gateway.poll("owner-a")[0]
     gateway.post_result(
         "owner-a",
@@ -121,6 +124,8 @@ async def test_collector_sequence_is_monotonic_and_owner_replacement_rotates_epo
     await collector.collect_once()
     assert collector.stream_epoch != first_epoch
     assert collector.sequence == 0
+    assert epochs[-1]["ownerGeneration"] == 2
+    assert epochs[-1]["ownerId"] == "owner-b"
 
 
 def _native_snapshot() -> dict[str, object]:

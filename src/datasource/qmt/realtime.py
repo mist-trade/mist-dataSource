@@ -29,12 +29,14 @@ class QmtRealtimeCollector:
         *,
         gateway: QmtCommandGateway,
         publisher: Callable[[dict[str, Any]], Awaitable[None] | None],
+        epoch_publisher: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
         error_publisher: Callable[[str, str], Awaitable[None] | None] | None = None,
         now: Callable[[], datetime] | None = None,
         interval_seconds: float = 1.0,
     ) -> None:
         self.gateway = gateway
         self.publisher = publisher
+        self.epoch_publisher = epoch_publisher
         self.error_publisher = error_publisher
         self._now = now or (lambda: datetime.now(BEIJING_TZ))
         self.interval_seconds = interval_seconds
@@ -140,7 +142,10 @@ class QmtRealtimeCollector:
         symbols = list(self.active_subscriptions)
         now = _as_beijing(self._now())
         bridge = self.gateway.health()
-        self._sync_owner_epoch(int(bridge["ownerGeneration"]))
+        await self._sync_owner_epoch(
+            int(bridge["ownerGeneration"]),
+            str(bridge["ownerId"]) if bridge["ownerId"] is not None else None,
+        )
 
         if self._command_id is not None:
             self.gateway.expire_timed_out()
@@ -266,6 +271,7 @@ class QmtRealtimeCollector:
     def health(self) -> dict[str, Any]:
         return {
             "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
+            "mode": "builtin_experimental",
             "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
             "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
             "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
@@ -287,6 +293,7 @@ class QmtRealtimeCollector:
     def ready_contract(self) -> dict[str, Any]:
         return {
             "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
+            "mode": "builtin_experimental",
             "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
             "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
             "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
@@ -294,11 +301,21 @@ class QmtRealtimeCollector:
             "sequence": self.sequence,
         }
 
-    def _sync_owner_epoch(self, owner_generation: int) -> None:
+    async def _sync_owner_epoch(self, owner_generation: int, owner_id: str | None) -> None:
         if owner_generation == self._owner_generation:
             return
         self._owner_generation = owner_generation
         self._rotate_epoch()
+        if self.epoch_publisher is not None:
+            value = self.epoch_publisher(
+                {
+                    **self.ready_contract(),
+                    "ownerGeneration": owner_generation,
+                    "ownerId": owner_id,
+                }
+            )
+            if inspect.isawaitable(value):
+                await value
 
     def _rotate_epoch(self) -> None:
         self.stream_epoch = str(uuid4())

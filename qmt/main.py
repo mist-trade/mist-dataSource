@@ -22,7 +22,7 @@ from src.datasource.qmt.command_gateway import QmtCommandGateway
 from src.datasource.qmt.realtime import QmtRealtimeCollector
 from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.ws.manager import ConnectionManager
-from src.ws.protocol import ws_error, ws_experimental_snapshot
+from src.ws.protocol import ws_error, ws_experimental_snapshot, ws_stream_started
 
 setup_logging()
 
@@ -69,9 +69,14 @@ def create_qmt_app(
                 )
             )
 
+        async def publish_epoch(data: dict[str, Any]) -> None:
+            assert manager is not None
+            await manager.broadcast(ws_stream_started("qmt", data))
+
         collector = QmtRealtimeCollector(
             gateway=app_gateway,
             publisher=publish_snapshot,
+            epoch_publisher=publish_epoch,
             error_publisher=publish_error,
             now=collector_now,
         )
