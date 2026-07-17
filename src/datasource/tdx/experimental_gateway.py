@@ -120,6 +120,8 @@ class ExperimentalTdxRealtimeGateway:
     _reconcile_retry_after_monotonic: float | None = None
     _last_retryable: bool | None = None
     _last_failure_code: str | None = None
+    _last_snapshot_monotonic: float | None = None
+    _last_snapshot_at: str | None = None
     # Async lock for state transitions.
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Separate lock to serialize epoch-change broadcasts (prevents out-of-order
@@ -177,6 +179,8 @@ class ExperimentalTdxRealtimeGateway:
             self._last_reported_active = set()
             self._reset_reconcile_retry_locked()
             self._sequences.clear()
+            self._last_snapshot_monotonic = None
+            self._last_snapshot_at = None
             result = {
                 "leaseToken": lease_token,
                 "streamEpoch": stream_epoch,
@@ -434,6 +438,8 @@ class ExperimentalTdxRealtimeGateway:
                 captured_at=captured_at,
                 snapshot=snapshot,
             )
+            self._last_snapshot_monotonic = time.monotonic()
+            self._last_snapshot_at = dt.datetime.now(dt.UTC).isoformat()
             return {"accepted": True, "sequence": outbound_sequence, "frame": frame}
 
     @staticmethod
@@ -517,6 +523,12 @@ class ExperimentalTdxRealtimeGateway:
                 "reconcileRetryAfterMs": self._remaining_retry_ms_locked(),
                 "lastFailureCode": self._last_failure_code,
                 "lastFailureRetryable": self._last_retryable,
+                "lastSnapshotAt": self._last_snapshot_at,
+                "lastSnapshotAgeSeconds": (
+                    round(time.monotonic() - self._last_snapshot_monotonic, 3)
+                    if self._last_snapshot_monotonic is not None
+                    else None
+                ),
                 "acceptedContractTuple": {
                     "payloadType": ACCEPTED_PAYLOAD_TYPE,
                     "schemaVersion": ACCEPTED_SCHEMA_VERSION,

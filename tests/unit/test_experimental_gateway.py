@@ -414,6 +414,9 @@ class TestSnapshotAcceptance:
             )
             assert r1["accepted"] is True
             assert r1["sequence"] == 1
+            health = await gateway.health()
+            assert health["lastSnapshotAt"] is not None
+            assert health["lastSnapshotAgeSeconds"] >= 0
             r2 = await gateway.post_snapshot(
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
