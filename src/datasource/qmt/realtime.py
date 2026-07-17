@@ -1,9 +1,11 @@
 import asyncio
 import contextlib
 import inspect
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime
 from typing import Any, cast
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from src.datasource.qmt.command_gateway import QmtCommandGateway
@@ -11,6 +13,12 @@ from src.datasource.qmt.command_gateway import QmtCommandGateway
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 CN_REALTIME_MARKETS = {"SH", "SZ", "BJ"}
 HK_REALTIME_MARKETS = {"HK"}
+QMT_EXPERIMENTAL_PAYLOAD_TYPE = "qmt.experimental.snapshot"
+QMT_EXPERIMENTAL_SCHEMA_VERSION = 0
+QMT_EXPERIMENTAL_DRAFT_REVISION = 1
+QMT_EXPERIMENTAL_ACQUISITION_PROFILE = "qmt.get_full_tick.v0"
+QMT_EXPERIMENTAL_MAX_SUBSCRIPTIONS = 5
+QMT_SYMBOL_PATTERN = re.compile(r"^(?:\d{6}\.(?:SH|SZ|BJ)|\d{5,6}\.HK)$")
 
 
 class QmtRealtimeCollector:
@@ -43,6 +51,9 @@ class QmtRealtimeCollector:
         self.last_quote_at: str | None = None
         self.last_error_code: str | None = None
         self.last_error: str | None = None
+        self.stream_epoch = str(uuid4())
+        self.sequence = 0
+        self._owner_generation = 0
 
     def claim_leader(self, client_id: str) -> bool:
         self.connected_clients.add(client_id)
@@ -58,10 +69,37 @@ class QmtRealtimeCollector:
             self.active_subscriptions = []
 
     def sync_subscriptions(self, symbols: Iterable[str]) -> list[str]:
-        self.active_subscriptions = sorted(
-            {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
-        )
+        accepted, _ = self.partition_symbols(symbols)
+        self.active_subscriptions = accepted
         return list(self.active_subscriptions)
+
+    def partition_symbols(self, symbols: Iterable[str]) -> tuple[list[str], list[dict[str, Any]]]:
+        accepted: list[str] = []
+        rejected: list[dict[str, Any]] = []
+        for raw_symbol in symbols:
+            symbol = str(raw_symbol).strip().upper()
+            if symbol in accepted:
+                continue
+            if not QMT_SYMBOL_PATTERN.fullmatch(symbol):
+                rejected.append(
+                    {
+                        "symbol": symbol,
+                        "code": "QMT_EXPERIMENTAL_SYMBOL_INVALID",
+                        "reason": "symbol must use an exact QMT market suffix",
+                    }
+                )
+                continue
+            if len(accepted) >= QMT_EXPERIMENTAL_MAX_SUBSCRIPTIONS:
+                rejected.append(
+                    {
+                        "symbol": symbol,
+                        "code": "QMT_EXPERIMENTAL_ALLOWLIST_LIMIT",
+                        "reason": "at most five experimental symbols are allowed",
+                    }
+                )
+                continue
+            accepted.append(symbol)
+        return sorted(accepted), rejected
 
     def subscribe(self, symbols: Iterable[str]) -> list[str]:
         return self.sync_subscriptions([*self.active_subscriptions, *symbols])
@@ -76,6 +114,7 @@ class QmtRealtimeCollector:
         if self._task is not None and not self._task.done():
             return
         self._stopping.clear()
+        self._rotate_epoch()
         self.state = "idle"
         self._task = asyncio.create_task(self._run(), name="qmt-realtime-collector")
 
@@ -100,6 +139,8 @@ class QmtRealtimeCollector:
     async def collect_once(self) -> int:
         symbols = list(self.active_subscriptions)
         now = _as_beijing(self._now())
+        bridge = self.gateway.health()
+        self._sync_owner_epoch(int(bridge["ownerGeneration"]))
 
         if self._command_id is not None:
             self.gateway.expire_timed_out()
@@ -139,7 +180,6 @@ class QmtRealtimeCollector:
             self.state = "outside_session"
             return 0
 
-        bridge = self.gateway.health()
         if not bridge["ready"]:
             self._set_error("QMT_BRIDGE_OWNER_MISSING", "QMT bridge owner is not ready")
             return 0
@@ -186,7 +226,20 @@ class QmtRealtimeCollector:
                     f"Invalid QMT realtime payload for {symbol}",
                 )
                 continue
-            value = self.publisher({"stock_code": symbol, "snapshot": snapshot})
+            self.sequence += 1
+            value = self.publisher(
+                {
+                    "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
+                    "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
+                    "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
+                    "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
+                    "streamEpoch": self.stream_epoch,
+                    "sequence": self.sequence,
+                    "symbol": symbol,
+                    "capturedAt": now.isoformat(),
+                    "native": dict(cast(dict[str, Any], snapshot)),
+                }
+            )
             if inspect.isawaitable(value):
                 await value
             emitted += 1
@@ -212,6 +265,12 @@ class QmtRealtimeCollector:
 
     def health(self) -> dict[str, Any]:
         return {
+            "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
+            "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
+            "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
+            "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
+            "streamEpoch": self.stream_epoch,
+            "sequence": self.sequence,
             "state": self.state,
             "connectionCount": len(self.connected_clients),
             "leaderClientId": self.leader_client_id,
@@ -222,7 +281,28 @@ class QmtRealtimeCollector:
             "lastQuoteAt": self.last_quote_at,
             "lastErrorCode": self.last_error_code,
             "lastError": self.last_error,
+            "bridge": self.gateway.health(),
         }
+
+    def ready_contract(self) -> dict[str, Any]:
+        return {
+            "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
+            "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
+            "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
+            "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
+            "streamEpoch": self.stream_epoch,
+            "sequence": self.sequence,
+        }
+
+    def _sync_owner_epoch(self, owner_generation: int) -> None:
+        if owner_generation == self._owner_generation:
+            return
+        self._owner_generation = owner_generation
+        self._rotate_epoch()
+
+    def _rotate_epoch(self) -> None:
+        self.stream_epoch = str(uuid4())
+        self.sequence = 0
 
 
 def is_realtime_trading_session(now: datetime, symbols: list[str]) -> bool:
@@ -271,9 +351,7 @@ def _valid_snapshot(value: Any, now: datetime) -> bool:
     snapshot = cast(dict[str, Any], value)
     try:
         timetag = datetime.strptime(str(snapshot["timetag"]), "%Y%m%d%H%M%S")
-        numbers = {
-            field: float(snapshot[field]) for field in required if field != "timetag"
-        }
+        numbers = {field: float(snapshot[field]) for field in required if field != "timetag"}
     except (TypeError, ValueError):
         return False
     return (

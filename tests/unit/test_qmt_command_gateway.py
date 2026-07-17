@@ -98,6 +98,8 @@ def test_qmt_command_gateway_expires_timed_out_command() -> None:
     assert result.error["code"] == "QMT_COMMAND_TIMEOUT"
     with pytest.raises(QmtCommandTimeoutError):
         gateway.raise_if_failed(command.command_id)
+
+
 def test_qmt_command_gateway_expires_command_not_claimed_by_owner() -> None:
     clock = ManualClock()
     gateway = QmtCommandGateway(clock=clock)
@@ -123,6 +125,7 @@ def test_qmt_command_gateway_health_reports_owner_readiness_and_staleness() -> N
         "lastHeartbeatAt": None,
         "ownerAgeSeconds": None,
         "ownerStale": False,
+        "ownerGeneration": 0,
         "ready": False,
         "pendingCount": 0,
         "inFlightCount": 0,

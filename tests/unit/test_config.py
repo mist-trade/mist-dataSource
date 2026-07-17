@@ -1,5 +1,7 @@
 """Unit tests for configuration management."""
 
+import pytest
+
 from src.core.config import AppSettings, QMTSettings, TDXSettings, settings
 
 
@@ -40,6 +42,7 @@ def test_qmt_datasource_settings_defaults(monkeypatch):
     for env_name in (
         "QMT_BRIDGE_GATEWAY_URL",
         "QMT_LOCAL_DAT_ON_BLOCK",
+        "QMT_REALTIME_MODE",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
@@ -47,15 +50,23 @@ def test_qmt_datasource_settings_defaults(monkeypatch):
 
     assert qmt_settings.bridge_gateway_url == "http://127.0.0.1:9002/qmt/bridge"
     assert qmt_settings.local_dat_on_block == "retryable_error"
+    assert qmt_settings.realtime_mode == "off"
+
+
+def test_qmt_realtime_mode_accepts_only_explicit_experimental_value(monkeypatch):
+    monkeypatch.setenv("QMT_REALTIME_MODE", "builtin_experimental")
+    assert QMTSettings(_env_file=None).realtime_mode == "builtin_experimental"
+
+    monkeypatch.setenv("QMT_REALTIME_MODE", "product")
+    with pytest.raises(ValueError):
+        QMTSettings(_env_file=None)
 
 
 def test_app_settings_ignores_unrelated_env_file_values(tmp_path):
     """Ignore other service settings that may share the appliance .env file."""
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "APP_ENV=production\n"
-        "AKTOOLS_HOST=127.0.0.1\n"
-        "AKTOOLS_PORT=8080\n",
+        "APP_ENV=production\nAKTOOLS_HOST=127.0.0.1\nAKTOOLS_PORT=8080\n",
         encoding="utf-8",
     )
 

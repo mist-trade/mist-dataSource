@@ -97,6 +97,7 @@ def test_ws_ready_and_quote_helpers_share_common_envelope():
 
 def test_experimental_ws_factories_keep_snapshot_and_epoch_events_isolated():
     snapshot = ws_experimental_snapshot("tdx", {"sequence": 7, "streamEpoch": "epoch-1"})
+    qmt_snapshot = ws_experimental_snapshot("qmt", {"sequence": 1, "streamEpoch": "qmt-epoch-1"})
     started = ws_stream_started(
         "tdx",
         {
@@ -111,6 +112,8 @@ def test_experimental_ws_factories_keep_snapshot_and_epoch_events_isolated():
     assert snapshot.type == "tdx.experimental.snapshot"
     assert snapshot.type != "quote"
     assert snapshot.data == {"sequence": 7, "streamEpoch": "epoch-1"}
+    assert qmt_snapshot.type == "qmt.experimental.snapshot"
+    assert qmt_snapshot.provider == "qmt"
     assert started.type == "stream_started"
     assert started.data["streamEpoch"] == "epoch-2"
     assert started.data["generation"] == 2

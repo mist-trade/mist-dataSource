@@ -26,6 +26,7 @@ class WSMessage(BaseModel):
         "unsubscribed",
         "error",
         "tdx.experimental.snapshot",
+        "qmt.experimental.snapshot",
         "stream_started",
     ]
     provider: str | None = None
@@ -94,12 +95,14 @@ def ws_quote(provider: str, data: dict[str, Any]) -> WSMessage:
 
 
 def ws_experimental_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:
-    """Create an experimental TDX realtime snapshot frame.
+    """Create an isolated experimental realtime snapshot frame.
 
     Distinct from ``ws_quote`` (which uses ``type="quote"`` and re-enters legacy
     aggregation semantics). The experimental consumer only listens for this
     type.
     """
+    if provider == "qmt":
+        return WSMessage(type="qmt.experimental.snapshot", provider=provider, data=data)
     return WSMessage(type="tdx.experimental.snapshot", provider=provider, data=data)
 
 

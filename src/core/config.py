@@ -1,5 +1,7 @@
 """Configuration management using pydantic-settings."""
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +35,7 @@ class QMTSettings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 9002
     bridge_gateway_url: str = "http://127.0.0.1:9002/qmt/bridge"
+    realtime_mode: Literal["off", "builtin_experimental"] = "off"
     bridge_spike_evidence_dir: str = ""
     local_dat_enabled: bool = False
     local_dat_dir: str = ""

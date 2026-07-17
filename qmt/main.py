@@ -1,16 +1,19 @@
 """QMT datasource FastAPI application entrypoint (Port 9002).
 
-启动方式: uvicorn qmt.main:app --port 9002 --reload
-生产 QMT 接入通过大 QMT 内置 Python HTTP polling bridge 和 native `/v1` API。
+The product QMT HTTP bridge and historical APIs are always available. The
+memory-only realtime transport is mounted only when explicitly enabled.
 """
 
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal, cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from qmt.routes.bridge import router as bridge_router
+from qmt.routes.realtime import router as realtime_router
 from qmt.routes.v1 import router as v1_router
 from qmt.routes.ws import router as ws_router
 from src.core.config import settings
@@ -19,100 +22,121 @@ from src.datasource.qmt.command_gateway import QmtCommandGateway
 from src.datasource.qmt.realtime import QmtRealtimeCollector
 from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.ws.manager import ConnectionManager
-from src.ws.protocol import ws_error, ws_quote
+from src.ws.protocol import ws_error, ws_experimental_snapshot
 
 setup_logging()
 
-qmt_command_gateway = QmtCommandGateway()
-qmt_provider: QmtDatasourceProvider | None = QmtDatasourceProvider()
-ws_manager = ConnectionManager()
+QmtRealtimeMode = Literal["off", "builtin_experimental"]
+QMT_REALTIME_MODES = {"off", "builtin_experimental"}
 
 
-async def _publish_quote(data: dict[str, Any]) -> None:
-    await ws_manager.broadcast(ws_quote("qmt", data))
+def _validated_realtime_mode(value: str) -> QmtRealtimeMode:
+    if value not in QMT_REALTIME_MODES:
+        raise ValueError("QMT_REALTIME_MODE must be one of: off, builtin_experimental")
+    return cast(QmtRealtimeMode, value)
 
 
-async def _publish_realtime_error(code: str, message: str) -> None:
-    await ws_manager.broadcast(
-        ws_error(
-            provider="qmt",
-            code=code,
-            message=message,
-            retryable=True,
-            details={},
+def create_qmt_app(
+    *,
+    realtime_mode: str | None = None,
+    gateway: QmtCommandGateway | None = None,
+    provider: QmtDatasourceProvider | None = None,
+    collector_now: Callable[[], datetime] | None = None,
+) -> FastAPI:
+    """Build an isolated QMT app for the selected realtime mode."""
+    mode = _validated_realtime_mode(realtime_mode or settings.qmt.realtime_mode)
+    app_gateway = gateway or QmtCommandGateway()
+    app_provider = provider or QmtDatasourceProvider()
+    manager: ConnectionManager | None = None
+    collector: QmtRealtimeCollector | None = None
+
+    if mode == "builtin_experimental":
+        manager = ConnectionManager()
+
+        async def publish_snapshot(data: dict[str, Any]) -> None:
+            assert manager is not None
+            await manager.broadcast(ws_experimental_snapshot("qmt", data))
+
+        async def publish_error(code: str, message: str) -> None:
+            assert manager is not None
+            await manager.broadcast(
+                ws_error(
+                    provider="qmt",
+                    code=code,
+                    message=message,
+                    retryable=True,
+                    details={},
+                )
+            )
+
+        collector = QmtRealtimeCollector(
+            gateway=app_gateway,
+            publisher=publish_snapshot,
+            error_publisher=publish_error,
+            now=collector_now,
         )
+
+    @asynccontextmanager
+    async def lifespan(target_app: FastAPI) -> AsyncGenerator[None]:
+        active_collector: QmtRealtimeCollector | None = getattr(
+            target_app.state, "qmt_realtime_collector", None
+        )
+        if active_collector is not None:
+            await active_collector.start()
+        try:
+            yield
+        finally:
+            if active_collector is not None:
+                await active_collector.stop()
+
+    target = FastAPI(
+        title="Mist DataSource - QMT",
+        description="QMT datasource - native bars and full-QMT HTTP polling bridge",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+    target.state.qmt_realtime_mode = mode
+    target.state.qmt_command_gateway = app_gateway
+    target.state.qmt_provider = app_provider
+    if manager is not None and collector is not None:
+        target.state.qmt_experimental_ws_manager = manager
+        target.state.qmt_realtime_collector = collector
+
+    target.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
+    @target.get("/health")
+    async def health() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+        current_provider: QmtDatasourceProvider | None = getattr(target.state, "qmt_provider", None)
+        reader = current_provider.local_dat_reader if current_provider else None
+        current_gateway: QmtCommandGateway = target.state.qmt_command_gateway
+        return {
+            "status": "ok",
+            "instance": "qmt",
+            "bridge": current_gateway.health(),
+            "localDat": {
+                "enabled": bool(reader and reader.enabled),
+                "dataDirConfigured": bool(reader and str(reader.data_dir)),
+            },
+        }
 
-qmt_realtime_collector = QmtRealtimeCollector(
-    gateway=qmt_command_gateway,
-    publisher=_publish_quote,
-    error_publisher=_publish_realtime_error,
+    target.include_router(v1_router, tags=["V1"])
+    target.include_router(bridge_router, prefix="/qmt/bridge", tags=["QMT Bridge"])
+    if mode == "builtin_experimental":
+        target.include_router(ws_router, tags=["QMT Experimental WebSocket"])
+        target.include_router(realtime_router, tags=["QMT Experimental Realtime"])
+    return target
+
+
+qmt_command_gateway = QmtCommandGateway()
+qmt_provider: QmtDatasourceProvider | None = QmtDatasourceProvider()
+app = create_qmt_app(gateway=qmt_command_gateway, provider=qmt_provider)
+qmt_realtime_collector: QmtRealtimeCollector | None = getattr(
+    app.state, "qmt_realtime_collector", None
 )
-
-
-def _sync_app_state(target_app: FastAPI) -> None:
-    target_app.state.qmt_command_gateway = qmt_command_gateway
-    target_app.state.qmt_provider = qmt_provider
-    target_app.state.ws_manager = ws_manager
-    target_app.state.qmt_realtime_collector = qmt_realtime_collector
-
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """应用生命周期管理器.
-
-    QMT datasource 不再初始化旧 adapter。大 QMT 内置脚本通过
-    HTTP polling bridge 连接，历史 bars 通过 native local-DAT provider 读取。
-
-    Args:
-        _app: FastAPI 应用实例
-
-    Yields:
-        None
-    """
-    _sync_app_state(_app)
-    await qmt_realtime_collector.start()
-    try:
-        yield
-    finally:
-        await qmt_realtime_collector.stop()
-        _sync_app_state(_app)
-
-
-app = FastAPI(
-    title="Mist DataSource - QMT",
-    description="QMT 数据源 - native bars / full-QMT HTTP polling bridge",
-    version="0.1.0",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/health")
-async def health():
-    """健康检查端点."""
-    reader = qmt_provider.local_dat_reader if qmt_provider else None
-    return {
-        "status": "ok",
-        "instance": "qmt",
-        "bridge": qmt_command_gateway.health(),
-        "localDat": {
-            "enabled": bool(reader and reader.enabled),
-            "dataDirConfigured": bool(reader and str(reader.data_dir)),
-        },
-        "realtime": qmt_realtime_collector.health(),
-    }
-
-
-_sync_app_state(app)
-app.include_router(v1_router, tags=["V1"])
-app.include_router(bridge_router, prefix="/qmt/bridge", tags=["QMT Bridge"])
-app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
+ws_manager: ConnectionManager | None = getattr(app.state, "qmt_experimental_ws_manager", None)

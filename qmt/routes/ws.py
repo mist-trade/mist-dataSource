@@ -17,7 +17,7 @@ def _collector(websocket: WebSocket) -> QmtRealtimeCollector:
 
 
 def _manager(websocket: WebSocket) -> ConnectionManager:
-    return websocket.app.state.ws_manager
+    return websocket.app.state.qmt_experimental_ws_manager
 
 
 def _is_leader(collector: QmtRealtimeCollector, client_id: str) -> bool:
@@ -25,7 +25,7 @@ def _is_leader(collector: QmtRealtimeCollector, client_id: str) -> bool:
 
 
 def _symbols(message: dict[str, Any]) -> list[str] | None:
-    value = message.get("symbols", message.get("stocks", []))
+    value = message.get("symbols", [])
     if not isinstance(value, list):
         return None
     items = cast(list[Any], value)
@@ -34,7 +34,7 @@ def _symbols(message: dict[str, Any]) -> list[str] | None:
     return cast(list[str], items)
 
 
-@router.websocket("/quote/{client_id}")
+@router.websocket("/ws/qmt-experimental/{client_id}")
 async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
     manager = _manager(websocket)
     collector = _collector(websocket)
@@ -53,16 +53,15 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
         return
 
     collector.claim_leader(client_id)
-    await websocket.send_text(
-        ws_ready(
-            "qmt",
-            {
-                "leaderClientId": collector.leader_client_id,
-                "active": list(collector.active_subscriptions),
-                "collectorReady": collector.gateway.health()["ready"],
-            },
-        ).to_json()
+    ready_data = collector.ready_contract()
+    ready_data.update(
+        {
+            "leaderClientId": collector.leader_client_id,
+            "active": list(collector.active_subscriptions),
+            "collectorReady": collector.gateway.health()["ready"],
+        }
     )
+    await websocket.send_text(ws_ready("qmt", ready_data).to_json())
 
     try:
         while True:
@@ -82,9 +81,15 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
 
             msg_type = message.get("type")
             if msg_type == "ping":
+                if set(message) != {"type"}:
+                    await _send_invalid_fields(websocket, message, {"type"})
+                    continue
                 await websocket.send_text(ws_pong("qmt").to_json())
                 continue
             if msg_type not in {"sync_subscriptions", "subscribe", "unsubscribe"}:
+                continue
+            if set(message) - {"type", "symbols"}:
+                await _send_invalid_fields(websocket, message, {"type", "symbols"})
                 continue
             if not _is_leader(collector, client_id):
                 await websocket.send_text(
@@ -112,21 +117,25 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
 
             before = set(collector.active_subscriptions)
             if msg_type == "sync_subscriptions":
-                active = collector.sync_subscriptions(symbols)
-                accepted = active
+                accepted, rejected = collector.partition_symbols(symbols)
+                active = collector.sync_subscriptions(accepted)
             elif msg_type == "subscribe":
-                active = collector.subscribe(symbols)
+                requested, rejected = collector.partition_symbols(
+                    [*collector.active_subscriptions, *symbols]
+                )
+                active = collector.sync_subscriptions(requested)
                 accepted = [symbol for symbol in active if symbol not in before]
             else:
                 active = collector.unsubscribe(symbols)
                 accepted = [symbol.upper() for symbol in symbols if symbol.upper() in before]
+                rejected = []
             response_type = "unsubscribed" if msg_type == "unsubscribe" else "subscribed"
             await websocket.send_text(
                 ws_subscription_ack(
                     provider="qmt",
                     msg_type=response_type,
                     accepted=accepted,
-                    rejected=[],
+                    rejected=rejected,
                     active=active,
                 ).to_json()
             )
@@ -145,3 +154,17 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
     finally:
         collector.disconnect(client_id)
         await manager.disconnect(client_id)
+
+
+async def _send_invalid_fields(
+    websocket: WebSocket, message: dict[str, Any], allowed: set[str]
+) -> None:
+    await websocket.send_text(
+        ws_error(
+            provider="qmt",
+            code="DATASOURCE_WS_UNKNOWN_FIELDS",
+            message="WebSocket message contains unknown fields",
+            retryable=False,
+            details={"fields": sorted(set(message) - allowed)},
+        ).to_json()
+    )

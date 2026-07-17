@@ -18,6 +18,7 @@ class QmtBridgeOwner:
     owner_id: str
     registered_at: float
     last_heartbeat_at: float
+    generation: int
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,11 @@ class QmtCommandGateway:
         *,
         clock: Callable[[], float] | None = None,
         default_timeout_seconds: float = 10.0,
+        owner_stale_after_seconds: float = 15.0,
     ) -> None:
         self._clock = clock or _monotonic_seconds
         self._default_timeout_seconds = default_timeout_seconds
+        self._owner_stale_after_seconds = owner_stale_after_seconds
         self._owner: QmtBridgeOwner | None = None
         self._pending: deque[QmtCommand] = deque()
         self._in_flight: dict[str, _InFlightCommand] = {}
@@ -62,14 +65,24 @@ class QmtCommandGateway:
 
     def register_owner(self, owner_id: str) -> QmtBridgeOwner:
         now = self._clock()
-        if self._owner is not None and self._owner.owner_id != owner_id:
-            raise QmtBridgeOwnershipError(
-                f"QMT bridge owner already registered: {self._owner.owner_id}"
-            )
+        previous = self._owner
+        if previous is not None and previous.owner_id != owner_id:
+            if not self._owner_is_stale(now):
+                raise QmtBridgeOwnershipError(
+                    f"QMT bridge owner already registered: {previous.owner_id}"
+                )
+            self._fail_commands_for_replaced_owner(now)
         self._owner = QmtBridgeOwner(
             owner_id=owner_id,
-            registered_at=self._owner.registered_at if self._owner else now,
+            registered_at=previous.registered_at
+            if previous and previous.owner_id == owner_id
+            else now,
             last_heartbeat_at=now,
+            generation=(
+                previous.generation
+                if previous and previous.owner_id == owner_id
+                else (previous.generation + 1 if previous else 1)
+            ),
         )
         return self._owner
 
@@ -80,6 +93,7 @@ class QmtCommandGateway:
             owner_id=self._owner.owner_id,
             registered_at=self._owner.registered_at,
             last_heartbeat_at=self._clock(),
+            generation=self._owner.generation,
         )
         return self._owner
 
@@ -187,13 +201,42 @@ class QmtCommandGateway:
             raise QmtCommandTimeoutError(str(error.get("message", "QMT command timed out")))
 
     def health(self) -> dict[str, Any]:
+        now = self._clock()
+        owner_age = now - self._owner.last_heartbeat_at if self._owner else None
+        owner_stale = self._owner_is_stale(now)
         return {
             "ownerId": self._owner.owner_id if self._owner else None,
             "lastHeartbeatAt": self._owner.last_heartbeat_at if self._owner else None,
+            "ownerAgeSeconds": owner_age,
+            "ownerStale": owner_stale,
+            "ownerGeneration": self._owner.generation if self._owner else 0,
+            "ready": self._owner is not None and not owner_stale,
             "pendingCount": len(self._pending),
             "inFlightCount": len(self._in_flight),
             "resultCount": len(self._results),
         }
+
+    def _owner_is_stale(self, now: float) -> bool:
+        return bool(
+            self._owner and now - self._owner.last_heartbeat_at > self._owner_stale_after_seconds
+        )
+
+    def _fail_commands_for_replaced_owner(self, now: float) -> None:
+        commands = [*self._pending, *(item.command for item in self._in_flight.values())]
+        self._pending.clear()
+        self._in_flight.clear()
+        for command in commands:
+            self._results[command.command_id] = QmtCommandResult(
+                command_id=command.command_id,
+                ok=False,
+                completed_at=now,
+                error={
+                    "code": "QMT_BRIDGE_OWNER_REPLACED",
+                    "message": "QMT command owner was replaced after its lease became stale",
+                    "retryable": True,
+                    "details": {"method": command.method},
+                },
+            )
 
     def _require_owner(self, owner_id: str) -> None:
         if self._owner is None:
