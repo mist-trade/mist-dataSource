@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from src.datasource.tdx.experimental_decoder import (
@@ -57,6 +60,18 @@ class TestDecodeValid:
         assert snap.eventTime is None
         assert snap.quality.get("nativeTimeUnavailable") is True
 
+    def test_experimental_only_aliases_are_resolved(self) -> None:
+        native = _native(Last="1685.0", High="1690.0", Low="1665.0")
+        del native["Now"]
+        del native["Max"]
+        del native["Min"]
+
+        snap = decode_experimental_tdx_snapshot("600519.SH", native)
+
+        assert snap.last == 1685.0
+        assert snap.high == 1690.0
+        assert snap.low == 1665.0
+
 
 class TestDecodeReject:
     def test_missing_last_rejected(self) -> None:
@@ -94,3 +109,37 @@ class TestDecodeReject:
         native = _native(Now="1685.0", Last="9999.0")
         with pytest.raises(ExperimentalDecoderError, match="conflicting"):
             decode_experimental_tdx_snapshot("600519.SH", native)
+
+    def test_same_value_aliases_are_still_rejected(self) -> None:
+        native = _native(Now="1685.0", Last="1685.0")
+        with pytest.raises(ExperimentalDecoderError, match="conflicting"):
+            decode_experimental_tdx_snapshot("600519.SH", native)
+
+
+def test_f0_fixture_cases_and_existing_mock_snapshot() -> None:
+    fixture_root = Path(__file__).resolve().parents[1] / "fixtures" / "tdx"
+    f0 = json.loads((fixture_root / "experimental_f0_cases.json").read_text())
+    assert f0["evidenceTier"] == "F0-hand-crafted"
+    normal = f0["normal"]
+    assert decode_experimental_tdx_snapshot("600519.SH", normal).last == 1685.0
+    for case in f0["abnormal"]:
+        native = {**normal, **case["overrides"]}
+        with pytest.raises(ExperimentalDecoderError, match=case["errorMatch"]):
+            decode_experimental_tdx_snapshot("600519.SH", native, expected_code="600519.SH")
+
+    mock_snapshot = json.loads((fixture_root / "snapshot.json").read_text())
+    decoded_mock = decode_experimental_tdx_snapshot("mock.SH", {**mock_snapshot, "Code": "mock.SH"})
+    assert decoded_mock.last == 35.06
+
+
+def test_f1_fixture_is_explicitly_external_and_runtime_unknown() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures"
+            / "tdx"
+            / "live_market_snapshot_600519.json"
+        ).read_text()
+    )
+    assert fixture["evidenceTier"] == "F1-external-http"
+    assert fixture["runtimeVersion"] == "unknown"

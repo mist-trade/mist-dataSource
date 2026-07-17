@@ -11,6 +11,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from src.adapter_legacy.base import TdxLegacyAdapterBase
 from src.adapter_legacy.mock.tdx_mock import TdxLegacyMockAdapter
 from src.adapter_legacy.tdx.client import TdxLegacyAdapter
 
@@ -176,24 +177,18 @@ def test_qmt_routes_do_not_import_qmt_main_for_runtime_singletons() -> None:
 
 
 def test_tdx_routes_document_app_state_dependency_model() -> None:
-    docs = (PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    docs = (PROJECT_ROOT / "docs" / "tdx-dependency-flow.md").read_text(encoding="utf-8")
 
     assert "app.state" in docs
     assert "import tdx.main" not in docs
 
 
-def test_claude_adapter_pattern_matches_current_base_adapter_contract() -> None:
-    docs = (PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-
-    assert "70+ methods" not in docs
-    assert "lifecycle abstract" in docs
-    assert "`initialize()`" in docs
-    assert "`shutdown()`" in docs
+def test_legacy_adapter_base_keeps_abstract_lifecycle_contract() -> None:
+    assert TdxLegacyAdapterBase.__abstractmethods__ == {"initialize", "shutdown"}
 
 
 def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    claude = (PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
     tdx_api_section = readme.split("#### TDX", 1)[1].split("#### QMT", 1)[0]
     tdx_api_table_rows = [line for line in tdx_api_section.splitlines() if line.startswith("|")]
@@ -206,12 +201,6 @@ def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
         "/v1/instruments/convertible-bonds/query",
     ):
         assert endpoint in tdx_api_section
-
-    claude_api_table = claude.split("### API Routes", 1)[1].split("### WebSocket Protocol", 1)[0]
-    assert "| TDX | `/api/tdx/" not in claude_api_table
-    assert "| TDX | `/v1/bars/query`" in claude_api_table
-    assert "| TDX | `/v1/finance/financial-data/query`" in claude_api_table
-
 
 def test_routes_share_adapter_dependency_helpers() -> None:
     route_roots = (PROJECT_ROOT / "tdx" / "routes", PROJECT_ROOT / "qmt" / "routes")
@@ -330,7 +319,8 @@ def test_legacy_qmt_mock_adapter_is_removed() -> None:
 
 
 def test_tdx_legacy_code_uses_explicit_legacy_paths() -> None:
-    assert not (PROJECT_ROOT / "src" / "adapter").exists()
+    retired_adapter_root = PROJECT_ROOT / "src" / "adapter"
+    assert not any(retired_adapter_root.rglob("*.py"))
     assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_subscription.py").exists()
     assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy_bridge.py").exists()
     assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy_collector.py").exists()

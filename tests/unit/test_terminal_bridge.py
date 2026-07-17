@@ -74,6 +74,22 @@ class TestFormatCode:
         assert _bridge_mod._format_code("600519.SH") == "600519.SH"
 
 
+class TestRetryClassification:
+    def test_owner_fences_require_registration(self) -> None:
+        for code in (
+            "TDX_BRIDGE_NO_OWNER",
+            "TDX_BRIDGE_LEASE_INVALID",
+            "TDX_BRIDGE_EPOCH_MISMATCH",
+        ):
+            assert _bridge_mod._requires_registration({"code": code}) is True
+        assert _bridge_mod._requires_registration({"code": "OTHER"}) is False
+
+    def test_gateway_delay_is_honored_and_fallback_is_bounded(self) -> None:
+        assert _bridge_mod._retry_delay_seconds({"retryAfterMs": 750}, 1) == 0.75
+        assert _bridge_mod._retry_delay_seconds(None, 1) == 0.25
+        assert _bridge_mod._retry_delay_seconds(None, 99) == 5.0
+
+
 class TestCallbackDirtyOnly:
     """Verify that subscribe_hq callback only marks dirty — no SDK/HTTP calls."""
 
@@ -90,3 +106,10 @@ class TestCallbackDirtyOnly:
             # the DirtySymbolQueue directly.
             q.mark_dirty(_bridge_mod._format_code("SH600519"))
             mock_mark.assert_called_once_with("600519.SH")
+
+
+def test_terminal_bridge_threading_guardrail() -> None:
+    """A callback lock is allowed; background thread ownership is not."""
+    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text()
+    assert "threading.Lock()" in source
+    assert "threading.Thread(" not in source

@@ -99,7 +99,12 @@ def _init_experimental() -> None:
 
     tdx_experimental_ws_manager = _CM()
 
-    async def _broadcast_epoch_change(stream_epoch: str, generation: int = 0) -> None:
+    async def _broadcast_epoch_change(
+        stream_epoch: str,
+        generation: int,
+        owner_id: str,
+        bridge_build_id: str,
+    ) -> None:
         """Broadcast stream_started when owner generation changes."""
         if tdx_experimental_ws_manager is not None:
             await tdx_experimental_ws_manager.broadcast(
@@ -109,6 +114,8 @@ def _init_experimental() -> None:
                         "streamEpoch": stream_epoch,
                         "generation": generation,
                         "mode": "builtin_experimental",
+                        "ownerId": owner_id,
+                        "bridgeBuildId": bridge_build_id,
                     },
                 )
             )
@@ -283,14 +290,6 @@ async def health():
         {"status": "ok", "instance": "tdx", "adapter": "TdxLegacyMockAdapter", "connections": 0}
     """
     return await _runtime_from_globals().health(instance="tdx")
-
-
-@app.get("/health/experimental")
-async def experimental_health():
-    """Experimental bridge health (only meaningful when builtin_experimental)."""
-    if tdx_experimental_gateway is not None:
-        return await tdx_experimental_gateway.health()
-    return {"tdxExperimentalBridgeReady": False, "mode": _realtime_mode()}
 
 
 app.include_router(v1_router, tags=["V1"])

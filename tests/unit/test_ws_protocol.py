@@ -5,9 +5,11 @@ from datetime import datetime
 from src.ws.protocol import (
     WSMessage,
     ws_error,
+    ws_experimental_snapshot,
     ws_pong,
     ws_quote,
     ws_ready,
+    ws_stream_started,
     ws_subscription_ack,
 )
 
@@ -91,3 +93,26 @@ def test_ws_ready_and_quote_helpers_share_common_envelope():
     assert quote.type == "quote"
     assert quote.provider == "tdx"
     assert quote.data["snapshot"]["Now"] == 10.25
+
+
+def test_experimental_ws_factories_keep_snapshot_and_epoch_events_isolated():
+    snapshot = ws_experimental_snapshot("tdx", {"sequence": 7, "streamEpoch": "epoch-1"})
+    started = ws_stream_started(
+        "tdx",
+        {
+            "streamEpoch": "epoch-2",
+            "generation": 2,
+            "mode": "builtin_experimental",
+            "ownerId": "owner-2",
+            "bridgeBuildId": "build-2",
+        },
+    )
+
+    assert snapshot.type == "tdx.experimental.snapshot"
+    assert snapshot.type != "quote"
+    assert snapshot.data == {"sequence": 7, "streamEpoch": "epoch-1"}
+    assert started.type == "stream_started"
+    assert started.data["streamEpoch"] == "epoch-2"
+    assert started.data["generation"] == 2
+    assert started.data["ownerId"] == "owner-2"
+    assert started.data["bridgeBuildId"] == "build-2"

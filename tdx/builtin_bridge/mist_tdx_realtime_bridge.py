@@ -41,6 +41,8 @@ DATASOURCE_URL = os.environ.get("MIST_DATASOURCE_URL", "http://127.0.0.1:9001")
 BRIDGE_ENDPOINT = DATASOURCE_URL.rstrip("/") + "/tdx/bridge"
 POLL_INTERVAL_SECONDS = 1.0
 HTTP_TIMEOUT_SECONDS = 2.0
+RETRY_BASE_SECONDS = 0.25
+RETRY_MAX_SECONDS = 5.0
 RECONCILE_BATCH = 50
 DIRTY_QUEUE_MAX = 200
 
@@ -65,6 +67,12 @@ def _compute_artifact_sha() -> str:
 
 BRIDGE_ARTIFACT_SHA256 = _compute_artifact_sha()
 
+OWNER_FENCE_CODES = {
+    "TDX_BRIDGE_NO_OWNER",
+    "TDX_BRIDGE_LEASE_INVALID",
+    "TDX_BRIDGE_EPOCH_MISMATCH",
+}
+
 
 # --- HTTP helpers (stdlib only) ---------------------------------------
 
@@ -77,6 +85,18 @@ def _post_json(url: str, payload: dict) -> dict:
     )
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _retry_delay_seconds(response: dict | None, attempt: int) -> float:
+    """Return a bounded delay, preferring the gateway classification."""
+    retry_after_ms = response.get("retryAfterMs") if isinstance(response, dict) else None
+    if isinstance(retry_after_ms, (int, float)) and retry_after_ms >= 0:
+        return min(float(retry_after_ms) / 1000.0, RETRY_MAX_SECONDS)
+    return min(RETRY_BASE_SECONDS * (2 ** max(0, attempt - 1)), RETRY_MAX_SECONDS)
+
+
+def _requires_registration(error: dict) -> bool:
+    return error.get("code") in OWNER_FENCE_CODES
 
 
 # --- Dirty symbol queue (thread-safe) ---------------------------------
@@ -125,18 +145,31 @@ class BridgeOwner:
         self._producer_seq += 1
         return self._producer_seq
 
+    def registration_payload(self) -> dict:
+        return {
+            "ownerId": self.owner_id,
+            "mode": "builtin_experimental",
+            "bridgeBuildId": BRIDGE_BUILD_ID,
+            "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+            "acquisitionProfile": ACQUISITION_PROFILE,
+            "schemaVersion": SCHEMA_VERSION,
+            "draftRevision": DRAFT_REVISION,
+        }
+
+    def request_identity(self) -> dict:
+        """Return the generation-fenced identity required after registration."""
+        if self.lease_token is None or self.stream_epoch is None:
+            raise RuntimeError("bridge owner is not registered")
+        return {
+            "leaseToken": self.lease_token,
+            "streamEpoch": self.stream_epoch,
+        }
+
     def register(self) -> bool:
         """Register with gateway. Returns True on success."""
         resp = _post_json(
             BRIDGE_ENDPOINT + "/owner",
-            {
-                "ownerId": self.owner_id,
-                "bridgeBuildId": BRIDGE_BUILD_ID,
-                "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
-                "acquisitionProfile": ACQUISITION_PROFILE,
-                "schemaVersion": SCHEMA_VERSION,
-                "draftRevision": DRAFT_REVISION,
-            },
+            self.registration_payload(),
         )
         if "leaseToken" not in resp:
             print(f"[mist-bridge] registration failed: {resp}")
@@ -294,21 +327,27 @@ def run_bridge() -> None:
             poll_resp = _post_json(
                 BRIDGE_ENDPOINT + "/poll",
                 {
-                    "leaseToken": owner.lease_token,
+                    **owner.request_identity(),
                     "appliedRevision": owner.applied_revision,
                 },
             )
             if "error" in poll_resp:
                 err = poll_resp["error"]
-                if err.get("code") in ("TDX_BRIDGE_NO_OWNER", "TDX_BRIDGE_LEASE_INVALID"):
+                if _requires_registration(err):
                     print("[mist-bridge] lease lost, re-registering...")
                     while not owner.register():
-                        time.sleep(POLL_INTERVAL_SECONDS)
+                        time.sleep(_retry_delay_seconds(err, 1))
                     continue
-                # Other errors: log and continue.
                 print(f"[mist-bridge] poll error: {err}")
-                time.sleep(POLL_INTERVAL_SECONDS)
+                if err.get("retryable"):
+                    time.sleep(_retry_delay_seconds(err, 1))
+                else:
+                    time.sleep(POLL_INTERVAL_SECONDS)
                 continue
+
+            poll_retry_after = poll_resp.get("retryAfterMs", 0)
+            if isinstance(poll_retry_after, (int, float)) and poll_retry_after > 0:
+                time.sleep(_retry_delay_seconds(poll_resp, 1))
 
             desired_revision = poll_resp.get("desiredRevision", 0)
             desired_symbols = poll_resp.get("desiredSymbols", [])
@@ -346,15 +385,28 @@ def run_bridge() -> None:
             result_resp = _post_json(
                 BRIDGE_ENDPOINT + "/result",
                 {
-                    "leaseToken": owner.lease_token,
+                    **owner.request_identity(),
                     "desiredRevision": desired_revision,
                     "appliedRevision": desired_revision,
                     "active": active_list,
                     "rejected": rejected,
                 },
             )
+            result_error = result_resp.get("error", {})
+            if result_error:
+                if _requires_registration(result_error):
+                    print("[mist-bridge] result fenced, re-registering...")
+                    while not owner.register():
+                        time.sleep(_retry_delay_seconds(result_error, 1))
+                    continue
+                print(f"[mist-bridge] reconcile result error: {result_error}")
+                if result_error.get("retryable"):
+                    time.sleep(_retry_delay_seconds(result_error, 1))
+                continue
             if result_resp.get("converged"):
                 owner.applied_revision = desired_revision
+            elif result_resp.get("retryable"):
+                time.sleep(_retry_delay_seconds(result_resp, result_resp.get("retryAttempt", 1)))
 
             # 4. Fetch dirty symbols and POST snapshots.
             dirty = dirty_queue.swap_and_clear()
@@ -371,7 +423,7 @@ def run_bridge() -> None:
                 # sequence/body so gateway dedup handles network failures.
                 producer_seq = owner.next_producer_sequence()
                 snapshot_body = {
-                    "leaseToken": owner.lease_token,
+                    **owner.request_identity(),
                     "symbol": code,
                     "producerSequence": producer_seq,
                     "capturedAt": captured_at,
@@ -386,6 +438,14 @@ def run_bridge() -> None:
                         err = snap_resp.get("error", {})
                         if err.get("code") == "TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE":
                             break  # Gateway already has it (prior attempt succeeded).
+                        if _requires_registration(err):
+                            print("[mist-bridge] snapshot fenced, re-registering...")
+                            while not owner.register():
+                                time.sleep(_retry_delay_seconds(err, attempt + 1))
+                            break
+                        if err.get("retryable") and attempt < max_retries - 1:
+                            time.sleep(_retry_delay_seconds(err, attempt + 1))
+                            continue
                         print(f"[mist-bridge] snapshot rejected for {code}: {err}")
                         break  # Non-retryable rejection.
                     except urllib.error.URLError as e:
@@ -393,7 +453,7 @@ def run_bridge() -> None:
                             print(
                                 f"[mist-bridge] snapshot POST retry {attempt + 1}/{max_retries} for {code}: {e}"
                             )
-                            time.sleep(0.5)
+                            time.sleep(_retry_delay_seconds(None, attempt + 1))
                         else:
                             print(
                                 f"[mist-bridge] snapshot POST failed for {code} after {max_retries} retries: {e}"

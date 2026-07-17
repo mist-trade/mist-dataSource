@@ -284,3 +284,47 @@ def test_normalize_snapshot_accepts_lowercase_and_camelcase_fields():
     assert snapshot.open == 9.5
     assert snapshot.lastClose == 9.3
     assert snapshot.volume == 100.0
+
+
+def test_http_snapshot_preserves_fill_clock_and_first_alias_policy():
+    snapshot = normalize_tdx_snapshot(
+        "600519.SH",
+        {
+            "Now": "10.2",
+            "Last": "99.9",
+            "Code": "600519.SH",
+        },
+    )
+
+    assert snapshot.last == 10.2
+    assert snapshot.open == 0.0
+    assert snapshot.high == 0.0
+    assert snapshot.asOf.endswith("+08:00")
+
+
+def test_http_snapshot_ignores_experimental_only_aliases_and_native_order():
+    last_before_now = normalize_tdx_snapshot(
+        "600519.SH",
+        {
+            "Last": "99.9",
+            "Now": "10.2",
+            "High": "88.8",
+            "Low": "1.1",
+        },
+    )
+    aliases_only = normalize_tdx_snapshot(
+        "600519.SH",
+        {
+            "Last": "99.9",
+            "Close": "98.8",
+            "High": "88.8",
+            "Low": "1.1",
+        },
+    )
+
+    assert last_before_now.last == 10.2
+    assert last_before_now.high == 0.0
+    assert last_before_now.low == 0.0
+    assert aliases_only.last == 0.0
+    assert aliases_only.high == 0.0
+    assert aliases_only.low == 0.0

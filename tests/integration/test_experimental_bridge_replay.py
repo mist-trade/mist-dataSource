@@ -57,10 +57,16 @@ class MockBroadcastCapture:
 def gateway_with_capture() -> tuple[ExperimentalTdxRealtimeGateway, MockBroadcastCapture]:
     capture = MockBroadcastCapture()
     gateway = ExperimentalTdxRealtimeGateway(
-        on_epoch_change=lambda epoch, gen=0: capture.broadcast(
+        on_epoch_change=lambda epoch, gen, owner_id, bridge_build_id: capture.broadcast(
             {
                 "type": "stream_started",
-                "data": {"streamEpoch": epoch, "generation": gen, "mode": "builtin_experimental"},
+                "data": {
+                    "streamEpoch": epoch,
+                    "generation": gen,
+                    "mode": "builtin_experimental",
+                    "ownerId": owner_id,
+                    "bridgeBuildId": bridge_build_id,
+                },
             }
         ),
     )
@@ -85,17 +91,20 @@ class TestFullReplayChain:
         )
         assert "leaseToken" in reg
         lease = reg["leaseToken"]
+        epoch = reg["streamEpoch"]
         assert reg["generation"] == 1
         # stream_started broadcast happened.
         assert len(capture.messages) == 1
         assert capture.messages[0]["data"]["generation"] == 1
+        assert capture.messages[0]["data"]["ownerId"] == "bridge-1"
+        assert capture.messages[0]["data"]["bridgeBuildId"] == "sha-abc"
 
         # 2. Set desired symbols.
         rev = await gateway.sync_desired(["600519.SH"])
         assert rev == 1
 
         # 3. Terminal polls — gets subscribe instructions.
-        poll = await gateway.poll(lease_token=lease, applied_revision=-1)
+        poll = await gateway.poll(lease_token=lease, stream_epoch=epoch, applied_revision=-1)
         assert poll["desiredRevision"] == 1
         assert poll["desiredSymbols"] == ["600519.SH"]
         assert poll["subscribe"] == ["600519.SH"]
@@ -104,6 +113,7 @@ class TestFullReplayChain:
         # 4. Terminal reports result (converged).
         result = await gateway.post_result(
             lease_token=lease,
+            stream_epoch=epoch,
             desired_revision=1,
             applied_revision=1,
             active=["600519.SH"],
@@ -114,6 +124,7 @@ class TestFullReplayChain:
         # 5. Terminal posts snapshot.
         snap = await gateway.post_snapshot(
             lease_token=lease,
+            stream_epoch=epoch,
             symbol="600519.SH",
             producer_sequence=1,
             captured_at="2026-07-17T14:30:01.000+08:00",
@@ -139,11 +150,13 @@ class TestFullReplayChain:
             **CONTRACT_KWARGS,
         )
         lease = reg["leaseToken"]
+        epoch = reg["streamEpoch"]
 
         # Converge on two symbols.
         await gateway.sync_desired(["600519.SH", "000001.SZ"])
         await gateway.post_result(
             lease_token=lease,
+            stream_epoch=epoch,
             desired_revision=1,
             applied_revision=1,
             active=["600519.SH", "000001.SZ"],
@@ -154,7 +167,7 @@ class TestFullReplayChain:
         await gateway.sync_desired(["600519.SH"])
 
         # Poll must return unsubscribe=[000001.SZ].
-        poll = await gateway.poll(lease_token=lease, applied_revision=1)
+        poll = await gateway.poll(lease_token=lease, stream_epoch=epoch, applied_revision=1)
         assert "000001.SZ" in poll["unsubscribe"]
         assert "600519.SH" not in poll["unsubscribe"]
 
@@ -171,11 +184,13 @@ class TestFullReplayChain:
             **CONTRACT_KWARGS,
         )
         lease = reg["leaseToken"]
+        epoch = reg["streamEpoch"]
 
         # First convergence + snapshot.
         await gateway.sync_desired(["600519.SH"])
         await gateway.post_result(
             lease_token=lease,
+            stream_epoch=epoch,
             desired_revision=1,
             applied_revision=1,
             active=["600519.SH"],
@@ -183,6 +198,7 @@ class TestFullReplayChain:
         )
         snap1 = await gateway.post_snapshot(
             lease_token=lease,
+            stream_epoch=epoch,
             symbol="600519.SH",
             producer_sequence=1,
             captured_at="2026-07-17T14:30:01.000+08:00",
@@ -195,6 +211,7 @@ class TestFullReplayChain:
         await gateway.sync_desired(["600519.SH"])
         await gateway.post_result(
             lease_token=lease,
+            stream_epoch=epoch,
             desired_revision=3,
             applied_revision=3,
             active=["600519.SH"],
@@ -204,6 +221,7 @@ class TestFullReplayChain:
         # Second snapshot — sequence must be 2 (not reset to 1).
         snap2 = await gateway.post_snapshot(
             lease_token=lease,
+            stream_epoch=epoch,
             symbol="600519.SH",
             producer_sequence=2,
             captured_at="2026-07-17T14:30:02.000+08:00",
@@ -226,10 +244,12 @@ class TestFullReplayChain:
             **CONTRACT_KWARGS,
         )
         lease = reg["leaseToken"]
+        epoch = reg["streamEpoch"]
 
         await gateway.sync_desired(["600519.SH", "000001.SZ"])
         await gateway.post_result(
             lease_token=lease,
+            stream_epoch=epoch,
             desired_revision=1,
             applied_revision=1,
             active=["600519.SH", "000001.SZ"],
@@ -239,6 +259,7 @@ class TestFullReplayChain:
         await gateway.sync_desired(["600519.SH"])
         await gateway.post_result(
             lease_token=lease,
+            stream_epoch=epoch,
             desired_revision=2,
             applied_revision=2,
             active=["600519.SH"],
@@ -248,6 +269,7 @@ class TestFullReplayChain:
         with pytest.raises(GatewayError) as exc_info:
             await gateway.post_snapshot(
                 lease_token=lease,
+                stream_epoch=epoch,
                 symbol="000001.SZ",
                 producer_sequence=1,
                 captured_at="2026-07-17T14:30:01.000+08:00",

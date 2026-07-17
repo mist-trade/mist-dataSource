@@ -1502,6 +1502,15 @@ async def test_health_includes_enriched_tdx_state(v1_client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
+async def test_public_experimental_health_route_does_not_exist(
+    v1_client: AsyncClient,
+) -> None:
+    response = await v1_client.get("/health/experimental")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_health_handles_non_dict_provider_health() -> None:
     import tdx.main
 

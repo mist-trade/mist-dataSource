@@ -20,6 +20,8 @@ is transport/control only — it does not interpret price semantics.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -28,7 +30,7 @@ from typing import Any
 from src.datasource.tdx.experimental_decoder import (
     decode_experimental_tdx_snapshot,
 )
-from src.datasource.tdx_normalization import dedupe_normalized_symbols
+from src.datasource.tdx_normalization import dedupe_stable
 
 # Contract tuple accepted by this gateway build.
 ACCEPTED_PAYLOAD_TYPE = "tdx.realtime.snapshot"
@@ -40,6 +42,14 @@ ACCEPTED_ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 OWNER_STALE_AFTER_SECONDS = 10.0
 #: Subscription reconcile batch size.
 RECONCILE_BATCH = 50
+RECONCILE_RETRY_BASE_MS = 250
+RECONCILE_RETRY_MAX_MS = 5_000
+
+_RFC3339_PATTERN = re.compile(
+    r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})"
+    r"T(?P<hour>[01]\d|2[0-3]):(?P<minute>[0-5]\d):(?P<second>[0-5]\d)"
+    r"(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
+)
 
 
 class GatewayError(Exception):
@@ -83,7 +93,8 @@ class ExperimentalTdxRealtimeGateway:
     max_subscriptions: int = 100
     # Callback invoked when stream_epoch changes (owner generation change).
     # Set by the lifespan wiring to broadcast stream_started on the experimental
-    # WS manager. Signature: async (stream_epoch: str) -> None.
+    # WS manager. Signature: async (stream_epoch, generation, owner_id,
+    # bridge_build_id) -> None.
     on_epoch_change: Any = None
     _owner: BridgeOwner | None = None
     _owner_generation_counter: int = 0
@@ -105,6 +116,10 @@ class ExperimentalTdxRealtimeGateway:
     # Accumulated accepted/rejected native symbols from the last result.
     _last_applied_active: list[str] = field(default_factory=lambda: list[str]())
     _last_rejected: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    _reconcile_retry_attempt: int = 0
+    _reconcile_retry_after_monotonic: float | None = None
+    _last_retryable: bool | None = None
+    _last_failure_code: str | None = None
     # Async lock for state transitions.
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Separate lock to serialize epoch-change broadcasts (prevents out-of-order
@@ -160,6 +175,7 @@ class ExperimentalTdxRealtimeGateway:
             self._converged_revision = -1
             self._observed_native_symbols = set()
             self._last_reported_active = set()
+            self._reset_reconcile_retry_locked()
             self._sequences.clear()
             result = {
                 "leaseToken": lease_token,
@@ -179,7 +195,12 @@ class ExperimentalTdxRealtimeGateway:
             async with self._broadcast_lock:
                 current: Any = self._owner
                 if current is not None and current.generation == generation:
-                    await self.on_epoch_change(stream_epoch, generation)
+                    await self.on_epoch_change(
+                        stream_epoch,
+                        generation,
+                        current.owner_id,
+                        current.bridge_build_id,
+                    )
         return result
 
     def _validate_contract_tuple(
@@ -216,7 +237,7 @@ class ExperimentalTdxRealtimeGateway:
         Immediately invalidates convergence: a new revision means the old
         observedNative set is stale until the terminal reports a matching result.
         """
-        cleaned = dedupe_normalized_symbols(symbols)[: self.max_subscriptions]
+        cleaned = dedupe_stable(symbols)[: self.max_subscriptions]
         async with self._lock:
             if cleaned == self._desired_symbols:
                 return self._desired_revision
@@ -228,24 +249,24 @@ class ExperimentalTdxRealtimeGateway:
             # cause Mist to reject the next frame as duplicate/out-of-order.
             self._converged_revision = -1
             self._observed_native_symbols = set()
+            self._reset_reconcile_retry_locked()
             return self._desired_revision
 
     async def add_desired(self, symbols: list[str]) -> int:
-        cleaned = dedupe_normalized_symbols(symbols)
+        cleaned = dedupe_stable(symbols)
         async with self._lock:
-            merged = dedupe_normalized_symbols([*self._desired_symbols, *cleaned])[
-                : self.max_subscriptions
-            ]
+            merged = dedupe_stable([*self._desired_symbols, *cleaned])[: self.max_subscriptions]
             if merged == self._desired_symbols:
                 return self._desired_revision
             self._desired_symbols = merged
             self._desired_revision += 1
             self._converged_revision = -1
             self._observed_native_symbols = set()
+            self._reset_reconcile_retry_locked()
             return self._desired_revision
 
     async def remove_desired(self, symbols: list[str]) -> int:
-        to_remove = set(dedupe_normalized_symbols(symbols))
+        to_remove = set(dedupe_stable(symbols))
         async with self._lock:
             merged = [s for s in self._desired_symbols if s not in to_remove]
             if merged == self._desired_symbols:
@@ -254,6 +275,7 @@ class ExperimentalTdxRealtimeGateway:
             self._desired_revision += 1
             self._converged_revision = -1
             self._observed_native_symbols = set()
+            self._reset_reconcile_retry_locked()
             return self._desired_revision
 
     # --- poll / result ------------------------------------------------
@@ -262,12 +284,14 @@ class ExperimentalTdxRealtimeGateway:
         self,
         *,
         lease_token: str,
+        stream_epoch: str,
         applied_revision: int = -1,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Terminal polls for desired state."""
         async with self._lock:
-            owner = self._require_owner_locked(lease_token)
+            owner = self._require_owner_epoch_locked(lease_token, stream_epoch)
             owner.last_seen_monotonic = time.monotonic()
+            retry_after_ms = self._remaining_retry_ms_locked()
             return {
                 "desiredRevision": self._desired_revision,
                 "desiredSymbols": list(self._desired_symbols),
@@ -282,12 +306,14 @@ class ExperimentalTdxRealtimeGateway:
                 "subscribe": [
                     s for s in self._desired_symbols if s not in self._last_reported_active
                 ],
+                "retryAfterMs": retry_after_ms,
             }
 
     async def post_result(
         self,
         *,
         lease_token: str,
+        stream_epoch: str,
         desired_revision: int,
         applied_revision: int,
         active: list[str],
@@ -295,17 +321,24 @@ class ExperimentalTdxRealtimeGateway:
     ) -> dict[str, Any]:
         """Terminal reports reconcile outcome (four-state convergence)."""
         async with self._lock:
-            owner = self._require_owner_locked(lease_token)
+            owner = self._require_owner_epoch_locked(lease_token, stream_epoch)
             owner.last_seen_monotonic = time.monotonic()
             # Stale revision gate: ignore results for revisions other than current desired.
             if desired_revision != self._desired_revision:
-                return {"converged": False, "convergedRevision": self._converged_revision}
+                return {
+                    "converged": False,
+                    "convergedRevision": self._converged_revision,
+                    "failureCode": "TDX_BRIDGE_STALE_DESIRED_REVISION",
+                    "retryable": True,
+                    "retryAfterMs": RECONCILE_RETRY_BASE_MS,
+                }
             self._attempted_revision = desired_revision
-            self._last_applied_active = dedupe_normalized_symbols(active)
+            self._last_applied_active = dedupe_stable(active)
             self._last_reported_active = set(self._last_applied_active)
             self._last_rejected = rejected
             desired_set = set(self._desired_symbols)
             active_set = set(self._last_applied_active)
+            retry_after_ms = 0
             # applied_revision must match desired_revision (sanity: terminal applied what it polled).
             converged = (
                 applied_revision == desired_revision
@@ -315,13 +348,35 @@ class ExperimentalTdxRealtimeGateway:
             if converged:
                 self._converged_revision = desired_revision
                 self._observed_native_symbols = active_set
+                self._reset_reconcile_retry_locked()
             else:
                 # On non-convergence, clear observedNative so stale symbols
                 # can no longer post snapshots until convergence is re-achieved.
                 self._observed_native_symbols = set()
+                retryable = all(bool(item.get("retryable", True)) for item in rejected)
+                failure_code = next(
+                    (str(item.get("code")) for item in rejected if item.get("code")),
+                    ("TDX_BRIDGE_NATIVE_REJECTED" if rejected else "TDX_BRIDGE_RECONCILE_MISMATCH"),
+                )
+                self._last_retryable = retryable
+                self._last_failure_code = failure_code
+                if retryable:
+                    self._reconcile_retry_attempt += 1
+                    retry_after_ms = min(
+                        RECONCILE_RETRY_BASE_MS * (2 ** (self._reconcile_retry_attempt - 1)),
+                        RECONCILE_RETRY_MAX_MS,
+                    )
+                    self._reconcile_retry_after_monotonic = time.monotonic() + retry_after_ms / 1000
+                else:
+                    retry_after_ms = 0
+                    self._reconcile_retry_after_monotonic = None
             return {
                 "converged": converged,
                 "convergedRevision": self._converged_revision,
+                "failureCode": None if converged else self._last_failure_code,
+                "retryable": None if converged else self._last_retryable,
+                "retryAttempt": self._reconcile_retry_attempt,
+                "retryAfterMs": 0 if converged else retry_after_ms,
             }
 
     # --- snapshot ingestion -------------------------------------------
@@ -330,6 +385,7 @@ class ExperimentalTdxRealtimeGateway:
         self,
         *,
         lease_token: str,
+        stream_epoch: str,
         symbol: str,
         producer_sequence: int,
         captured_at: str,
@@ -350,7 +406,7 @@ class ExperimentalTdxRealtimeGateway:
         snapshot = decode_experimental_tdx_snapshot(symbol, native, expected_code=symbol)
         # All state access under lock.
         async with self._lock:
-            owner = self._require_owner_locked(lease_token)
+            owner = self._require_owner_epoch_locked(lease_token, stream_epoch)
             owner.last_seen_monotonic = time.monotonic()
             if symbol not in self._observed_native_symbols:
                 raise GatewayError(
@@ -389,33 +445,15 @@ class ExperimentalTdxRealtimeGateway:
         (which fills missing offset with Beijing TZ) — experimental gateway
         requires the terminal to provide a complete timestamp.
         """
-        stripped = value.strip()
-        # Must contain 'T' (date-time, not date-only).
-        if "T" not in stripped and "t" not in stripped:
+        stripped = value
+        if _RFC3339_PATTERN.fullmatch(stripped) is None:
             raise GatewayError(
                 "TDX_BRIDGE_INVALID_TIMESTAMP",
-                f"{field_name} is not RFC3339 (missing time separator): {value!r}",
+                f"{field_name} is not strict RFC3339: {value!r}",
                 retryable=False,
             )
-        # Must contain timezone offset after the date part.
-        time_part = stripped[10:]
-        has_offset = "Z" in time_part or "z" in time_part or "+" in time_part or "-" in time_part
-        if not has_offset:
-            raise GatewayError(
-                "TDX_BRIDGE_INVALID_TIMESTAMP",
-                f"{field_name} is not RFC3339 (missing timezone offset): {value!r}",
-                retryable=False,
-            )
-        # Must parse as valid datetime.
-        from src.datasource.contracts import normalize_beijing_iso
-
         try:
-            if normalize_beijing_iso(value) is None:
-                raise GatewayError(
-                    "TDX_BRIDGE_INVALID_TIMESTAMP",
-                    f"{field_name} is not a parseable RFC3339 timestamp: {value!r}",
-                    retryable=False,
-                )
+            dt.datetime.fromisoformat(stripped.replace("Z", "+00:00"))
         except (ValueError, TypeError) as exc:
             raise GatewayError(
                 "TDX_BRIDGE_INVALID_TIMESTAMP",
@@ -474,6 +512,11 @@ class ExperimentalTdxRealtimeGateway:
                 "convergedRevision": self._converged_revision,
                 "desiredSymbols": len(self._desired_symbols),
                 "convergedSymbols": len(self._observed_native_symbols),
+                "attemptedRevision": self._attempted_revision,
+                "reconcileRetryAttempt": self._reconcile_retry_attempt,
+                "reconcileRetryAfterMs": self._remaining_retry_ms_locked(),
+                "lastFailureCode": self._last_failure_code,
+                "lastFailureRetryable": self._last_retryable,
                 "acceptedContractTuple": {
                     "payloadType": ACCEPTED_PAYLOAD_TYPE,
                     "schemaVersion": ACCEPTED_SCHEMA_VERSION,
@@ -481,6 +524,17 @@ class ExperimentalTdxRealtimeGateway:
                     "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 },
             }
+
+    def _reset_reconcile_retry_locked(self) -> None:
+        self._reconcile_retry_attempt = 0
+        self._reconcile_retry_after_monotonic = None
+        self._last_retryable = None
+        self._last_failure_code = None
+
+    def _remaining_retry_ms_locked(self) -> int:
+        if self._reconcile_retry_after_monotonic is None:
+            return 0
+        return max(0, round((self._reconcile_retry_after_monotonic - time.monotonic()) * 1000))
 
     # --- helpers -------------------------------------------------------
 
@@ -496,6 +550,17 @@ class ExperimentalTdxRealtimeGateway:
             raise GatewayError("TDX_BRIDGE_NO_OWNER", "no active bridge owner", retryable=True)
         if not secrets.compare_digest(owner.lease_token, lease_token):
             raise GatewayError("TDX_BRIDGE_LEASE_INVALID", "lease token mismatch", retryable=False)
+        return owner
+
+    def _require_owner_epoch_locked(self, lease_token: str, stream_epoch: str) -> BridgeOwner:
+        """Validate the opaque lease and its generation fence under one lock."""
+        owner = self._require_owner_locked(lease_token)
+        if not secrets.compare_digest(owner.stream_epoch, stream_epoch):
+            raise GatewayError(
+                "TDX_BRIDGE_EPOCH_MISMATCH",
+                "stream epoch does not match the active owner generation",
+                retryable=False,
+            )
         return owner
 
     def _is_owner_fresh(self) -> bool:

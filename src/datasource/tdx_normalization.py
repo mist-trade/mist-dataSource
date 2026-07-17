@@ -1,9 +1,90 @@
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
 from src.datasource.contracts import BEIJING_TZ, normalize_beijing_iso
 from src.datasource.tdx_models import TdxBar, TdxSnapshot
+
+TDX_SNAPSHOT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    # Keep provider fields separate. In particular, Now/Last/Close and
+    # Max/High/Min/Low must not be merged before the consumer chooses its
+    # policy: the formal HTTP projector historically reads only Now/Max/Min.
+    "now": ("Now",),
+    "last": ("Last",),
+    "close": ("Close",),
+    "open": ("Open",),
+    "maximum": ("Max",),
+    "high": ("High",),
+    "minimum": ("Min",),
+    "low": ("Low",),
+    "lastClose": ("LastClose",),
+    "nativeVolume": ("Volume",),
+    "nativeAmount": ("Amount",),
+    "eventTime": ("AsOf",),
+}
+
+TDX_EXPERIMENTAL_LOGICAL_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+    "last": ("Now", "Last", "Close"),
+    "open": ("Open",),
+    "high": ("Max", "High"),
+    "low": ("Min", "Low"),
+    "lastClose": ("LastClose",),
+    "nativeVolume": ("Volume",),
+    "nativeAmount": ("Amount",),
+    "eventTime": ("AsOf",),
+}
+
+
+@dataclass(frozen=True)
+class RawTdxSnapshotFields:
+    """Native snapshot values before conversion, filling, or modelling."""
+
+    now: Any = None
+    last: Any = None
+    close: Any = None
+    open: Any = None
+    maximum: Any = None
+    high: Any = None
+    minimum: Any = None
+    low: Any = None
+    lastClose: Any = None
+    nativeVolume: Any = None
+    nativeAmount: Any = None
+    eventTime: Any = None
+    error_id: Any = None
+    code: Any = None
+
+
+def extract_tdx_snapshot_native_fields(
+    native: Mapping[str, Any],
+) -> RawTdxSnapshotFields:
+    """Project native aliases without applying a consumer-specific policy.
+
+    Each provider field is projected independently. This preserves the
+    historical HTTP behavior while allowing the experimental decoder to apply
+    a separate logical-alias policy after its strict conflict check.
+    """
+    values = {
+        logical: native_value(native, *aliases)
+        for logical, aliases in TDX_SNAPSHOT_FIELD_ALIASES.items()
+    }
+    return RawTdxSnapshotFields(
+        now=values["now"],
+        last=values["last"],
+        close=values["close"],
+        open=values["open"],
+        maximum=values["maximum"],
+        high=values["high"],
+        minimum=values["minimum"],
+        low=values["low"],
+        lastClose=values["lastClose"],
+        nativeVolume=values["nativeVolume"],
+        nativeAmount=values["nativeAmount"],
+        eventTime=values["eventTime"],
+        error_id=native_value(native, "ErrorId", "errorid", "error_id"),
+        code=native_value(native, "Code", "code"),
+    )
 
 
 def normalize_symbol(code: str) -> str:
@@ -124,18 +205,21 @@ def normalize_tdx_bar_rows(symbol: str, period: str, native: dict[str, Any]) -> 
 
 def normalize_tdx_snapshot(symbol: str, native: dict[str, Any]) -> TdxSnapshot:
     normalized_symbol = normalize_symbol(symbol)
+    raw = extract_tdx_snapshot_native_fields(native)
 
     return TdxSnapshot(
         symbol=normalized_symbol,
-        last=normalize_number(_get_native_value(native, "now")),
-        open=normalize_number(_get_native_value(native, "open")),
-        high=normalize_number(_get_native_value(native, "max")),
-        low=normalize_number(_get_native_value(native, "min")),
-        lastClose=normalize_number(_get_native_value(native, "lastclose")),
-        volume=normalize_number(_get_native_value(native, "volume")),
-        amount=normalize_number(_get_native_value(native, "amount")),
+        # Formal HTTP semantics are intentionally frozen to the historical
+        # provider fields. Experimental-only aliases must not leak here.
+        last=normalize_number(raw.now),
+        open=normalize_number(raw.open),
+        high=normalize_number(raw.maximum),
+        low=normalize_number(raw.minimum),
+        lastClose=normalize_number(raw.lastClose),
+        volume=normalize_number(raw.nativeVolume),
+        amount=normalize_number(raw.nativeAmount),
         provider="tdx",
-        asOf=beijing_iso(_get_native_value(native, "asof")),
+        asOf=beijing_iso(raw.eventTime),
     )
 
 

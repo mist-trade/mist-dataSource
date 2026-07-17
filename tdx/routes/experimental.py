@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.datasource.tdx.experimental_gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
@@ -28,7 +28,11 @@ router = APIRouter()
 # --- request models -----------------------------------------------------
 
 
-class OwnerRegisterRequest(BaseModel):
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class OwnerRegisterRequest(StrictRequestModel):
     ownerId: str
     mode: str  # Golden requires mode in owner registration.
     bridgeBuildId: str
@@ -38,18 +42,20 @@ class OwnerRegisterRequest(BaseModel):
     draftRevision: int = ACCEPTED_DRAFT_REVISION
 
 
-class PollRequest(BaseModel):
+class PollRequest(StrictRequestModel):
     leaseToken: str
     streamEpoch: str  # Golden requires streamEpoch in subsequent requests.
     appliedRevision: int = -1
 
 
-class RejectedItem(BaseModel):
+class RejectedItem(StrictRequestModel):
     symbol: str
     reason: str
+    code: str = "TDX_BRIDGE_NATIVE_REJECTED"
+    retryable: bool = True
 
 
-class ResultRequest(BaseModel):
+class ResultRequest(StrictRequestModel):
     leaseToken: str
     streamEpoch: str  # Golden requires streamEpoch.
     desiredRevision: int
@@ -58,7 +64,7 @@ class ResultRequest(BaseModel):
     rejected: list[RejectedItem] = Field(default_factory=lambda: list[RejectedItem]())
 
 
-class SnapshotRequest(BaseModel):
+class SnapshotRequest(StrictRequestModel):
     leaseToken: str
     streamEpoch: str  # Golden requires streamEpoch.
     symbol: str
@@ -85,11 +91,18 @@ def _require_loopback(request: Request) -> None:
     """Reject non-loopback connections."""
     client = request.client
     if client is None or client.host not in ("127.0.0.1", "::1", "localhost"):
-        raise GatewayError(
-            "TDX_BRIDGE_NOT_LOOPBACK",
-            f"bridge endpoints are loopback-only (got {client.host if client else 'unknown'})",
-            retryable=False,
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "TDX_BRIDGE_NOT_LOOPBACK",
+                "message": "bridge endpoints are loopback-only",
+                "retryable": False,
+            },
         )
+
+
+def _gateway_error(exc: GatewayError) -> dict[str, Any]:
+    return {"code": exc.code, "message": exc.message, "retryable": exc.retryable}
 
 
 # --- routes -------------------------------------------------------------
@@ -100,6 +113,12 @@ async def register_owner(body: OwnerRegisterRequest, request: Request) -> dict[s
     _require_loopback(request)
     gateway = _get_gateway(request)
     try:
+        if body.mode != "builtin_experimental":
+            raise GatewayError(
+                "TDX_BRIDGE_MODE_MISMATCH",
+                f"owner mode must be 'builtin_experimental' (got {body.mode!r})",
+                retryable=False,
+            )
         return await gateway.register_owner(
             owner_id=body.ownerId,
             bridge_build_id=body.bridgeBuildId,
@@ -109,7 +128,7 @@ async def register_owner(body: OwnerRegisterRequest, request: Request) -> dict[s
             draft_revision=body.draftRevision,
         )
     except GatewayError as exc:
-        return {"accepted": False, "error": {"code": exc.code, "message": exc.message}}
+        return {"accepted": False, "error": _gateway_error(exc)}
 
 
 @router.post("/tdx/bridge/poll")
@@ -118,10 +137,12 @@ async def poll(body: PollRequest, request: Request) -> dict[str, Any]:
     gateway = _get_gateway(request)
     try:
         return await gateway.poll(
-            lease_token=body.leaseToken, applied_revision=body.appliedRevision
+            lease_token=body.leaseToken,
+            stream_epoch=body.streamEpoch,
+            applied_revision=body.appliedRevision,
         )
     except GatewayError as exc:
-        return {"error": {"code": exc.code, "message": exc.message}}
+        return {"error": _gateway_error(exc)}
 
 
 @router.post("/tdx/bridge/result")
@@ -131,13 +152,14 @@ async def post_result(body: ResultRequest, request: Request) -> dict[str, Any]:
     try:
         return await gateway.post_result(
             lease_token=body.leaseToken,
+            stream_epoch=body.streamEpoch,
             desired_revision=body.desiredRevision,
             applied_revision=body.appliedRevision,
             active=body.active,
             rejected=[r.model_dump() for r in body.rejected],
         )
     except GatewayError as exc:
-        return {"error": {"code": exc.code, "message": exc.message}}
+        return {"error": _gateway_error(exc)}
 
 
 @router.post("/tdx/bridge/snapshot")
@@ -147,6 +169,7 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
     try:
         result = await gateway.post_snapshot(
             lease_token=body.leaseToken,
+            stream_epoch=body.streamEpoch,
             symbol=body.symbol,
             producer_sequence=body.producerSequence,
             captured_at=body.capturedAt,
@@ -160,7 +183,7 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
             await ws_manager.broadcast(ws_experimental_snapshot("tdx", result["frame"]))
         return {"accepted": result["accepted"], "sequence": result["sequence"]}
     except GatewayError as exc:
-        return {"accepted": False, "error": {"code": exc.code, "message": exc.message}}
+        return {"accepted": False, "error": _gateway_error(exc)}
     except Exception as exc:  # ExperimentalDecoderError etc.
         return {
             "accepted": False,
@@ -170,11 +193,12 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
 
 @router.get("/tdx/bridge/health")
 async def bridge_health(request: Request) -> dict[str, Any]:
+    _require_loopback(request)
     gateway = _get_gateway(request)
     return await gateway.health()
 
 
-class SyncDesiredRequest(BaseModel):
+class SyncDesiredRequest(StrictRequestModel):
     symbols: list[str] = Field(default_factory=list)
 
 

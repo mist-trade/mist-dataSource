@@ -23,23 +23,6 @@
         }
       }
     },
-    "/health/experimental": {
-      "get": {
-        "summary": "Experimental Health",
-        "description": "Experimental bridge health (only meaningful when builtin_experimental).",
-        "operationId": "experimental_health_health_experimental_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/providers": {
       "get": {
         "tags": [

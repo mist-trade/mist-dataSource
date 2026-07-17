@@ -13,8 +13,10 @@ This document describes how to install, start, stop, and roll back the
 - Python 3.7+ (bundled with TDX terminal)
 - `mist-datasource` service running on `http://127.0.0.1:9001` with
   `TDX_REALTIME_MODE=builtin_experimental`
-- Allowlist symbols configured via `TDX_EXPERIMENTAL_ALLOWLIST` on the
-  datasource side (comma-separated, max 5, e.g. `600519.SH,000001.SZ`)
+- Allowlist symbols configured via `TDX_EXPERIMENTAL_ALLOWLIST` on the Mist
+  backend (comma-separated, max 5, e.g. `600519.SH,000001.SZ`). Mist resolves
+  them against its security database and publishes the resulting desired set
+  to the datasource gateway.
 
 ## Install
 
@@ -52,6 +54,8 @@ Verify the bridge is registered:
 curl http://127.0.0.1:9001/tdx/bridge/health
 ```
 Look for `tdxExperimentalBridgeReady: true` and `bridgeBuildId`.
+Detailed experimental health is intentionally available only on this
+loopback-protected bridge route; there is no public `/health/experimental`.
 
 ## Set Desired Symbols
 
