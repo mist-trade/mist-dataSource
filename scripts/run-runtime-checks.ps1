@@ -40,6 +40,7 @@ param(
     [switch]$IncludeFormulaSmoke,
     [switch]$RequireLiveQuote,
     [switch]$AllowWebSocketSubscriptionChange,
+    [switch]$AllowTqUninitialized,
     [switch]$AllowTdxHttpUnavailable
 )
 
@@ -478,7 +479,7 @@ function Test-HealthEndpoint {
     foreach ($key in @("status", "instance", "adapter", "tdxHttpReachable", "tqInitialized", "collectorState")) {
         Assert-PropertyExists -Object $health -Name $key
     }
-    if ($health.tqInitialized -ne $true) {
+    if (($health.tqInitialized -ne $true) -and (-not $AllowTqUninitialized)) {
         throw "TDX service is not initialized."
     }
     if (($health.tdxHttpReachable -ne $true) -and (-not $AllowTdxHttpUnavailable)) {
