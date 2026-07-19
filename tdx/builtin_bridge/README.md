@@ -94,9 +94,10 @@ To revert to legacy realtime:
 
 ## Troubleshooting
 
-- **`FATAL: tqcenter not available`**: The script is not running inside the
-  TDX terminal. Ensure it's loaded via the TQ Strategy Manager, not run
-  standalone. For testing only, set `MIST_BRIDGE_USE_FAKE_TQ=1`.
+- **`FATAL: tqcenter not available`**: Read the appended `Import error` first.
+  Missing dependencies such as `numpy` or a missing native DLL can fail while
+  importing `tqcenter`. Otherwise ensure the script is loaded via the TQ
+  Strategy Manager. Set `MIST_BRIDGE_USE_FAKE_TQ=1` only for tests.
 - **`registration failed`**: The datasource is not running or not in
   `builtin_experimental` mode. Check `/tdx/bridge/health`.
 - **`snapshot rejected: NOT_CONVERGED`**: The symbol is not in the converged

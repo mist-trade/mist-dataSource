@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
+from builtins import __import__ as builtin_import
 from pathlib import Path
 from unittest.mock import patch
 
@@ -63,6 +64,23 @@ class TestFakeTq:
         assert "600519.SH" in fake.get_subscribe_hq_stock_list()
         fake.unsubscribe_hq(["600519.SH"])
         assert "600519.SH" not in fake.get_subscribe_hq_stock_list()
+
+    def test_real_sdk_import_error_preserves_dependency_name(self, monkeypatch) -> None:
+        monkeypatch.delenv("MIST_BRIDGE_USE_FAKE_TQ", raising=False)
+
+        def import_with_missing_dependency(name, *args, **kwargs):
+            if name == "tqcenter":
+                raise ImportError("No module named 'numpy'")
+            return builtin_import(name, *args, **kwargs)
+
+        wrapper = _bridge_mod.TqCenterWrapper()
+        with patch("builtins.__import__", side_effect=import_with_missing_dependency):
+            try:
+                wrapper.initialize()
+            except SystemExit as exc:
+                assert "No module named 'numpy'" in str(exc)
+            else:
+                raise AssertionError("missing tqcenter dependency must stop the bridge")
 
 
 class TestFormatCode:

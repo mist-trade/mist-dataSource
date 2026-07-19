@@ -209,12 +209,12 @@ class TqCenterWrapper:
             self._tq = tq
             self._is_fake = False
             print("[mist-bridge] tqcenter initialized (real SDK)")
-        except ImportError:
+        except ImportError as exc:
             raise SystemExit(
                 "[mist-bridge] FATAL: tqcenter not available and MIST_BRIDGE_USE_FAKE_TQ!=1."
                 " This script must run inside the TDX terminal. Set MIST_BRIDGE_USE_FAKE_TQ=1"
-                " only for testing."
-            )
+                f" only for testing. Import error: {exc}"
+            ) from exc
 
     def subscribe_hq(self, codes: list[str], callback) -> None:
         self._tq.subscribe_hq(codes, callback)
