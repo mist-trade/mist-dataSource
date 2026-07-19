@@ -942,9 +942,13 @@ try {
     if (-not $SkipWinSWProbe) {
         Invoke-RuntimeStep "TDX WinSW runtime probe" {
             [void](Invoke-TdxHealthRequest)
+            $winswProbeArgs = @("-BaseUrl", $BaseUrl, "-WsUrl", $WsUrl, "-Symbol", $Symbol)
+            if ($SkipWebSocket) {
+                $winswProbeArgs += "-SkipWebSocket"
+            }
             Invoke-ChildScript `
                 -ScriptPath $winswProbeScript `
-                -Arguments @("-BaseUrl", $BaseUrl, "-WsUrl", $WsUrl, "-Symbol", $Symbol) `
+                -Arguments $winswProbeArgs `
                 -Required
         }
     }

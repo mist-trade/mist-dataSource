@@ -1,7 +1,8 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:9001",
     [string]$WsUrl = "ws://127.0.0.1:9001/ws/quote/smoke-test",
-    [string]$Symbol = "600519.SH"
+    [string]$Symbol = "600519.SH",
+    [switch]$SkipWebSocket
 )
 
 $ErrorActionPreference = "Stop"
@@ -140,37 +141,42 @@ try {
         -Payload @{ symbols = @($Symbol); period = "1m"; count = 1 }
     Assert-EnvelopeOk -Envelope $bars -Name "bars query"
 
-    Write-Host "Checking WebSocket bridge: $WsUrl"
-    $socket = [System.Net.WebSockets.ClientWebSocket]::new()
-    try {
-        $connectCts = [System.Threading.CancellationTokenSource]::new()
-        $connectCts.CancelAfter([TimeSpan]::FromSeconds(15))
-        [void]$socket.ConnectAsync([Uri]$WsUrl, $connectCts.Token).GetAwaiter().GetResult()
-        $connectCts.Dispose()
+    if (-not $SkipWebSocket) {
+        Write-Host "Checking WebSocket bridge: $WsUrl"
+        $socket = [System.Net.WebSockets.ClientWebSocket]::new()
+        try {
+            $connectCts = [System.Threading.CancellationTokenSource]::new()
+            $connectCts.CancelAfter([TimeSpan]::FromSeconds(15))
+            [void]$socket.ConnectAsync([Uri]$WsUrl, $connectCts.Token).GetAwaiter().GetResult()
+            $connectCts.Dispose()
 
-        $ready = Receive-WebSocketText -Socket $socket | ConvertFrom-Json
-        if ($ready.type -ne "ready") {
-            throw "Expected WebSocket ready message, got: $($ready | ConvertTo-Json -Compress -Depth 8)"
+            $ready = Receive-WebSocketText -Socket $socket | ConvertFrom-Json
+            if ($ready.type -ne "ready") {
+                throw "Expected WebSocket ready message, got: $($ready | ConvertTo-Json -Compress -Depth 8)"
+            }
+
+            Send-WebSocketJson -Socket $socket -Payload @{
+                "type" = "ping"
+            }
+
+            $pong = Receive-WebSocketText -Socket $socket | ConvertFrom-Json
+            if ($pong.type -ne "pong") {
+                throw "Expected WebSocket pong message, got: $($pong | ConvertTo-Json -Compress -Depth 8)"
+            }
         }
-
-        Send-WebSocketJson -Socket $socket -Payload @{
-            "type" = "ping"
-        }
-
-        $pong = Receive-WebSocketText -Socket $socket | ConvertFrom-Json
-        if ($pong.type -ne "pong") {
-            throw "Expected WebSocket pong message, got: $($pong | ConvertTo-Json -Compress -Depth 8)"
+        finally {
+            if ($socket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+                [void]$socket.CloseAsync(
+                    [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
+                    "smoke complete",
+                    [System.Threading.CancellationToken]::None
+                ).GetAwaiter().GetResult()
+            }
+            $socket.Dispose()
         }
     }
-    finally {
-        if ($socket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
-            [void]$socket.CloseAsync(
-                [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
-                "smoke complete",
-                [System.Threading.CancellationToken]::None
-            ).GetAwaiter().GetResult()
-        }
-        $socket.Dispose()
+    else {
+        Write-Host "Skipping WebSocket bridge check."
     }
 
     Write-Host "TDX datasource smoke test passed."

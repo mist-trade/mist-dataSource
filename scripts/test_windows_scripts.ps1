@@ -145,6 +145,9 @@ Assert-Match "runtime checks run SDK preflight" $runtimeChecks "scripts\prefligh
 Assert-Match "runtime checks can run datasource deploy install" $runtimeChecks "-Only install"
 Assert-Match "runtime checks can run datasource deploy test" $runtimeChecks "-Only test"
 Assert-Match "runtime checks run WinSW service probe" $runtimeChecks "scripts\winsw\test-tdx-datasource.ps1"
+Assert-Match "runtime checks pass WebSocket skip to WinSW probe" $runtimeChecks '$winswProbeArgs += "-SkipWebSocket"'
+Assert-Match "WinSW probe accepts WebSocket skip" $tdxWinswSmoke '[switch]$SkipWebSocket'
+Assert-Match "WinSW probe guards WebSocket check" $tdxWinswSmoke 'if (-not $SkipWebSocket)'
 Assert-Match "runtime checks checks TDX service status" $runtimeChecks "mist-tdx-datasource"
 Assert-Match "runtime checks points to TDX service logs" $runtimeChecks "logs\mist-tdx-datasource"
 Assert-Match "runtime checks run appliance health check" $runtimeChecks "health-check.ps1"
