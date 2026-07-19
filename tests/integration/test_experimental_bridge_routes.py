@@ -105,6 +105,14 @@ def test_terminal_payloads_complete_real_http_route_chain() -> None:
         assert snapshot.json()["accepted"] is True
         assert len(capture.messages) == 1
 
+        evidence = client.get("/tdx/bridge/evidence/600519.SH")
+        assert evidence.status_code == 200
+        payload = evidence.json()
+        assert payload["native"] == _native_snapshot()
+        assert payload["frame"]["sequence"] == 1
+        assert payload["producerSequence"] == 1
+        assert "leaseToken" not in payload
+
 
 def test_owner_mode_and_epoch_are_semantically_enforced() -> None:
     client, _ = _client()
@@ -160,6 +168,21 @@ def test_bridge_routes_reject_unknown_fields_and_remote_health() -> None:
             "message": "bridge endpoints are loopback-only",
             "retryable": False,
         }
+
+
+def test_native_evidence_is_loopback_only_and_rejects_unknown_fields() -> None:
+    client, _ = _client()
+    with client:
+        assert client.get("/tdx/bridge/evidence/600519.SH?extra=1").status_code == 422
+        missing = client.get("/tdx/bridge/evidence/600519.SH")
+        assert missing.status_code == 404
+        assert missing.json()["detail"]["code"] == "TDX_BRIDGE_EVIDENCE_NOT_FOUND"
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.tdx_experimental_gateway = ExperimentalTdxRealtimeGateway()
+    with TestClient(app, client=("203.0.113.10", 43123)) as remote:
+        assert remote.get("/tdx/bridge/evidence/600519.SH").status_code == 403
 
 
 def test_gateway_errors_preserve_retryable_classification() -> None:

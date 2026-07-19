@@ -66,6 +66,74 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "OwnerRegisterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "acquisitionProfile": {
+            "default": "tdx.get_market_snapshot",
+            "title": "Acquisitionprofile",
+            "type": "string"
+          },
+          "bridgeArtifactSha256": {
+            "title": "Bridgeartifactsha256",
+            "type": "string"
+          },
+          "bridgeBuildId": {
+            "title": "Bridgebuildid",
+            "type": "string"
+          },
+          "draftRevision": {
+            "default": 1,
+            "title": "Draftrevision",
+            "type": "integer"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          },
+          "schemaVersion": {
+            "default": 0,
+            "title": "Schemaversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ownerId",
+          "mode",
+          "bridgeBuildId",
+          "bridgeArtifactSha256"
+        ],
+        "title": "OwnerRegisterRequest",
+        "type": "object"
+      },
+      "PollRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "appliedRevision": {
+            "default": -1,
+            "title": "Appliedrevision",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "streamEpoch": {
+            "title": "Streamepoch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken",
+          "streamEpoch"
+        ],
+        "title": "PollRequest",
+        "type": "object"
+      },
       "RawTdxCallRequest": {
         "additionalProperties": false,
         "properties": {
@@ -83,6 +151,78 @@
           "method"
         ],
         "title": "RawTdxCallRequest",
+        "type": "object"
+      },
+      "RejectedItem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "default": "TDX_BRIDGE_NATIVE_REJECTED",
+            "title": "Code",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "retryable": {
+            "default": true,
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "reason"
+        ],
+        "title": "RejectedItem",
+        "type": "object"
+      },
+      "ResultRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Active",
+            "type": "array"
+          },
+          "appliedRevision": {
+            "title": "Appliedrevision",
+            "type": "integer"
+          },
+          "desiredRevision": {
+            "title": "Desiredrevision",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedItem"
+            },
+            "title": "Rejected",
+            "type": "array"
+          },
+          "streamEpoch": {
+            "title": "Streamepoch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken",
+          "streamEpoch",
+          "desiredRevision",
+          "appliedRevision"
+        ],
+        "title": "ResultRequest",
         "type": "object"
       },
       "SectorQueryRequest": {
@@ -114,6 +254,60 @@
           }
         },
         "title": "SectorRequest",
+        "type": "object"
+      },
+      "SnapshotRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "capturedAt": {
+            "title": "Capturedat",
+            "type": "string"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "native": {
+            "additionalProperties": true,
+            "title": "Native",
+            "type": "object"
+          },
+          "producerSequence": {
+            "title": "Producersequence",
+            "type": "integer"
+          },
+          "streamEpoch": {
+            "title": "Streamepoch",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken",
+          "streamEpoch",
+          "symbol",
+          "producerSequence",
+          "capturedAt",
+          "native"
+        ],
+        "title": "SnapshotRequest",
+        "type": "object"
+      },
+      "SyncDesiredRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "title": "SyncDesiredRequest",
         "type": "object"
       },
       "TdxBarQueryRequest": {
@@ -3130,6 +3324,290 @@
         "summary": "Providers",
         "tags": [
           "V1"
+        ]
+      }
+    },
+    "/tdx/bridge/desired": {
+      "post": {
+        "description": "Set the desired subscription set (full replace).\n\nThis is the production desired-state entry point: Mist or an operator\ncalls this to tell the gateway which symbols the terminal bridge should\nsubscribe to. The terminal polls this via /tdx/bridge/poll.\nLoopback-only: must be called from the same machine (Mist backend).",
+        "operationId": "sync_desired_tdx_bridge_desired_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncDesiredRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sync Desired Tdx Bridge Desired Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Desired",
+        "tags": [
+          "ExperimentalBridge"
+        ]
+      }
+    },
+    "/tdx/bridge/evidence/{symbol}": {
+      "get": {
+        "description": "Return bounded native HIL evidence without owner credentials.",
+        "operationId": "bridge_native_evidence_tdx_bridge_evidence__symbol__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bridge Native Evidence Tdx Bridge Evidence  Symbol  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bridge Native Evidence",
+        "tags": [
+          "ExperimentalBridge"
+        ]
+      }
+    },
+    "/tdx/bridge/health": {
+      "get": {
+        "operationId": "bridge_health_tdx_bridge_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bridge Health Tdx Bridge Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Bridge Health",
+        "tags": [
+          "ExperimentalBridge"
+        ]
+      }
+    },
+    "/tdx/bridge/owner": {
+      "post": {
+        "operationId": "register_owner_tdx_bridge_owner_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Register Owner Tdx Bridge Owner Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Owner",
+        "tags": [
+          "ExperimentalBridge"
+        ]
+      }
+    },
+    "/tdx/bridge/poll": {
+      "post": {
+        "operationId": "poll_tdx_bridge_poll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Poll Tdx Bridge Poll Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Poll",
+        "tags": [
+          "ExperimentalBridge"
+        ]
+      }
+    },
+    "/tdx/bridge/result": {
+      "post": {
+        "operationId": "post_result_tdx_bridge_result_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Result Tdx Bridge Result Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Result",
+        "tags": [
+          "ExperimentalBridge"
+        ]
+      }
+    },
+    "/tdx/bridge/snapshot": {
+      "post": {
+        "operationId": "post_snapshot_tdx_bridge_snapshot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Snapshot Tdx Bridge Snapshot Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Snapshot",
+        "tags": [
+          "ExperimentalBridge"
         ]
       }
     },

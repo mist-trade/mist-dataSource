@@ -1,6 +1,6 @@
 # QMT Native Datasource Notes
 
-Reviewed on 2026-07-05 against the full-QMT built-in Python direction.
+Reviewed on 2026-07-19 against the Theme A mode-gated realtime direction.
 
 QMT is no longer modeled as a TDX-compatible provider inside the TDX service.
 Mist should call TDX on `:9001` and QMT on `:9002` as two separate datasource
@@ -10,10 +10,12 @@ datasource.
 
 ## Current Boundary
 
-- TDX service `:9001` exposes TDX `/v1` contracts and TDX WebSocket quote
-  streaming only.
+- TDX service `:9001` always exposes TDX `/v1`; its legacy and builtin
+  experimental WebSockets are mutually exclusive runtime modes.
 - QMT service `:9002` exposes `/health`, `:9002/v1/bars/query`, and the
   full-QMT HTTP polling bridge endpoints used by the built-in Python script.
+- `QMT_REALTIME_MODE=builtin_experimental` additionally exposes datasource-side
+  `/ws/qmt-experimental/{clientId}` and loopback `/qmt/realtime/health`.
 - QMT native `marketData` is returned as column-oriented JSON shaped after
   `ContextInfo.get_market_data_ex(..., subscribe=False)`: `{field: {stime:
   value}}`.
@@ -27,6 +29,8 @@ datasource.
 - QMT built-in production script must not use third-party packages, threads,
   subprocesses, separate Python processes, local port listeners, or WebSocket
   transport.
+- The experimental QMT WebSocket is downstream of the datasource. It does not
+  change the built-in script transport or native historical response shape.
 
 ## Native Bars
 

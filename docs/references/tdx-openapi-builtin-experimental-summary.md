@@ -1,9 +1,9 @@
-# TDX OpenAPI Summary (legacy)
+# TDX OpenAPI Summary (builtin_experimental)
 
 Title: Mist DataSource - TDX Adapter
 Version: 0.1.0
 
-Generated from the `tdx` FastAPI app in `legacy` mode.
+Generated from the `tdx` FastAPI app in `builtin_experimental` mode.
 
 ## GET /api/tdx/bkjy-value
 
@@ -319,6 +319,69 @@ Generated from the `tdx` FastAPI app in `legacy` mode.
 - Request Body: `-`
 - Parameters: -
 - Responses: 200: -
+
+## POST /tdx/bridge/desired
+
+- Operation ID: `sync_desired_tdx_bridge_desired_post`
+- Tags: ExperimentalBridge
+- Summary: Sync Desired
+- Request Body: `SyncDesiredRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## GET /tdx/bridge/evidence/{symbol}
+
+- Operation ID: `bridge_native_evidence_tdx_bridge_evidence__symbol__get`
+- Tags: ExperimentalBridge
+- Summary: Bridge Native Evidence
+- Request Body: `-`
+- Parameters: symbol (path, string, required=true)
+- Responses: 200: object; 422: HTTPValidationError
+
+## GET /tdx/bridge/health
+
+- Operation ID: `bridge_health_tdx_bridge_health_get`
+- Tags: ExperimentalBridge
+- Summary: Bridge Health
+- Request Body: `-`
+- Parameters: -
+- Responses: 200: object
+
+## POST /tdx/bridge/owner
+
+- Operation ID: `register_owner_tdx_bridge_owner_post`
+- Tags: ExperimentalBridge
+- Summary: Register Owner
+- Request Body: `OwnerRegisterRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /tdx/bridge/poll
+
+- Operation ID: `poll_tdx_bridge_poll_post`
+- Tags: ExperimentalBridge
+- Summary: Poll
+- Request Body: `PollRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /tdx/bridge/result
+
+- Operation ID: `post_result_tdx_bridge_result_post`
+- Tags: ExperimentalBridge
+- Summary: Post Result
+- Request Body: `ResultRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /tdx/bridge/snapshot
+
+- Operation ID: `post_snapshot_tdx_bridge_snapshot_post`
+- Tags: ExperimentalBridge
+- Summary: Post Snapshot
+- Request Body: `SnapshotRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
 
 ## POST /v1/bars/query
 
@@ -658,9 +721,15 @@ Generated from the `tdx` FastAPI app in `legacy` mode.
 - `ExecRequest`
 - `FormulaCallRequest`
 - `HTTPValidationError`
+- `OwnerRegisterRequest`
+- `PollRequest`
 - `RawTdxCallRequest`
+- `RejectedItem`
+- `ResultRequest`
 - `SectorQueryRequest`
 - `SectorRequest`
+- `SnapshotRequest`
+- `SyncDesiredRequest`
 - `TdxBarQueryRequest`
 - `TdxConvertibleBondInfoQueryRequest`
 - `TdxDividendFactorsQueryRequest`

@@ -1,0 +1,560 @@
+{
+  "components": {
+    "schemas": {
+      "CommandRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "enum": [
+              "health",
+              "get_market_data_ex",
+              "get_full_tick",
+              "get_stock_list_in_sector"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "timeoutSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeoutseconds"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "CommandRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "OwnerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lastPollAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastpollat"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          }
+        },
+        "required": [
+          "ownerId"
+        ],
+        "title": "OwnerRequest",
+        "type": "object"
+      },
+      "PollRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ownerId"
+        ],
+        "title": "PollRequest",
+        "type": "object"
+      },
+      "QmtBarQueryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": -1,
+            "title": "Count",
+            "type": "integer"
+          },
+          "dividend_type": {
+            "default": "none",
+            "title": "Dividend Type",
+            "type": "string"
+          },
+          "end_time": {
+            "default": "",
+            "title": "End Time",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "fill_data": {
+            "default": true,
+            "title": "Fill Data",
+            "type": "boolean"
+          },
+          "include_raw": {
+            "default": false,
+            "title": "Include Raw",
+            "type": "boolean"
+          },
+          "period": {
+            "default": "1d",
+            "title": "Period",
+            "type": "string"
+          },
+          "start_time": {
+            "default": "",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "stock_list": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stock List",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stock_list"
+        ],
+        "title": "QmtBarQueryRequest",
+        "type": "object"
+      },
+      "ResultRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "commandId": {
+            "title": "Commandid",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "ownerId",
+          "commandId",
+          "ok"
+        ],
+        "title": "ResultRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "QMT datasource - native bars and full-QMT HTTP polling bridge",
+    "title": "Mist DataSource - QMT",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/qmt/bridge/commands": {
+      "post": {
+        "operationId": "enqueue_command_qmt_bridge_commands_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Enqueue Command Qmt Bridge Commands Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Command",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/commands/{command_id}": {
+      "get": {
+        "operationId": "get_command_result_qmt_bridge_commands__command_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "title": "Command Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Command Result Qmt Bridge Commands  Command Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Command Result",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/health": {
+      "get": {
+        "operationId": "bridge_health_qmt_bridge_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bridge Health Qmt Bridge Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Bridge Health",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/owner": {
+      "post": {
+        "operationId": "register_owner_qmt_bridge_owner_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Register Owner Qmt Bridge Owner Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Owner",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/poll": {
+      "post": {
+        "operationId": "poll_commands_qmt_bridge_poll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Poll Commands Qmt Bridge Poll Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Poll Commands",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/result": {
+      "post": {
+        "operationId": "post_result_qmt_bridge_result_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Result Qmt Bridge Result Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Result",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/v1/bars/query": {
+      "post": {
+        "operationId": "query_bars_v1_bars_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QmtBarQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Query Bars",
+        "tags": [
+          "V1"
+        ]
+      }
+    }
+  }
+}

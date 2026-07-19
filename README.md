@@ -8,9 +8,14 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 
 - 将通达信 (TDX) 与大 QMT 内置 Python 数据能力包装为 HTTP/WebSocket 服务
 - 通过 WebSocket 将实时行情推送到 NestJS 后端
-- 提供统一的适配器层抽象，屏蔽底层 SDK 差异
+- 保留 TDX 与 QMT 的原生历史数据边界，只在各自的实时传输内维护稳定契约
 
 **不是**一个通用的 WebSocket 微服务平台，而是一个**适配器层 (Adapter Layer)**。
+
+实时链路按模式互斥启用：TDX 默认为 `legacy`，可切换到
+`builtin_experimental`；QMT 默认为 `off`，可切换到
+`builtin_experimental`。实验模式只处理实时快照，不改变 TDX `:17709`
+HTTP 历史链路或 QMT local DAT 历史数据形状。
 
 ## 架构总览
 
@@ -37,7 +42,7 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 
 | 项目 | 选型 | 原因 |
 |------|------|------|
-| Python | 3.12+ | datasource 服务使用 3.12；TDX/QMT 客户端内置 Python 版本以 Windows 实机为准 |
+| Python | datasource 3.12+ / TDX 3.7 / QMT 3.6 | 内置脚本必须兼容各终端自带解释器 |
 | 包管理 | uv | 速度快，lockfile 可靠 |
 | 框架 | FastAPI | 异步支持好，自动 OpenAPI 文档 |
 | 配置 | pydantic-settings | 类型安全的环境变量管理 |
@@ -102,13 +107,13 @@ uv run pytest --cov=src --cov=tdx --cov=qmt
 ## 跨平台策略
 
 ### macOS 开发
-- TDX/QMT 适配器自动切换为 Mock 模式（`APP_ENV=development`）
-- Mock 返回随机数据，WebSocket 定期推送模拟行情
-- 可以正常开发/测试 REST API 和 WebSocket 推送逻辑
+- 使用合成 fixture 和 ASGI 测试验证 REST、WebSocket 与模式门禁
+- 不声称本机具备 TDX/QMT 终端能力，也不以随机行情替代 Windows 实机证据
 
 ### Windows 生产
-- `APP_ENV=production`，TDX 使用真实 SDK；QMT 需要大 QMT 内置 bridge 完成 Windows spike 后启用
-- 前置条件：通达信终端已启动；大 QMT bridge 需要单独执行 spike 和策略脚本
+- `APP_ENV=production`；TDX 历史接口走官方 `:17709`，QMT 历史 bars 读取本地 DAT
+- legacy TDX 实时链路由 datasource SDK adapter 持有；实验链路由终端内置脚本持有
+- 前置条件：相应终端已启动；内置策略脚本只能由操作员手工注册和启停
 - 使用 `scripts/deploy_windows.ps1` 安装依赖并做临时启动验证
 
 ## 目录结构
@@ -126,7 +131,7 @@ mist-datasource/
 │   │   ├── tdx/              # TDX legacy 真实适配器
 │   │   └── mock/             # TDX legacy Mock 适配器 (开发用)
 │   ├── datasource/           # TDX/QMT provider 与 legacy 订阅链
-│   │   ├── tdx/              # TDX V1 operations/normalizers/runtime
+│   │   ├── tdx/              # TDX V1 与 experimental gateway/runtime
 │   │   ├── tdx_legacy/       # TDX legacy WS subscription/bridge/collector
 │   │   └── qmt/              # QMT native local-DAT datasource
 │   └── ws/                   # WebSocket 管理
@@ -137,12 +142,16 @@ mist-datasource/
 │   ├── routes/               # REST API 路由
 │   │   ├── legacy/           # legacy /api/tdx/* 路由
 │   │   ├── v1/               # normalized /v1/* TDX 路由
+│   │   ├── experimental.py   # builtin experimental HTTP bridge
+│   │   ├── experimental_ws.py # builtin experimental downstream WS
 │   │   └── legacy/ws.py      # legacy WebSocket quote 路由
+│   └── builtin_bridge/       # TDX 终端 Python 3.7 实时脚本
 ├── qmt/                      # QMT datasource 服务 (Port 9002)
 │   ├── main.py               # FastAPI 应用入口
 │   ├── routes/               # REST API 路由
 │   │   ├── v1/               # native QMT /v1/bars/query
-│   │   └── bridge.py         # full-QMT HTTP polling bridge
+│   │   ├── bridge.py         # full-QMT HTTP polling bridge
+│   │   └── realtime.py       # builtin experimental realtime gateway
 │   └── builtin_bridge/       # 大 QMT 内置 Python 脚本
 ├── tests/                    # 测试
 │   ├── conftest.py           # pytest 配置和 fixtures
@@ -194,7 +203,12 @@ mist-datasource/
 | POST | `/v1/instruments/convertible-bonds/query` | normalized 可转债信息 |
 | POST | `/v1/instruments/tracking-etfs/query` | normalized 跟踪 ETF 信息 |
 | POST | `/v1/raw/tdx/call` | operator/debug only TDX raw 调用 |
-| WS | `/ws/quote/{client_id}` | 实时行情订阅 |
+| WS | `/ws/quote/{client_id}` | legacy 模式实时行情订阅 |
+
+`TDX_REALTIME_MODE=builtin_experimental` 时，legacy WebSocket 不注册，并启用
+`/tdx/bridge/owner`、`/tdx/bridge/poll`、`/tdx/bridge/result`、
+`/tdx/bridge/snapshot`、`/tdx/bridge/evidence/{symbol}`、`/tdx/bridge/health`
+及独立实验 WebSocket。evidence 只允许 loopback 读取，且不会返回 lease token。
 
 `/api/tdx/*` legacy endpoints 仍在运行时保留并标记 deprecated，只用于旧调用方兼容；
 新接入和 Mist 后端主路径应使用 `/v1/*`。
@@ -211,6 +225,10 @@ mist-datasource/
 | POST | `/qmt/bridge/poll` | 大 QMT 内置 Python bridge 拉取命令 |
 | POST | `/qmt/bridge/result` | 大 QMT 内置 Python bridge 回写结果 |
 | GET | `/qmt/bridge/health` | bridge owner/queue 健康状态 |
+
+`QMT_REALTIME_MODE=builtin_experimental` 时额外启用独立实时 owner/poll/snapshot、
+loopback health 和下游实验 WebSocket。大 QMT 内置脚本仍只使用标准库 HTTP polling，
+不会在终端脚本中启动 WebSocket、线程或子进程。
 
 ### WebSocket 消息协议
 
@@ -278,8 +296,9 @@ QMT datasource 独立运行在 `http://127.0.0.1:9002`，Windows 服务名为
 .\scripts\winsw\test-qmt-datasource.ps1
 ```
 
-这个服务只负责启动 `qmt.main:app`、native `/v1/bars/query` 和 HTTP polling
-bridge gateway。大 QMT 内置 Python 策略脚本不由 WinSW 或部署脚本加载、注册或
+这个服务始终负责 native `/v1/bars/query` 和 full-QMT HTTP polling bridge；
+实验模式还会启用内存实时 collector 与独立下游 WebSocket。大 QMT 内置 Python
+策略脚本不由 WinSW 或部署脚本加载、注册或
 删除；需要时仍在大 QMT 客户端 UI 中手动处理。
 
 迁移期间，Mist backend 的 `TDX_BASE_URL` 默认仍保持：
@@ -292,9 +311,9 @@ TDX_BASE_URL=http://127.0.0.1:9001
 NestJS / MySQL 负责，Python adapter 只维护运行时订阅、采集和转发状态。
 
 TDX 终端登录、授权状态和通达信策略清理不属于公开服务自动化的一部分。部署或重启
-前仍需要运维人员确认通达信终端已登录，并在终端中手动清理冲突策略；服务只通过
-`/health` 暴露 `tdxHttpReachable`、`tqInitialized`、`collectorState` 等状态，供
-私有 guard 或人工运维判断。
+前仍需要运维人员确认通达信终端已登录，并在终端中手动清理冲突策略。公共
+`/health` 保持 legacy 兼容；实验状态通过 loopback-only bridge health 与 monitoring
+指标观测。
 
 ### OpenAPI / Swagger
 
@@ -305,17 +324,19 @@ http://127.0.0.1:9001/docs
 http://127.0.0.1:9001/openapi.json
 ```
 
-仓库里也保存了一份从当前 `tdx.main:app.openapi()` 导出的契约：
+仓库保存四种模式的确定性契约：
 
 ```text
-docs/references/tdx-openapi.json
-docs/references/tdx-openapi-summary.md
+docs/references/tdx-openapi-legacy.json
+docs/references/tdx-openapi-builtin-experimental.json
+docs/references/qmt-openapi-off.json
+docs/references/qmt-openapi-builtin-experimental.json
 ```
 
 更新方式：
 
 ```bash
-uv run python scripts/export_openapi.py
+uv run python scripts/export_openapi.py --all
 ```
 
 ### SDK 路径约束
@@ -332,7 +353,7 @@ F:/quant/tdx/PYPlugins/
     └── tqcenter.py
 ```
 
-`TDX_SDK_PATH` 必须指向包含 `tqcenter.py` 的 `user` 目录：
+legacy 模式下，`TDX_SDK_PATH` 必须指向包含 `tqcenter.py` 的 `user` 目录：
 
 ```env
 TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user
@@ -349,8 +370,8 @@ QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9002/qmt/bridge
 MIST_QMT_SPIKE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_spike_output.json
 ```
 
-当前 QMT 服务只暴露 native `/v1/bars/query` 和 HTTP polling bridge；TDX
-服务不再接受 QMT provider 参数。
+QMT 服务始终暴露 native `/v1/bars/query` 和 HTTP polling bridge；实验模式按门禁
+额外注册 realtime routes。TDX 服务不接受 QMT provider 参数。
 
 启用 live QMT 前必须先在 Windows 大 QMT 客户端中运行：
 

@@ -1,6 +1,6 @@
 # TDX 模块 Python 方法依赖流程分析
 
-> 本文档梳理 `mist-datasource` 仓库中 TDX（通达信）部分的 Python 方法与函数依赖流程，重点区分**底层依赖 `tqcenter.tq` SDK** 的方法与**走 HTTP/JSON-RPC 通道**（不依赖 tq）的方法。
+> 本文档梳理 TDX legacy、normalized HTTP 和 builtin experimental 三种运行边界。后续 legacy 细节章节只描述 `TDX_REALTIME_MODE=legacy`。
 
 ## 目录
 
@@ -20,29 +20,30 @@
 
 ## 1. 架构总览
 
-TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用链**：
+TDX 当前存在四条按运行模式隔离的调用链：
 
 | 调用链 | 涉及路由 | 路径 | 底层依赖 |
 |--------|---------|------|---------|
 | **① 旧式 REST** | `/api/tdx/*`（33 个端点，`tdx/routes/legacy/*`） | `route → adapter` | `tqcenter.tq`（进程内 SDK） |
 | **② 新式契约 REST** | `/v1/*`（`tdx/routes/v1/*`） | `route → provider → http_client` | HTTP/JSON-RPC（httpx） |
 | **③ 实时 WebSocket** | `/ws/quote/{client_id}` | `route → subscription(+adapter) + bridge + collector` | 订阅走 tq SDK，快照拉取走 HTTP |
+| **④ builtin experimental** | `/tdx/bridge/*` + `/ws/tdx-experimental/{client_id}` | `terminal script → loopback HTTP gateway → strict decoder → experimental WS` | 终端脚本调用 `subscribe_hq` 和 `get_market_snapshot` |
 
 **核心结论：**
 
-- **底层依赖 tq SDK** 的方法 = 调用链 ① 全部 + 调用链 ③ 的订阅部分
+- **底层依赖 tq SDK** 的方法 = 调用链 ①、③ 的订阅部分，以及调用链 ④ 的终端脚本
 - **走 HTTP（不依赖 tq）** 的方法 = 调用链 ② 全部 + 调用链 ③ 的快照拉取部分
-- 原 `tdx/services/tdx_service.py` 孤儿服务层已经移除；当前 TDX 运行时只保留 legacy route→adapter、v1 route→provider→HTTP、WS subscription/collector 三条链路
+- builtin experimental 时 datasource 不初始化 legacy adapter；历史 `/v1` 仍走 `:17709`，实时 SDK owner 位于手工注册的终端脚本
 
 ---
 
 ## 2. 近期改动摘要
 
-> 本节对照最近一轮 datasource / routes 改动，说明**哪些变了、哪些没变**。架构骨架（三条调用链）不变。
+> 本节保留 legacy 拓扑说明；Theme A 新增的 builtin experimental 链路与它模式互斥。
 
 ### 不变的部分
 
-- **三条调用链的拓扑完全不变**：`/api/tdx/*` 仍走 adapter，`/v1/*` 仍走 provider→HTTP，`/ws/*` 仍走 subscription+adapter。
+- **legacy 三条链路内部拓扑不变**：`/api/tdx/*` 走 adapter，`/v1/*` 走 provider→HTTP，legacy `/ws/*` 走 subscription+adapter。
 - **旧/新 REST 文件边界已经分离**：旧式 adapter REST 位于 `tdx/routes/legacy/*`，normalized REST 位于 `tdx/routes/v1/*`，WebSocket 仍位于 `tdx/routes/legacy/ws.py`。
 - **旧 `tdx_service` 孤儿层已移除**：当前没有 `tdx/services/*.py` 业务服务层接线。
 - **WS 订阅链路三组件**（subscription / bridge / collector）协作关系不变，但源码已归入 `tdx_legacy` 命名空间。
@@ -77,7 +78,8 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 | | `src/datasource/tdx_models.py` | Pydantic 模型 | 否 |
 | | `src/datasource/capabilities.py` | provider 能力清单（元数据，**新增**） | 否 |
 | | `src/datasource/contracts.py` | 公共基类/时区/错误模型 | 否 |
-| **adapter 层** | `src/adapter_legacy/tdx/client.py` | **直接对接 tq SDK 的唯一入口** | 是 |
+| **adapter 层** | `src/adapter_legacy/tdx/client.py` | legacy datasource 进程内 SDK 入口 | 是 |
+| **terminal 层** | `tdx/builtin_bridge/mist_tdx_realtime_bridge.py` | builtin experimental 终端 SDK owner | 是 |
 | | `src/adapter_legacy/mock/tdx_mock.py` | macOS 开发替身 | 否 |
 
 ---
@@ -110,7 +112,9 @@ TDX 部分并非"单链路"架构，而是存在 **三条互不交叉的调用�
 
 ## 5. 底层 tq SDK 依赖（adapter 层）
 
-`src/adapter_legacy/tdx/client.py` 是整个仓库里**唯一直接调用 `tqcenter.tq` 的地方**。
+legacy datasource 进程内，`src/adapter_legacy/tdx/client.py` 是直接调用
+`tqcenter.tq` 的入口；builtin experimental 则由
+`tdx/builtin_bridge/mist_tdx_realtime_bridge.py` 在终端进程中调用官方 SDK。
 
 ### 5.1 核心设计
 
