@@ -6,7 +6,8 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.datasource.contracts import BEIJING_TZ, DatasourceError, ResponseEnvelope, ResponseMeta
-from src.datasource.qmt.local_dat import QmtLocalDatError
+from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.operations.market import QmtBridgeError
 from src.datasource.qmt_provider import QmtDatasourceProvider
 
 router = APIRouter()
@@ -36,6 +37,13 @@ def _get_provider(request: Request) -> QmtDatasourceProvider | None:
     provider = getattr(request.app.state, "qmt_provider", None)
     if isinstance(provider, QmtDatasourceProvider):
         return provider
+    return None
+
+
+def _get_gateway(request: Request) -> QmtCommandGateway | None:
+    gateway = getattr(request.app.state, "qmt_command_gateway", None)
+    if isinstance(gateway, QmtCommandGateway):
+        return gateway
     return None
 
 
@@ -131,7 +139,8 @@ async def query_bars(payload: QmtBarQueryRequest, request: Request):
             dividend_type=payload.dividend_type,
             fill_data=payload.fill_data,
             include_raw=payload.include_raw,
+            command_gateway=_get_gateway(request),
         )
-    except QmtLocalDatError as exc:
+    except QmtBridgeError as exc:
         return _failure(request, exc)
     return _success(request, result)

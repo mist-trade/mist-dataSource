@@ -65,6 +65,10 @@ $qmtWinswInstall = Get-Content (Join-Path $ProjectDir "scripts\winsw\install-qmt
 $qmtWinswSmoke = Get-Content (Join-Path $ProjectDir "scripts\winsw\test-qmt-datasource.ps1") -Raw
 Assert-Match "default TDX SDK path" $windowsEnvExample "TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user"
 Assert-Match "default QMT bridge gateway" $windowsEnvExample "QMT_BRIDGE_GATEWAY_URL=http://127.0.0.1:9002/qmt/bridge"
+if ($windowsEnvExample -match "QMT_LOCAL_DAT" -or $qmtWinswInstall -match "QMT_LOCAL_DAT") {
+    throw "QMT datasource configuration must not contain local DAT settings."
+}
+Write-Host "  [PASS] QMT datasource has no local DAT settings" -ForegroundColor Green
 Assert-Match "TDX comment points SDK path to user directory" $windowsEnvExample "TDX_SDK_PATH points to the user directory that contains tqcenter.py."
 Assert-Match "TDX comment keeps DLL in parent directory" $windowsEnvExample "TPythClient.dll stays one level above TDX_SDK_PATH."
 Assert-Match "default uv python package index" $windowsEnvExample "UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"

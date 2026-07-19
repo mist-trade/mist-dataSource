@@ -1,59 +1,181 @@
-import struct
-from datetime import datetime
-from pathlib import Path
+import asyncio
 
 import pytest
 
-from src.datasource.contracts import BEIJING_TZ
-from src.datasource.qmt.local_dat import QmtLocalDatReader
+from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.operations.market import QmtBridgeError
 from src.datasource.qmt_provider import QmtDatasourceProvider
 
 
-def _timestamp(year: int, month: int, day: int) -> int:
-    return int(datetime(year, month, day, tzinfo=BEIJING_TZ).timestamp())
-
-
-def _write_daily_dat(root: Path, symbol: str) -> None:
-    code, market = symbol.split(".")
-    path = root / market / "86400" / f"{code}.DAT"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as handle:
-        handle.write(b"QMTDAT00")
-        for record in (
-            (_timestamp(2026, 7, 1), 10000, 11000, 9900, 10500, 123),
-            (0, 0, 0, 0, 0, 0),
-        ):
-            ts, open_p, high_p, low_p, close_p, volume_lots = record
-            handle.write(struct.pack("<IIIIIIII", ts, open_p, high_p, low_p, close_p, 0, volume_lots, 1))
+async def _wait_for_pending(gateway: QmtCommandGateway) -> None:
+    for _ in range(100):
+        if gateway.health()["pendingCount"] == 1:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("QMT bridge command was not enqueued")
 
 
 @pytest.mark.asyncio
-async def test_qmt_provider_get_bars_returns_native_market_data(tmp_path: Path) -> None:
-    _write_daily_dat(tmp_path, "000001.SZ")
-    reader = QmtLocalDatReader(
-        data_dir=tmp_path,
-        enabled=True,
-        now=lambda: datetime(2026, 7, 5, 17, 0, tzinfo=BEIJING_TZ),
-        stability_wait_ms=0,
-    )
-    provider = QmtDatasourceProvider(local_dat_reader=reader)
+async def test_qmt_provider_get_bars_uses_native_bridge() -> None:
+    gateway = QmtCommandGateway()
+    gateway.register_owner("bridge-a")
+    provider = QmtDatasourceProvider()
 
-    result = await provider.get_bars(
-        stock_list=["000001.SZ"],
-        period="1d",
-        start_time=None,
-        end_time=None,
-        count=1,
-        fields=["close", "volume"],
-        dividend_type="none",
-        fill_data=True,
-        include_raw=False,
+    request = asyncio.create_task(
+        provider.get_bars(
+            stock_list=["000001.SZ"],
+            period="1d",
+            start_time="20260701",
+            end_time="20260702",
+            count=1,
+            fields=["close", "volume"],
+            dividend_type="front_ratio",
+            fill_data=False,
+            include_raw=True,
+            command_gateway=gateway,
+        )
     )
+    await _wait_for_pending(gateway)
+    commands = gateway.poll("bridge-a", limit=1)
 
-    assert result["source"] == "local_dat"
-    assert result["marketData"] == {
-        "000001.SZ": {
-            "close": {"20260701": 10.5},
-            "volume": {"20260701": 123.0},
-        }
+    assert len(commands) == 1
+    assert commands[0].method == "get_market_data_ex"
+    assert commands[0].params == {
+        "fields": ["close", "volume"],
+        "stock_list": ["000001.SZ"],
+        "period": "1d",
+        "start_time": "20260701",
+        "end_time": "20260702",
+        "count": 1,
+        "dividend_type": "front_ratio",
+        "fill_data": False,
     }
+    gateway.post_result(
+        "bridge-a",
+        commands[0].command_id,
+        ok=True,
+        result={
+            "000001.SZ": {
+                "close": {"20260701": 10.5},
+                "volume": {"20260701": 123.0},
+            }
+        },
+    )
+
+    result = await request
+
+    assert result == {
+        "marketData": {
+            "000001.SZ": {
+                "close": {"20260701": 10.5},
+                "volume": {"20260701": 123.0},
+            }
+        },
+        "source": "native_bridge",
+        "rawMeta": {
+            "source": "native_bridge",
+            "method": "get_market_data_ex",
+            "commandId": commands[0].command_id,
+        },
+    }
+    assert gateway.health()["resultCount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_qmt_provider_rejects_missing_bridge_owner_without_reading_dat() -> None:
+    provider = QmtDatasourceProvider()
+
+    with pytest.raises(QmtBridgeError) as exc_info:
+        await provider.get_bars(
+            stock_list=["000001.SZ"],
+            period="1d",
+            start_time=None,
+            end_time=None,
+            count=1,
+            command_gateway=QmtCommandGateway(),
+        )
+
+    assert exc_info.value.code == "QMT_BRIDGE_OWNER_MISSING"
+
+
+@pytest.mark.asyncio
+async def test_qmt_provider_preserves_native_bridge_error() -> None:
+    gateway = QmtCommandGateway()
+    gateway.register_owner("bridge-a")
+    provider = QmtDatasourceProvider()
+    request = asyncio.create_task(
+        provider.get_bars(
+            stock_list=["000001.SZ"],
+            period="1d",
+            start_time=None,
+            end_time=None,
+            count=1,
+            command_gateway=gateway,
+        )
+    )
+    await _wait_for_pending(gateway)
+    command = gateway.poll("bridge-a", limit=1)[0]
+    gateway.post_result(
+        "bridge-a",
+        command.command_id,
+        ok=False,
+        error={
+            "code": "QMT_COMMAND_FAILED",
+            "message": "native history failed",
+            "retryable": True,
+            "details": {"method": "get_market_data_ex"},
+        },
+    )
+
+    with pytest.raises(QmtBridgeError) as exc_info:
+        await request
+
+    assert exc_info.value.code == "QMT_COMMAND_FAILED"
+    assert exc_info.value.details == {"method": "get_market_data_ex"}
+
+
+@pytest.mark.asyncio
+async def test_qmt_provider_rejects_non_mapping_native_result() -> None:
+    gateway = QmtCommandGateway()
+    gateway.register_owner("bridge-a")
+    provider = QmtDatasourceProvider()
+    request = asyncio.create_task(
+        provider.get_bars(
+            stock_list=["000001.SZ"],
+            period="1d",
+            start_time=None,
+            end_time=None,
+            count=1,
+            command_gateway=gateway,
+        )
+    )
+    await _wait_for_pending(gateway)
+    command = gateway.poll("bridge-a", limit=1)[0]
+    gateway.post_result("bridge-a", command.command_id, ok=True, result=[])
+
+    with pytest.raises(QmtBridgeError) as exc_info:
+        await request
+
+    assert exc_info.value.code == "QMT_BRIDGE_INVALID_MARKET_DATA"
+
+
+@pytest.mark.asyncio
+async def test_qmt_provider_expires_unanswered_native_command() -> None:
+    gateway = QmtCommandGateway()
+    gateway.register_owner("bridge-a")
+    provider = QmtDatasourceProvider()
+
+    with pytest.raises(QmtBridgeError) as exc_info:
+        await provider.get_bars(
+            stock_list=["000001.SZ"],
+            period="1d",
+            start_time=None,
+            end_time=None,
+            count=1,
+            command_gateway=gateway,
+            bridge_timeout_seconds=0.01,
+        )
+
+    assert exc_info.value.code == "QMT_COMMAND_TIMEOUT"
+    assert gateway.health()["pendingCount"] == 0
+    assert gateway.health()["resultCount"] == 0

@@ -20,7 +20,7 @@ try {
 
     Write-Host "Checking QMT health: $BaseUrl/health"
     $health = Invoke-RestMethod -Method Get -Uri "$BaseUrl/health" -TimeoutSec 20
-    foreach ($key in @("status", "instance", "bridge", "localDat")) {
+    foreach ($key in @("status", "instance", "bridge")) {
         Assert-PropertyExists -Object $health -Name $key
     }
     if ($health.instance -ne "qmt") {

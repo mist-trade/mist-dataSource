@@ -45,7 +45,7 @@ def test_qmt_native_market_data_envelope_keeps_column_shape() -> None:
                     "amount": {"20260701": 915838549.0},
                 }
             },
-            "source": "local_dat",
+            "source": "native_bridge",
         },
     )
 

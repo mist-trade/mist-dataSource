@@ -41,7 +41,6 @@ def test_qmt_datasource_settings_defaults(monkeypatch):
     """Test default QMT datasource settings values."""
     for env_name in (
         "QMT_BRIDGE_GATEWAY_URL",
-        "QMT_LOCAL_DAT_ON_BLOCK",
         "QMT_REALTIME_MODE",
     ):
         monkeypatch.delenv(env_name, raising=False)
@@ -49,7 +48,6 @@ def test_qmt_datasource_settings_defaults(monkeypatch):
     qmt_settings = QMTSettings(_env_file=None)
 
     assert qmt_settings.bridge_gateway_url == "http://127.0.0.1:9002/qmt/bridge"
-    assert qmt_settings.local_dat_on_block == "retryable_error"
     assert qmt_settings.realtime_mode == "off"
 
 

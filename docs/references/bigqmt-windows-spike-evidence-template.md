@@ -53,21 +53,14 @@ explicit.
 | Exception recovery | pending | |
 | Repeated startup behavior | pending | |
 
-## Spike C: Local DAT Historical Bars Fast Path
+## Spike C: Native Historical Bars
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Full-QMT `datadir` path configured | pending | |
-| Sample DAT file exists | pending | |
-| File size and mtime stable before read | pending | |
-| Daily bar parse sample | pending | |
-| Minute bar parse sample | pending | |
+| Built-in `get_market_data_ex` command completed | pending | |
 | Native `:9002/v1/bars/query` field shape | pending | |
-| QMT `marketData` returned on native bars | pending | |
-| Default block after 18:00 China time | pending | |
-| Configurable block time override | pending | |
-| Blocked read returns retryable error | pending | |
-| Non-bars families do not use DAT files | pending | |
+| QMT `marketData` returned with `source=native_bridge` | pending | |
+| Datasource has no DAT reader or data-directory setting | pending | |
 
 ## Native API Shape Samples
 
@@ -92,7 +85,6 @@ Record sanitized samples for the methods planned for normalized provider work:
 - Preferred bridge transport after spike: HTTP polling/blocked
 - Bridge can rely on `run_time` outside trading hours if a pump is needed: yes/no
 - Bridge must remain single-owner serial polling: yes/no
-- Local DAT historical-bars fast path approved: yes/no
-- Local DAT reads blocked after 18:00 by default: yes/no
+- Native bridge historical-bars product path approved: yes/no
 - Live QMT provider enablement approved: yes/no
 - Follow-up implementation notes:

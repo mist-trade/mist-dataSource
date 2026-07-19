@@ -117,17 +117,11 @@ def create_qmt_app(
 
     @target.get("/health")
     async def health() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
-        current_provider: QmtDatasourceProvider | None = getattr(target.state, "qmt_provider", None)
-        reader = current_provider.local_dat_reader if current_provider else None
         current_gateway: QmtCommandGateway = target.state.qmt_command_gateway
         return {
             "status": "ok",
             "instance": "qmt",
             "bridge": current_gateway.health(),
-            "localDat": {
-                "enabled": bool(reader and reader.enabled),
-                "dataDirConfigured": bool(reader and str(reader.data_dir)),
-            },
         }
 
     target.include_router(v1_router, tags=["V1"])

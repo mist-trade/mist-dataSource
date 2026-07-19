@@ -13,7 +13,6 @@ V1_PRODUCT_ROUTES = PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py"
 QMT_V1_PRODUCT_ROUTES = PROJECT_ROOT / "qmt" / "routes" / "v1" / "product.py"
 QMT_MAIN = PROJECT_ROOT / "qmt" / "main.py"
 QMT_BRIDGE_ROUTES = PROJECT_ROOT / "qmt" / "routes" / "bridge.py"
-QMT_LOCAL_DAT_READER = PROJECT_ROOT / "src" / "datasource" / "qmt" / "local_dat.py"
 PYPROJECT = PROJECT_ROOT / "pyproject.toml"
 
 
@@ -167,7 +166,10 @@ def test_spike_output_defaults_under_datasource_logs_not_c_temp() -> None:
     assert "qmt" in source
     assert "mist_qmt_spike_output.json" in source
     assert "os.makedirs" in source
-    assert "MIST_QMT_SPIKE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_spike_output.json" in windows_env
+    assert (
+        "MIST_QMT_SPIKE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_spike_output.json"
+        in windows_env
+    )
 
 
 def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() -> None:
@@ -212,14 +214,21 @@ def test_qmt_local_dat_binary_parsing_stays_out_of_qmt_v1_routes() -> None:
         "86400",
         "userdata_mini",
     }
-    violations = [
-        token
-        for token in forbidden_route_tokens
-        if token in source
-    ]
+    violations = [token for token in forbidden_route_tokens if token in source]
 
     assert violations == []
     assert "QmtDatasourceProvider" in source
+
+
+def test_qmt_product_market_operation_never_reads_local_dat() -> None:
+    source = (PROJECT_ROOT / "src" / "datasource" / "qmt" / "operations" / "market.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "get_market_data_ex" in source
+    assert "QmtCommandGateway" in source
+    assert "QmtLocalDatReader" not in source
+    assert "read_market_data" not in source
 
 
 def test_tdx_v1_routes_do_not_import_or_branch_to_qmt() -> None:
@@ -230,7 +239,7 @@ def test_tdx_v1_routes_do_not_import_or_branch_to_qmt() -> None:
         "qmt_provider",
         "provider_id",
         "qmt_operation",
-        "provider == \"qmt\"",
+        'provider == "qmt"',
         "provider=qmt",
     }
 
@@ -254,19 +263,12 @@ def test_qmt_service_does_not_restore_legacy_adapter_or_bridge_websocket_routes(
     assert [token for token in forbidden_tokens if token in combined] == []
 
 
-def test_qmt_local_dat_reader_has_no_legacy_qmt_runtime_dependencies() -> None:
-    source = QMT_LOCAL_DAT_READER.read_text(encoding="utf-8")
-    forbidden = {
-        "miniQMT",
-        "MiniQMT",
-        "userdata_mini",
-        "xtquant",
-        "XtQuant",
-        "QMT_SDK_PATH",
-    }
-    violations = [token for token in forbidden if token in source]
-
-    assert violations == []
+def test_qmt_local_dat_reader_is_removed() -> None:
+    assert not (PROJECT_ROOT / "src" / "datasource" / "qmt" / "local_dat.py").exists()
+    config = (PROJECT_ROOT / "src" / "core" / "config.py").read_text(encoding="utf-8")
+    assert "local_dat" not in config
+    assert "QMT_LOCAL_DAT" not in ENV_EXAMPLE.read_text(encoding="utf-8")
+    assert "QMT_LOCAL_DAT" not in ENV_WINDOWS_EXAMPLE.read_text(encoding="utf-8")
 
 
 def _imported_top_level_names(module: ast.Module) -> set[str]:

@@ -7,13 +7,7 @@ param(
     [string]$Arguments = "run uvicorn qmt.main:app --host %QMT_HOST% --port %QMT_PORT%",
     [string]$QmtHost = "127.0.0.1",
     [int]$DatasourcePort = 9002,
-    [string]$QmtBridgeGatewayUrl = "http://127.0.0.1:9002/qmt/bridge",
-    [string]$QmtLocalDatEnabled = "false",
-    [string]$QmtLocalDatDir = "",
-    [string]$QmtLocalDatPeriods = "1d,1m,5m",
-    [string]$QmtLocalDatBlockAfter = "18:00",
-    [string]$QmtLocalDatOnBlock = "retryable_error",
-    [int]$QmtLocalDatStabilityWaitMs = 500
+    [string]$QmtBridgeGatewayUrl = "http://127.0.0.1:9002/qmt/bridge"
 )
 
 $ErrorActionPreference = "Stop"
@@ -146,25 +140,6 @@ if (-not $PSBoundParameters.ContainsKey("DatasourcePort")) {
 if (-not $PSBoundParameters.ContainsKey("QmtBridgeGatewayUrl")) {
     $QmtBridgeGatewayUrl = Get-ConfiguredValue -Content $EnvContent -Name "QMT_BRIDGE_GATEWAY_URL" -Default $QmtBridgeGatewayUrl
 }
-if (-not $PSBoundParameters.ContainsKey("QmtLocalDatEnabled")) {
-    $QmtLocalDatEnabled = Get-ConfiguredValue -Content $EnvContent -Name "QMT_LOCAL_DAT_ENABLED" -Default $QmtLocalDatEnabled
-}
-if (-not $PSBoundParameters.ContainsKey("QmtLocalDatDir")) {
-    $QmtLocalDatDir = Get-ConfiguredValue -Content $EnvContent -Name "QMT_LOCAL_DAT_DIR" -Default $QmtLocalDatDir
-}
-if (-not $PSBoundParameters.ContainsKey("QmtLocalDatPeriods")) {
-    $QmtLocalDatPeriods = Get-ConfiguredValue -Content $EnvContent -Name "QMT_LOCAL_DAT_PERIODS" -Default $QmtLocalDatPeriods
-}
-if (-not $PSBoundParameters.ContainsKey("QmtLocalDatBlockAfter")) {
-    $QmtLocalDatBlockAfter = Get-ConfiguredValue -Content $EnvContent -Name "QMT_LOCAL_DAT_BLOCK_AFTER" -Default $QmtLocalDatBlockAfter
-}
-if (-not $PSBoundParameters.ContainsKey("QmtLocalDatOnBlock")) {
-    $QmtLocalDatOnBlock = Get-ConfiguredValue -Content $EnvContent -Name "QMT_LOCAL_DAT_ON_BLOCK" -Default $QmtLocalDatOnBlock
-}
-if (-not $PSBoundParameters.ContainsKey("QmtLocalDatStabilityWaitMs")) {
-    $QmtLocalDatStabilityWaitMs = [int](Get-ConfiguredValue -Content $EnvContent -Name "QMT_LOCAL_DAT_STABILITY_WAIT_MS" -Default $QmtLocalDatStabilityWaitMs)
-}
-
 $ResolvedWinSWExe = Resolve-WinSWExe -ProjectDir $ProjectDir -WinSWExe $WinSWExe
 if (-not $ResolvedWinSWExe) {
     if ($WhatIfPreference) {
@@ -221,12 +196,6 @@ $RenderedXml = Set-TemplateValues `
         "{{QMT_HOST}}" = ConvertTo-XmlEscapedValue $QmtHost
         "{{QMT_PORT}}" = ConvertTo-XmlEscapedValue $DatasourcePort
         "{{QMT_BRIDGE_GATEWAY_URL}}" = ConvertTo-XmlEscapedValue $QmtBridgeGatewayUrl
-        "{{QMT_LOCAL_DAT_ENABLED}}" = ConvertTo-XmlEscapedValue $QmtLocalDatEnabled
-        "{{QMT_LOCAL_DAT_DIR}}" = ConvertTo-XmlEscapedValue $QmtLocalDatDir
-        "{{QMT_LOCAL_DAT_PERIODS}}" = ConvertTo-XmlEscapedValue $QmtLocalDatPeriods
-        "{{QMT_LOCAL_DAT_BLOCK_AFTER}}" = ConvertTo-XmlEscapedValue $QmtLocalDatBlockAfter
-        "{{QMT_LOCAL_DAT_ON_BLOCK}}" = ConvertTo-XmlEscapedValue $QmtLocalDatOnBlock
-        "{{QMT_LOCAL_DAT_STABILITY_WAIT_MS}}" = ConvertTo-XmlEscapedValue $QmtLocalDatStabilityWaitMs
         "{{LOG_DIR}}" = ConvertTo-XmlEscapedValue $LogsDir
     }
 

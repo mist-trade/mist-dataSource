@@ -80,7 +80,7 @@ $qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
 if ($qmtBridgeGatewayUrl) {
     Write-Warn "QMT full-client bridge is configured; rely on live commands only after Windows evidence is captured: $qmtBridgeGatewayUrl"
 } else {
-    Write-Warn "QMT full-client bridge is not configured; only local DAT paths can be tested"
+    Write-Warn "QMT full-client bridge is not configured; QMT historical bars are unavailable"
 }
 
 Write-Ok "SDK preflight passed"

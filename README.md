@@ -15,7 +15,7 @@ mist-datasource 是 NestJS 后端的**数据源桥接层**，核心职责：
 实时链路按模式互斥启用：TDX 默认为 `legacy`，可切换到
 `builtin_experimental`；QMT 默认为 `off`，可切换到
 `builtin_experimental`。实验模式只处理实时快照，不改变 TDX `:17709`
-HTTP 历史链路或 QMT local DAT 历史数据形状。
+HTTP 历史链路或 QMT native bridge 历史数据形状。
 
 ## 架构总览
 
@@ -111,7 +111,7 @@ uv run pytest --cov=src --cov=tdx --cov=qmt
 - 不声称本机具备 TDX/QMT 终端能力，也不以随机行情替代 Windows 实机证据
 
 ### Windows 生产
-- `APP_ENV=production`；TDX 历史接口走官方 `:17709`，QMT 历史 bars 读取本地 DAT
+- `APP_ENV=production`；TDX 历史接口走官方 `:17709`，QMT 历史 bars 由内置脚本执行 `get_market_data_ex`
 - legacy TDX 实时链路由 datasource SDK adapter 持有；实验链路由终端内置脚本持有
 - 前置条件：相应终端已启动；内置策略脚本只能由操作员手工注册和启停
 - 使用 `scripts/deploy_windows.ps1` 安装依赖并做临时启动验证
@@ -133,7 +133,7 @@ mist-datasource/
 │   ├── datasource/           # TDX/QMT provider 与 legacy 订阅链
 │   │   ├── tdx/              # TDX V1 与 experimental gateway/runtime
 │   │   ├── tdx_legacy/       # TDX legacy WS subscription/bridge/collector
-│   │   └── qmt/              # QMT native local-DAT datasource
+│   │   └── qmt/              # QMT native bridge datasource
 │   └── ws/                   # WebSocket 管理
 │       ├── protocol.py       # WSMessage 消息协议
 │       └── manager.py        # ConnectionManager 连接管理

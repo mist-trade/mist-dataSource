@@ -50,9 +50,10 @@ datasource.
 }
 ```
 
-The first implementation reads configured full-QMT local DAT files for `1d`,
-`1m`, and `5m`. It is historical-only and does not subscribe. Daily volume is
-kept in the DAT native unit; it is not converted to TDX share volume.
+The production endpoint enqueues `get_market_data_ex` on the single-owner
+command gateway. The full-QMT built-in script executes it with
+`subscribe=False` and posts the native column-oriented result back. It does not
+subscribe and does not read DAT files in the datasource process.
 
 Example response shape:
 
@@ -69,14 +70,16 @@ Example response shape:
         "amount": {"20260701": 915838549.0}
       }
     },
-    "source": "local_dat"
+    "source": "native_bridge"
   }
 }
 ```
 
-`include_raw=true` adds DAT parse evidence under `rawMeta`, including
-`period_code`, `record_size`, `header_size`, `struct_format`, `price_scale`,
-and `source_path`.
+`include_raw=true` adds bounded bridge evidence under `rawMeta`, including the
+native method and command id. It does not expose a lease token.
+
+No DAT reader or QMT data-directory configuration is part of this service.
+Missing or stale bridge ownership returns a stable retryable bridge error.
 
 ## Bridge Commands
 
@@ -89,8 +92,8 @@ and posts the result. The initial whitelist is `health`, `get_market_data_ex`,
 
 ## Verification Owners
 
-- Native QMT bars are guarded by `tests/unit/test_qmt_local_dat_reader.py`,
-  `tests/unit/test_qmt_provider.py`, and `tests/integration/test_qmt_v1.py`.
+- Native QMT bars are guarded by `tests/unit/test_qmt_provider.py` and
+  `tests/integration/test_qmt_v1.py`.
 - Full-QMT HTTP polling bridge behavior is guarded by
   `tests/unit/test_qmt_command_gateway.py` and
   `tests/integration/test_qmt_bridge_routes.py`.

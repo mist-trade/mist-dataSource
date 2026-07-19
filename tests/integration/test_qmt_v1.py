@@ -1,84 +1,134 @@
 """Integration tests for the native QMT datasource surface."""
 
-import struct
-from datetime import datetime
-from pathlib import Path
+import asyncio
 
 import pytest
 
 import qmt.main
-from src.datasource.contracts import BEIJING_TZ
-from src.datasource.qmt.local_dat import QmtLocalDatReader
-from src.datasource.qmt_provider import QmtDatasourceProvider
+from src.datasource.qmt.command_gateway import QmtCommandGateway
 
 
-def _timestamp(year: int, month: int, day: int) -> int:
-    return int(datetime(year, month, day, tzinfo=BEIJING_TZ).timestamp())
-
-
-def _write_daily_dat(root: Path, symbol: str) -> None:
-    code, market = symbol.split(".")
-    path = root / market / "86400" / f"{code}.DAT"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as handle:
-        handle.write(b"QMTDAT00")
-        handle.write(struct.pack("<IIIIIIII", _timestamp(2026, 7, 1), 10000, 11000, 9900, 10500, 0, 123, 1))
-        handle.write(struct.pack("<IIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0))
-
-
-@pytest.fixture
-def qmt_dat_provider(tmp_path: Path):
-    _write_daily_dat(tmp_path, "000001.SZ")
-    previous = getattr(qmt.main.app.state, "qmt_provider", None)
-    qmt.main.app.state.qmt_provider = QmtDatasourceProvider(
-        local_dat_reader=QmtLocalDatReader(
-            data_dir=tmp_path,
-            enabled=True,
-            now=lambda: datetime(2026, 7, 5, 17, 0, tzinfo=BEIJING_TZ),
-            stability_wait_ms=0,
-        )
-    )
-    try:
-        yield
-    finally:
-        qmt.main.app.state.qmt_provider = previous
+async def _wait_for_pending(gateway: QmtCommandGateway) -> None:
+    for _ in range(100):
+        if gateway.health()["pendingCount"] == 1:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("QMT bridge command was not enqueued")
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("qmt_dat_provider")
-async def test_qmt_v1_bars_query_returns_native_market_data(qmt_client) -> None:
+async def test_qmt_v1_bars_query_returns_native_bridge_market_data(qmt_client) -> None:
+    gateway = qmt.main.app.state.qmt_command_gateway
+    gateway.register_owner("bridge-a")
+    request_task = asyncio.create_task(
+        qmt_client.post(
+            "/v1/bars/query",
+            json={
+                "fields": ["close", "preClose"],
+                "stock_list": ["000001.SZ"],
+                "period": "1h",
+                "start_time": "20260701",
+                "end_time": "20260702",
+                "count": 1,
+                "dividend_type": "front_ratio",
+                "fill_data": False,
+                "include_raw": False,
+            },
+        )
+    )
+    await _wait_for_pending(gateway)
+    commands = gateway.poll("bridge-a", limit=1)
+
+    assert len(commands) == 1
+    assert commands[0].method == "get_market_data_ex"
+    assert commands[0].params == {
+        "fields": ["close", "preClose"],
+        "stock_list": ["000001.SZ"],
+        "period": "1h",
+        "start_time": "20260701",
+        "end_time": "20260702",
+        "count": 1,
+        "dividend_type": "front_ratio",
+        "fill_data": False,
+    }
+    gateway.post_result(
+        "bridge-a",
+        commands[0].command_id,
+        ok=True,
+        result={
+            "000001.SZ": {
+                "close": {"20260701100000": 10.5},
+                "preClose": {"20260701100000": 10.2},
+            }
+        },
+    )
+
+    response = await request_task
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "marketData": {
+            "000001.SZ": {
+                "close": {"20260701100000": 10.5},
+                "preClose": {"20260701100000": 10.2},
+            }
+        },
+        "source": "native_bridge",
+    }
+
+
+@pytest.mark.asyncio
+async def test_qmt_v1_bars_query_fails_when_bridge_owner_is_missing(qmt_client) -> None:
     response = await qmt_client.post(
         "/v1/bars/query",
         json={
-            "fields": ["close", "volume"],
+            "fields": ["close"],
             "stock_list": ["000001.SZ"],
             "period": "1d",
-            "start_time": "",
-            "end_time": "",
             "count": 1,
-            "dividend_type": "none",
-            "fill_data": True,
-            "include_raw": False,
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["ok"] is True
-    assert body["provider"] == "qmt"
-    assert body["data"] == {
-        "marketData": {
-            "000001.SZ": {
-                "close": {"20260701": 10.5},
-                "volume": {"20260701": 123.0},
-            }
-        },
-        "source": "local_dat",
-    }
+    assert body["ok"] is False
+    assert body["error"]["code"] == "QMT_BRIDGE_OWNER_MISSING"
+    assert body["error"]["retryable"] is True
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("qmt_dat_provider")
+async def test_qmt_v1_bars_query_fails_when_bridge_owner_is_stale(qmt_client) -> None:
+    class ManualClock:
+        def __init__(self) -> None:
+            self.value = 100.0
+
+        def __call__(self) -> float:
+            return self.value
+
+    clock = ManualClock()
+    gateway = QmtCommandGateway(clock=clock, owner_stale_after_seconds=1.0)
+    qmt.main.app.state.qmt_command_gateway = gateway
+    gateway.register_owner("bridge-a")
+    clock.value += 2.0
+
+    response = await qmt_client.post(
+        "/v1/bars/query",
+        json={
+            "fields": ["close"],
+            "stock_list": ["000001.SZ"],
+            "period": "1d",
+            "count": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "QMT_BRIDGE_OWNER_STALE"
+    assert body["error"]["retryable"] is True
+
+
+@pytest.mark.asyncio
 async def test_qmt_v1_bars_query_rejects_tdx_style_fields(qmt_client) -> None:
     response = await qmt_client.post(
         "/v1/bars/query",
@@ -100,6 +150,11 @@ def test_qmt_http_route_table_keeps_native_v1_health_and_http_bridge() -> None:
 
     assert "/health" in paths
     assert "/v1/bars/query" in paths
-    assert {"/qmt/bridge/owner", "/qmt/bridge/poll", "/qmt/bridge/result", "/qmt/bridge/health"} <= paths
+    assert {
+        "/qmt/bridge/owner",
+        "/qmt/bridge/poll",
+        "/qmt/bridge/result",
+        "/qmt/bridge/health",
+    } <= paths
     assert not any(path.startswith("/api/qmt/") for path in paths)
     assert "/qmt/bridge/ws" not in paths

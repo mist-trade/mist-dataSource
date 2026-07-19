@@ -219,7 +219,7 @@ if (-not $Only -or $Only -eq "test") {
         Write-Host "  QMT bridge gateway configured: $qmtBridgeGatewayUrl" -ForegroundColor Yellow
         Write-Host "  QMT bridge is configured; use Windows full-QMT evidence before relying on live commands." -ForegroundColor Yellow
     } else {
-        Write-Host "  QMT bridge gateway not configured; only local DAT paths can be tested." -ForegroundColor Yellow
+        Write-Host "  QMT bridge gateway not configured; QMT historical bars are unavailable." -ForegroundColor Yellow
     }
 }
 
