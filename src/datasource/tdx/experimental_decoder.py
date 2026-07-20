@@ -27,6 +27,7 @@ from src.datasource.tdx_normalization import (
     TDX_EXPERIMENTAL_LOGICAL_ALIAS_GROUPS,
     extract_tdx_snapshot_native_fields,
     normalize_native_key,
+    normalize_symbol,
 )
 
 #: Fields that the experimental typed wire treats as optional prices (present
@@ -117,13 +118,16 @@ def decode_experimental_tdx_snapshot(
     if error_id is not None and str(error_id) != "0" and str(error_id) != "":
         raise ExperimentalDecoderError(f"native ErrorId={error_id!r} for {symbol}")
 
-    # Code is required (must be present in native payload).
-    if raw.code is None or (isinstance(raw.code, str) and raw.code.strip() == ""):
-        raise ExperimentalDecoderError(f"native Code is missing for {symbol}")
-
-    # Symbol consistency if provided.
-    if expected_code is not None and str(raw.code) != str(expected_code):
-        raise ExperimentalDecoderError(f"native Code {raw.code!r} != expected {expected_code!r}")
+    # The official get_market_snapshot response does not include Code. The
+    # bridge binds the response to the requested symbol in its snapshot
+    # envelope. Some TDX builds do include Code; validate it when present.
+    if raw.code is not None and not (isinstance(raw.code, str) and raw.code.strip() == ""):
+        expected = normalize_symbol(expected_code or symbol)
+        actual = normalize_symbol(str(raw.code))
+        if actual != expected:
+            raise ExperimentalDecoderError(
+                f"native Code {raw.code!r} != expected {expected_code or symbol!r}"
+            )
 
     # Logical aliases are resolved only after the conflict check. The HTTP
     # projector never consumes these experimental alternatives.

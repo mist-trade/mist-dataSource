@@ -23,7 +23,6 @@ def _native(**overrides: object) -> dict[str, object]:
         "Volume": "12345600",
         "Amount": "20800000000",
         "AsOf": "2026-07-16T14:30:00.000+08:00",
-        "Code": "600519.SH",
         "ErrorId": "0",
     }
     base.update(overrides)
@@ -71,6 +70,24 @@ class TestDecodeValid:
         assert snap.last == 1685.0
         assert snap.high == 1690.0
         assert snap.low == 1665.0
+
+    def test_official_snapshot_without_code_uses_envelope_symbol(self) -> None:
+        snap = decode_experimental_tdx_snapshot(
+            "600519.SH",
+            _native(),
+            expected_code="600519.SH",
+        )
+
+        assert snap.symbol == "600519.SH"
+
+    def test_optional_native_code_accepts_prefix_format(self) -> None:
+        snap = decode_experimental_tdx_snapshot(
+            "600519.SH",
+            _native(Code="SH600519"),
+            expected_code="600519.SH",
+        )
+
+        assert snap.symbol == "600519.SH"
 
 
 class TestDecodeReject:
