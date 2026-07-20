@@ -93,14 +93,20 @@ class TestFormatCode:
 
 
 class TestRetryClassification:
-    def test_owner_fences_require_registration(self) -> None:
+    def test_missing_owner_requires_registration(self) -> None:
+        assert _bridge_mod._requires_registration({"code": "TDX_BRIDGE_NO_OWNER"}) is True
+        for code in ("TDX_BRIDGE_LEASE_INVALID", "TDX_BRIDGE_EPOCH_MISMATCH"):
+            assert _bridge_mod._requires_registration({"code": code}) is False
+        assert _bridge_mod._requires_registration({"code": "OTHER"}) is False
+
+    def test_replaced_owner_exits_instead_of_reclaiming(self) -> None:
         for code in (
-            "TDX_BRIDGE_NO_OWNER",
             "TDX_BRIDGE_LEASE_INVALID",
             "TDX_BRIDGE_EPOCH_MISMATCH",
+            "TDX_BRIDGE_OWNER_RETIRED",
         ):
-            assert _bridge_mod._requires_registration({"code": code}) is True
-        assert _bridge_mod._requires_registration({"code": "OTHER"}) is False
+            assert _bridge_mod._owner_was_replaced({"code": code}) is True
+        assert _bridge_mod._owner_was_replaced({"code": "TDX_BRIDGE_NO_OWNER"}) is False
 
     def test_gateway_delay_is_honored_and_fallback_is_bounded(self) -> None:
         assert _bridge_mod._retry_delay_seconds({"retryAfterMs": 750}, 1) == 0.75

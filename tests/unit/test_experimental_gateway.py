@@ -138,7 +138,7 @@ class TestOwnerRegistration:
     def test_fresh_owner_refuses_eviction_by_different_owner(
         self, gateway: ExperimentalTdxRealtimeGateway, async_loop
     ) -> None:
-        """A fresh owner must NOT be evicted by a different owner."""
+        """A single registration attempt cannot evict a fresh owner."""
         async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-1",
@@ -157,6 +157,76 @@ class TestOwnerRegistration:
                 )
             )
         assert exc_info.value.code == "TDX_BRIDGE_OWNER_ACTIVE"
+        assert exc_info.value.retry_after_ms == 1_000
+
+    def test_continuous_new_owner_replaces_fresh_owner_after_grace(
+        self, gateway: ExperimentalTdxRealtimeGateway, async_loop, monkeypatch
+    ) -> None:
+        clock = 100.0
+        monkeypatch.setattr("src.datasource.tdx.experimental_gateway.time.monotonic", lambda: clock)
+        old = async_loop.run_until_complete(
+            gateway.register_owner(
+                owner_id="bridge-old",
+                bridge_build_id="sha-old",
+                bridge_artifact_sha256="artifact-old",
+                **CONTRACT_KWARGS,
+            )
+        )
+
+        for second in range(5):
+            clock = 100.0 + second
+            with pytest.raises(GatewayError) as exc_info:
+                async_loop.run_until_complete(
+                    gateway.register_owner(
+                        owner_id="bridge-new",
+                        bridge_build_id="sha-new",
+                        bridge_artifact_sha256="artifact-new",
+                        **CONTRACT_KWARGS,
+                    )
+                )
+            assert exc_info.value.code == "TDX_BRIDGE_OWNER_ACTIVE"
+
+        # Prove the old process is still heartbeating and fresh immediately
+        # before the bounded takeover.
+        clock = 104.5
+        async_loop.run_until_complete(
+            gateway.poll(
+                lease_token=old["leaseToken"],
+                stream_epoch=old["streamEpoch"],
+            )
+        )
+        clock = 105.0
+        new = async_loop.run_until_complete(
+            gateway.register_owner(
+                owner_id="bridge-new",
+                bridge_build_id="sha-new",
+                bridge_artifact_sha256="artifact-new",
+                **CONTRACT_KWARGS,
+            )
+        )
+        assert gateway.owner is not None
+        assert gateway.owner.owner_id == "bridge-new"
+
+        with pytest.raises(GatewayError) as exc_info:
+            async_loop.run_until_complete(
+                gateway.poll(
+                    lease_token=old["leaseToken"],
+                    stream_epoch=old["streamEpoch"],
+                )
+            )
+        assert exc_info.value.code == "TDX_BRIDGE_LEASE_INVALID"
+
+        with pytest.raises(GatewayError) as exc_info:
+            async_loop.run_until_complete(
+                gateway.register_owner(
+                    owner_id="bridge-old",
+                    bridge_build_id="sha-old",
+                    bridge_artifact_sha256="artifact-old",
+                    **CONTRACT_KWARGS,
+                )
+            )
+        assert exc_info.value.code == "TDX_BRIDGE_OWNER_RETIRED"
+        assert gateway.owner.lease_token == new["leaseToken"]
 
     def test_owner_lease_expires(
         self, gateway: ExperimentalTdxRealtimeGateway, async_loop, monkeypatch

@@ -41,6 +41,10 @@ ACCEPTED_ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 
 #: Owner stale after this many seconds without a poll/heartbeat.
 OWNER_STALE_AFTER_SECONDS = 10.0
+#: A different owner that retries continuously may replace a fresh owner after
+#: this grace period. The old lease is fenced immediately after replacement.
+OWNER_TAKEOVER_GRACE_SECONDS = 5.0
+OWNER_TAKEOVER_RETRY_WINDOW_SECONDS = 2.5
 #: Subscription reconcile batch size.
 RECONCILE_BATCH = 50
 RECONCILE_RETRY_BASE_MS = 250
@@ -56,11 +60,18 @@ _RFC3339_PATTERN = re.compile(
 class GatewayError(Exception):
     """Base gateway error."""
 
-    def __init__(self, code: str, message: str, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        retryable: bool = False,
+        retry_after_ms: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.retryable = retryable
+        self.retry_after_ms = retry_after_ms
 
 
 @dataclass
@@ -77,6 +88,13 @@ class BridgeOwner:
     draft_revision: int
     last_seen_monotonic: float
     generation: int  # increments each owner registration
+
+
+@dataclass
+class _OwnerTakeoverCandidate:
+    fingerprint: tuple[str, str, str, str, int, int]
+    first_seen_monotonic: float
+    last_seen_monotonic: float
 
 
 @dataclass
@@ -99,6 +117,8 @@ class ExperimentalTdxRealtimeGateway:
     on_epoch_change: Any = None
     _owner: BridgeOwner | None = None
     _owner_generation_counter: int = 0
+    _takeover_candidate: _OwnerTakeoverCandidate | None = None
+    _retired_owner_ids: set[str] = field(default_factory=lambda: set[str]())
     # Desired subscription set (revisioned).
     _desired_symbols: list[str] = field(default_factory=lambda: list[str]())
     _desired_revision: int = 0
@@ -153,15 +173,59 @@ class ExperimentalTdxRealtimeGateway:
             draft_revision=draft_revision,
         )
         async with self._lock:
-            # Refuse to evict a fresh owner (must be stale or absent).
+            now = time.monotonic()
+            if owner_id in self._retired_owner_ids:
+                raise GatewayError(
+                    "TDX_BRIDGE_OWNER_RETIRED",
+                    f"owner {owner_id!r} was replaced by a newer bridge instance",
+                    retryable=False,
+                )
+            # A continuously retrying new process may replace a fresh owner
+            # after a short grace period. This handles TDX restarts that leave
+            # the old external TPyth process alive without permitting an
+            # immediate one-shot eviction.
             if self._owner is not None and self._is_owner_fresh():
                 existing = self._owner
                 if existing.owner_id != owner_id:
-                    raise GatewayError(
-                        "TDX_BRIDGE_OWNER_ACTIVE",
-                        f"another fresh owner {existing.owner_id!r} is active",
-                        retryable=True,
+                    fingerprint = (
+                        owner_id,
+                        bridge_build_id,
+                        bridge_artifact_sha256,
+                        acquisition_profile,
+                        schema_version,
+                        draft_revision,
                     )
+                    candidate = self._takeover_candidate
+                    if (
+                        candidate is None
+                        or candidate.fingerprint != fingerprint
+                        or now - candidate.last_seen_monotonic
+                        > OWNER_TAKEOVER_RETRY_WINDOW_SECONDS
+                    ):
+                        candidate = _OwnerTakeoverCandidate(
+                            fingerprint=fingerprint,
+                            first_seen_monotonic=now,
+                            last_seen_monotonic=now,
+                        )
+                        self._takeover_candidate = candidate
+                    else:
+                        candidate.last_seen_monotonic = now
+
+                    takeover_age = now - candidate.first_seen_monotonic
+                    if takeover_age < OWNER_TAKEOVER_GRACE_SECONDS:
+                        remaining_ms = max(
+                            1,
+                            int((OWNER_TAKEOVER_GRACE_SECONDS - takeover_age) * 1000),
+                        )
+                        raise GatewayError(
+                            "TDX_BRIDGE_OWNER_ACTIVE",
+                            f"another fresh owner {existing.owner_id!r} is active; "
+                            f"replacement pending for {owner_id!r}",
+                            retryable=True,
+                            retry_after_ms=min(remaining_ms, 1_000),
+                        )
+                    self._retired_owner_ids.add(existing.owner_id)
+            self._takeover_candidate = None
             self._owner_generation_counter += 1
             generation = self._owner_generation_counter
             stream_epoch = self._new_stream_epoch(owner_id, generation)

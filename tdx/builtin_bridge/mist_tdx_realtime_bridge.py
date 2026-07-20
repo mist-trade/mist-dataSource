@@ -52,7 +52,7 @@ SCHEMA_VERSION = 0
 DRAFT_REVISION = 1
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-bridge-v0.1"
+BRIDGE_BUILD_ID = "mist-tdx-bridge-v0.2"
 
 
 def _compute_artifact_sha() -> str:
@@ -69,8 +69,11 @@ BRIDGE_ARTIFACT_SHA256 = _compute_artifact_sha()
 
 OWNER_FENCE_CODES = {
     "TDX_BRIDGE_NO_OWNER",
+}
+OWNER_REPLACED_CODES = {
     "TDX_BRIDGE_LEASE_INVALID",
     "TDX_BRIDGE_EPOCH_MISMATCH",
+    "TDX_BRIDGE_OWNER_RETIRED",
 }
 
 
@@ -97,6 +100,10 @@ def _retry_delay_seconds(response: dict | None, attempt: int) -> float:
 
 def _requires_registration(error: dict) -> bool:
     return error.get("code") in OWNER_FENCE_CODES
+
+
+def _owner_was_replaced(error: dict) -> bool:
+    return error.get("code") in OWNER_REPLACED_CODES
 
 
 # --- Dirty symbol queue (thread-safe) ---------------------------------
@@ -140,6 +147,8 @@ class BridgeOwner:
         self.applied_revision: int = -1
         self._producer_seq: int = 0
         self._active_native: set[str] = set()
+        self.registration_retry_seconds: float = POLL_INTERVAL_SECONDS
+        self._last_registration_error_code: str | None = None
 
     def next_producer_sequence(self) -> int:
         self._producer_seq += 1
@@ -172,12 +181,25 @@ class BridgeOwner:
             self.registration_payload(),
         )
         if "leaseToken" not in resp:
-            print(f"[mist-bridge] registration failed: {resp}")
+            error = resp.get("error", {})
+            self.registration_retry_seconds = _retry_delay_seconds(error, 1)
+            error_code = error.get("code", "unknown")
+            if error_code != self._last_registration_error_code:
+                if error_code == "TDX_BRIDGE_OWNER_ACTIVE":
+                    print(
+                        "[mist-bridge] previous owner is still active; "
+                        "waiting for bounded takeover"
+                    )
+                else:
+                    print(f"[mist-bridge] registration failed: {resp}")
+            self._last_registration_error_code = error_code
             return False
         self.lease_token = resp["leaseToken"]
         self.stream_epoch = resp.get("streamEpoch")
         self.applied_revision = -1
         self._active_native = set()
+        self.registration_retry_seconds = POLL_INTERVAL_SECONDS
+        self._last_registration_error_code = None
         # Do NOT log lease token (even partial) — per golden contract.
         print(f"[mist-bridge] registered: epoch={self.stream_epoch} build={BRIDGE_BUILD_ID}")
         return True
@@ -317,8 +339,7 @@ def run_bridge() -> None:
                 break
         except Exception as e:
             print(f"[mist-bridge] registration error: {e}")
-        print("[mist-bridge] waiting to register...")
-        time.sleep(POLL_INTERVAL_SECONDS)
+        time.sleep(owner.registration_retry_seconds)
 
     print("[mist-bridge] starting main loop")
     while True:
@@ -333,6 +354,9 @@ def run_bridge() -> None:
             )
             if "error" in poll_resp:
                 err = poll_resp["error"]
+                if _owner_was_replaced(err):
+                    print("[mist-bridge] replaced by a newer bridge instance; exiting")
+                    return
                 if _requires_registration(err):
                     print("[mist-bridge] lease lost, re-registering...")
                     while not owner.register():
@@ -394,6 +418,9 @@ def run_bridge() -> None:
             )
             result_error = result_resp.get("error", {})
             if result_error:
+                if _owner_was_replaced(result_error):
+                    print("[mist-bridge] replaced by a newer bridge instance; exiting")
+                    return
                 if _requires_registration(result_error):
                     print("[mist-bridge] result fenced, re-registering...")
                     while not owner.register():
@@ -438,6 +465,9 @@ def run_bridge() -> None:
                         err = snap_resp.get("error", {})
                         if err.get("code") == "TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE":
                             break  # Gateway already has it (prior attempt succeeded).
+                        if _owner_was_replaced(err):
+                            print("[mist-bridge] replaced by a newer bridge instance; exiting")
+                            return
                         if _requires_registration(err):
                             print("[mist-bridge] snapshot fenced, re-registering...")
                             while not owner.register():

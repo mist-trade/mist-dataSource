@@ -72,8 +72,11 @@ curl -X POST http://127.0.0.1:9001/tdx/bridge/desired \
 1. In the TQ Strategy Manager, select `mist_tdx_realtime_bridge.py`.
 2. Click **Stop** (停止).
 
-The script will exit cleanly. The gateway owner becomes stale after 10 seconds
-(`OWNER_STALE_AFTER_SECONDS`).
+The script will exit cleanly. Without a replacement, the gateway owner becomes
+stale after 10 seconds (`OWNER_STALE_AFTER_SECONDS`). If TDX leaves an old
+external TPyth process alive while launching a new one, a continuously retrying
+new owner replaces it after the 5-second takeover grace. The replaced v0.2
+script exits when its lease is fenced.
 
 ## Roll Back
 
@@ -103,4 +106,7 @@ To revert to legacy realtime:
 - **`snapshot rejected: NOT_CONVERGED`**: The symbol is not in the converged
   subscription set. Verify desired symbols and terminal SDK subscription.
 - **`lease lost, re-registering`**: The datasource gateway evicted the owner
-  (stale timeout or restart). The script auto-recovers.
+  after a datasource restart. The script auto-recovers.
+- **`previous owner is still active`**: Another bridge process owns the lease.
+  Keep the new process running; after the bounded takeover grace it becomes the
+  owner, and a v0.2 old process exits when fenced.

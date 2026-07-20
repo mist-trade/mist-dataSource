@@ -102,7 +102,14 @@ def _require_loopback(request: Request) -> None:
 
 
 def _gateway_error(exc: GatewayError) -> dict[str, Any]:
-    return {"code": exc.code, "message": exc.message, "retryable": exc.retryable}
+    error: dict[str, Any] = {
+        "code": exc.code,
+        "message": exc.message,
+        "retryable": exc.retryable,
+    }
+    if exc.retry_after_ms is not None:
+        error["retryAfterMs"] = exc.retry_after_ms
+    return error
 
 
 # --- routes -------------------------------------------------------------
