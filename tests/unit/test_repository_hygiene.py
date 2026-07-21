@@ -73,11 +73,11 @@ def test_legacy_service_layers_are_removed() -> None:
     assert not list((PROJECT_ROOT / "qmt" / "services").glob("*.py"))
 
 
-def test_ci_reports_live_test_collection_without_running_live_sdk() -> None:
+def test_ci_does_not_require_removed_legacy_live_suite() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert "-m live" in workflow
-    assert "--collect-only" in workflow
+    assert "-m live" not in workflow
+    assert "--collect-only" not in workflow
 
 
 def test_shell_scripts_use_strict_mode() -> None:

@@ -33,8 +33,5 @@ jobs:
       - name: Pyright
         run: uv run pyright
 
-      - name: Report live tests
-        run: uv run pytest -m live --collect-only -q
-
       - name: Test
         run: uv run pytest -m "not live"
