@@ -10,8 +10,8 @@ datasource.
 
 ## Current Boundary
 
-- TDX service `:9001` always exposes TDX `/v1`; its legacy and builtin
-  experimental WebSockets are mutually exclusive runtime modes.
+- TDX service `:9001` always exposes TDX `/v1` and its builtin realtime bridge;
+  it has no realtime mode switch.
 - QMT service `:9002` exposes `/health`, `:9002/v1/bars/query`, and the
   full-QMT HTTP polling bridge endpoints used by the built-in Python script.
 - `QMT_REALTIME_MODE=builtin_experimental` additionally exposes datasource-side
@@ -19,9 +19,8 @@ datasource.
 - QMT native `marketData` is returned as column-oriented JSON shaped after
   `ContextInfo.get_market_data_ex(..., subscribe=False)`: `{field: {stime:
   value}}`.
-- QMT does not implement `src.adapter_legacy.base.TdxLegacyAdapterBase`. That adapter
-  package is now TDX-only legacy glue; QMT source code lives under
-  `src/datasource/qmt_provider.py` and `src/datasource/qmt/*`.
+- QMT source code lives under `src/datasource/qmt_provider.py` and
+  `src/datasource/qmt/*`; no shared TDX adapter layer exists.
 - Historical QMT bars map to `get_market_data_ex(..., subscribe=False)` and do
   not trigger quote subscription.
 - QMT production bridge transport is stdlib HTTP polling only:

@@ -28,7 +28,6 @@ def test_provider_facade_composes_domain_operation_modules() -> None:
 def test_normalized_routes_and_collectors_depend_on_provider_facade_only() -> None:
     checked_files = [
         PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py",
-        PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "collector.py",
     ]
 
     offenders = [

@@ -3,17 +3,11 @@
 from __future__ import annotations
 
 import ast
-import inspect
 import os
 import stat
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Any
-
-from src.adapter_legacy.base import TdxLegacyAdapterBase
-from src.adapter_legacy.mock.tdx_mock import TdxLegacyMockAdapter
-from src.adapter_legacy.tdx.client import TdxLegacyAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,37 +60,17 @@ def test_p3_datasource_shape_cleanup_contracts() -> None:
         encoding="utf-8"
     )
     core_init_source = (PROJECT_ROOT / "src" / "core" / "__init__.py").read_text(encoding="utf-8")
-    tdx_client_source = (
-        PROJECT_ROOT / "src" / "adapter_legacy" / "tdx" / "client.py"
-    ).read_text(encoding="utf-8")
-    tdx_legacy_bridge_source = (
-        PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "bridge.py"
-    ).read_text(encoding="utf-8")
-    tdx_subscription_source = (
-        PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "subscription.py"
-    ).read_text(encoding="utf-8")
-
     assert "class ConnectionError" not in exceptions_source
     assert "class ConfigurationError" not in exceptions_source
     assert "ConnectionError" not in core_init_source
     assert "ConfigurationError" not in core_init_source
-    assert "print(" not in tdx_client_source
-    assert "get_logger" in tdx_client_source
-    assert "def _dedupe_stable" not in tdx_legacy_bridge_source
-    assert "def _dedupe_normalized" not in tdx_subscription_source
+    assert not list((PROJECT_ROOT / "src" / "adapter_legacy").rglob("*.py"))
+    assert not list((PROJECT_ROOT / "src" / "datasource" / "tdx_legacy").rglob("*.py"))
 
 
 def test_legacy_service_layers_are_removed() -> None:
     assert not list((PROJECT_ROOT / "tdx" / "services").glob("*.py"))
     assert not list((PROJECT_ROOT / "qmt" / "services").glob("*.py"))
-
-
-def test_tdx_create_sector_signature_matches_mock_adapter() -> None:
-    real_signature = inspect.signature(TdxLegacyAdapter.create_sector)
-    mock_signature = inspect.signature(TdxLegacyMockAdapter.create_sector)
-
-    assert list(real_signature.parameters) == ["self", "block_code", "block_name"]
-    assert list(mock_signature.parameters) == ["self", "block_code", "block_name"]
 
 
 def test_ci_reports_live_test_collection_without_running_live_sdk() -> None:
@@ -176,15 +150,12 @@ def test_qmt_routes_do_not_import_qmt_main_for_runtime_singletons() -> None:
     assert offenders == []
 
 
-def test_tdx_routes_document_app_state_dependency_model() -> None:
+def test_tdx_routes_document_current_dependency_model() -> None:
     docs = (PROJECT_ROOT / "docs" / "tdx-dependency-flow.md").read_text(encoding="utf-8")
 
-    assert "app.state" in docs
-    assert "import tdx.main" not in docs
-
-
-def test_legacy_adapter_base_keeps_abstract_lifecycle_contract() -> None:
-    assert TdxLegacyAdapterBase.__abstractmethods__ == {"initialize", "shutdown"}
+    assert "TdxHttpClient" in docs
+    assert "TDX terminal strategy" in docs
+    assert "no runtime mode switch" in docs
 
 
 def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
@@ -239,34 +210,6 @@ def test_rest_routes_use_shared_adapter_error_wrappers() -> None:
     assert offenders == []
 
 
-def test_adapter_sdk_error_wrapping_is_centralized() -> None:
-    allowed_handlers = {
-        ("src/adapter_legacy/tdx/client.py", "_heartbeat_loop"),
-        ("src/adapter_legacy/tdx/client.py", "initialize"),
-        ("src/adapter_legacy/tdx/client.py", "_call_tq"),
-    }
-    adapter_files = (
-        PROJECT_ROOT / "src" / "adapter_legacy" / "tdx" / "client.py",
-    )
-    offenders: list[tuple[str, str]] = []
-
-    for adapter_file in adapter_files:
-        relative_path = str(adapter_file.relative_to(PROJECT_ROOT))
-        tree = ast.parse(adapter_file.read_text(encoding="utf-8"), filename=str(adapter_file))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
-                continue
-            for child in ast.walk(node):
-                if not isinstance(child, ast.ExceptHandler):
-                    continue
-                if isinstance(child.type, ast.Name) and child.type.id == "Exception":
-                    handler = (relative_path, node.name)
-                    if handler not in allowed_handlers:
-                        offenders.append(handler)
-
-    assert offenders == []
-
-
 def test_tdx_provider_uses_shared_native_key_normalization_and_configured_timeouts() -> None:
     provider_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_provider.py").read_text(
         encoding="utf-8"
@@ -281,54 +224,20 @@ def test_tdx_provider_uses_shared_native_key_normalization_and_configured_timeou
     assert "settings.tdx.formula_timeout_ms" in formula_normalizer_source
 
 
-def _assert_selected_adapter_methods_are_typed(
-    adapter_cls: type, required_methods: tuple[str, ...]
-) -> None:
-    for method_name in required_methods:
-        signature = inspect.signature(getattr(adapter_cls, method_name))
-        assert signature.return_annotation is not inspect.Signature.empty, method_name
-        assert signature.return_annotation is not Any, method_name
-        assert signature.return_annotation not in {dict, list}, method_name
-        for parameter_name, parameter in signature.parameters.items():
-            if parameter_name == "self":
-                continue
-            assert parameter.annotation is not inspect.Signature.empty, (
-                method_name,
-                parameter_name,
-            )
-
-
-def test_tdx_legacy_adapter_selected_provider_methods_are_typed() -> None:
-    _assert_selected_adapter_methods_are_typed(
-        TdxLegacyAdapter,
-        (
-            "subscribe_quote",
-            "get_market_snapshot",
-            "get_gb_info",
-            "get_sector_list",
-            "get_kzz_info",
-            "get_ipo_info",
-            "get_trackzs_etf_info",
-            "formula_format_data",
-        ),
-    )
-
-
 def test_legacy_qmt_mock_adapter_is_removed() -> None:
     assert not (PROJECT_ROOT / "src" / "adapter" / "mock" / "qmt_mock.py").exists()
 
 
-def test_tdx_legacy_code_uses_explicit_legacy_paths() -> None:
+def test_tdx_legacy_code_is_removed() -> None:
     retired_adapter_root = PROJECT_ROOT / "src" / "adapter"
     assert not any(retired_adapter_root.rglob("*.py"))
     assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_subscription.py").exists()
     assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy_bridge.py").exists()
     assert not (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy_collector.py").exists()
 
-    assert (PROJECT_ROOT / "src" / "adapter_legacy" / "tdx" / "client.py").exists()
-    assert (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "subscription.py").exists()
-    assert (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "bridge.py").exists()
-    assert (PROJECT_ROOT / "src" / "datasource" / "tdx_legacy" / "collector.py").exists()
+    assert not list((PROJECT_ROOT / "src" / "adapter_legacy").rglob("*.py"))
+    assert not list((PROJECT_ROOT / "src" / "datasource" / "tdx_legacy").rglob("*.py"))
+    assert not list((PROJECT_ROOT / "tdx" / "routes" / "legacy").rglob("*.py"))
 
 
 def test_tdx_v1_provider_surface_does_not_import_legacy_runtime() -> None:

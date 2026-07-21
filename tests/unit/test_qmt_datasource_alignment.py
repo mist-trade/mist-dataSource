@@ -19,7 +19,7 @@ def test_qmt_alignment_reference_records_native_service_path() -> None:
     assert "`:9002/v1/bars/query`" in text
     assert "QMT native `marketData`" in text
     assert "`get_market_data_ex(..., subscribe=False)`" in text
-    assert "QMT does not implement `src.adapter_legacy.base.TdxLegacyAdapterBase`" in text
+    assert "no shared TDX adapter layer exists" in text
     assert "`/api/qmt/*`" not in text
     assert "`provider=qmt`" not in text
     assert "WebSocket duplex" not in text

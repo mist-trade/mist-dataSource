@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parents[2]
 OPENAPI_JSON = ROOT / "docs" / "references" / "tdx-openapi.json"
 OPENAPI_SUMMARY = ROOT / "docs" / "references" / "tdx-openapi-summary.md"
 MODE_ARTIFACTS = {
-    "tdx-legacy": ROOT / "docs" / "references" / "tdx-openapi-legacy.json",
     "tdx-builtin": ROOT
     / "docs"
     / "references"
@@ -35,7 +34,7 @@ def test_tdx_openapi_json_matches_fastapi_schema() -> None:
 def test_tdx_openapi_summary_documents_contract_shapes() -> None:
     summary = OPENAPI_SUMMARY.read_text(encoding="utf-8")
 
-    assert "# TDX OpenAPI Summary (legacy)" in summary
+    assert "# TDX OpenAPI Summary (builtin_experimental)" in summary
     assert "POST /v1/finance/financial-data/query" in summary
     assert "Request Body" in summary
     assert "Responses" in summary
@@ -49,7 +48,6 @@ def test_mode_specific_openapi_artifacts_document_conditional_routes() -> None:
         for name, path in MODE_ARTIFACTS.items()
     }
 
-    assert "/tdx/bridge/health" not in schemas["tdx-legacy"]["paths"]
     assert "/tdx/bridge/health" in schemas["tdx-builtin"]["paths"]
     assert "/tdx/bridge/evidence/{symbol}" in schemas["tdx-builtin"]["paths"]
     assert "/qmt/realtime/health" not in schemas["qmt-off"]["paths"]

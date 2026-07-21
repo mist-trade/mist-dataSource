@@ -13,17 +13,9 @@ class TDXSettings(BaseSettings):
     )
     host: str = "0.0.0.0"
     port: int = 9001
-    sdk_path: str = ""  # 通达信 SDK 路径, e.g. "F:/quant/tdx/PYPlugins/user"
     http_url: str = "http://127.0.0.1:17709/"
-    minute_period: str = "1m"
-    collect_delay_seconds: int = 2
-    retry_delay_seconds: int = 8
-    reconcile_interval_seconds: int = 60
     max_subscriptions: int = 100
-    ws_queue_max_size: int = 1000
     formula_timeout_ms: int = 10000
-    realtime_mode: str = "legacy"  # legacy | builtin_experimental | off
-    experimental_ws_client_id: str = "mist-backend-tdx-experimental"
 
 
 class QMTSettings(BaseSettings):

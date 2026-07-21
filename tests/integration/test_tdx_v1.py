@@ -579,41 +579,15 @@ async def v1_client() -> AsyncClient:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_legacy_bridge
-    previous_collector = tdx.main.tdx_legacy_collector
-    previous_adapter = tdx.main.tdx_legacy_adapter
-    previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     previous_state_provider = getattr(app.state, "tdx_provider", None)
-    previous_state_bridge = getattr(app.state, "tdx_legacy_bridge", None)
-    previous_state_collector = getattr(app.state, "tdx_legacy_collector", None)
-    previous_state_adapter = getattr(app.state, "tdx_legacy_adapter", None)
-    previous_state_subscription_client = getattr(
-        app.state,
-        "tdx_legacy_subscription_client",
-        None,
-    )
     tdx.main.tdx_provider = FakeTdxProvider()
     app.state.tdx_provider = tdx.main.tdx_provider
-    app.state.tdx_legacy_bridge = tdx.main.tdx_legacy_bridge
-    app.state.tdx_legacy_collector = tdx.main.tdx_legacy_collector
-    app.state.tdx_legacy_adapter = tdx.main.tdx_legacy_adapter
-    app.state.tdx_legacy_subscription_client = tdx.main.tdx_legacy_subscription_client
-    app.state.ws_manager = tdx.main.ws_manager
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_legacy_bridge = previous_bridge
-        tdx.main.tdx_legacy_collector = previous_collector
-        tdx.main.tdx_legacy_adapter = previous_adapter
-        tdx.main._tdx_provider_owned_by_main = previous_owned_provider
         app.state.tdx_provider = previous_state_provider
-        app.state.tdx_legacy_bridge = previous_state_bridge
-        app.state.tdx_legacy_collector = previous_state_collector
-        app.state.tdx_legacy_adapter = previous_state_adapter
-        app.state.tdx_legacy_subscription_client = previous_state_subscription_client
-        app.state.ws_manager = tdx.main.ws_manager
 
 
 def test_v1_provider_lookup_reads_request_app_state() -> None:
@@ -1480,25 +1454,10 @@ async def test_health_includes_enriched_tdx_state(v1_client: AsyncClient) -> Non
     body = response.json()
     assert body["status"] == "ok"
     assert body["instance"] == "tdx"
-    assert "adapter" in body
     assert "connections" in body
     assert body["tdxHttpReachable"] is True
-    assert body["tqInitialized"] is False
     assert body["wsConnected"] is False
-    assert body["subscribedCount"] == 0
-    assert body["activeSubscriptions"] == []
-    assert body["lastCallbackAt"] is None
-    assert body["quoteCallbackCount"] == 0
-    assert body["quoteCallbackRejectedCount"] == 0
-    assert body["lastQuoteCallbackAt"] is None
-    assert body["lastQuoteCallbackCode"] is None
-    assert body["lastQuoteCallbackSymbol"] is None
-    assert body["lastQuoteCallbackAccepted"] is None
-    assert body["lastQuoteCallbackRejectReason"] is None
-    assert body["lastMinuteBarAt"] is None
-    assert body["eventQueueDepth"] == 0
-    assert body["eventQueueCapacity"] == 0
-    assert body["collectorState"] == "not_started"
+    assert body["tdxExperimentalBridgeReady"] is False
 
 
 @pytest.mark.asyncio
@@ -1515,13 +1474,7 @@ async def test_health_handles_non_dict_provider_health() -> None:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_legacy_bridge
-    previous_collector = tdx.main.tdx_legacy_collector
-    previous_adapter = tdx.main.tdx_legacy_adapter
-    previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     tdx.main.tdx_provider = NonDictHealthProvider()
-    tdx.main.tdx_legacy_bridge = None
-    tdx.main.tdx_legacy_collector = None
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1531,10 +1484,6 @@ async def test_health_handles_non_dict_provider_health() -> None:
         assert response.json()["tdxHttpReachable"] is False
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_legacy_bridge = previous_bridge
-        tdx.main.tdx_legacy_collector = previous_collector
-        tdx.main.tdx_legacy_adapter = previous_adapter
-        tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
 @pytest.mark.asyncio
@@ -1542,13 +1491,7 @@ async def test_health_surfaces_provider_health_exceptions() -> None:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_legacy_bridge
-    previous_collector = tdx.main.tdx_legacy_collector
-    previous_adapter = tdx.main.tdx_legacy_adapter
-    previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     tdx.main.tdx_provider = RaisingHealthProvider()
-    tdx.main.tdx_legacy_bridge = None
-    tdx.main.tdx_legacy_collector = None
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1557,49 +1500,26 @@ async def test_health_surfaces_provider_health_exceptions() -> None:
         assert response.status_code == 200
         body = response.json()
         assert body["tdxHttpReachable"] is False
-        assert body["tdxProviderError"] == "tdx health failed"
-        assert body["tdxProviderErrorType"] == "RuntimeError"
+        assert body["lastError"] == "tdx health failed"
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_legacy_bridge = previous_bridge
-        tdx.main.tdx_legacy_collector = previous_collector
-        tdx.main.tdx_legacy_adapter = previous_adapter
-        tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
 @pytest.mark.asyncio
-async def test_lifespan_shutdown_clears_adapter_before_next_health(monkeypatch) -> None:
+async def test_lifespan_creates_and_closes_http_provider(monkeypatch) -> None:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_legacy_bridge
-    previous_collector = tdx.main.tdx_legacy_collector
-    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
-    fake_adapter = FakeAdapter()
-    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", CloseAwareProvider)
     tdx.main.tdx_provider = None
-    tdx.main.tdx_legacy_bridge = None
-    tdx.main.tdx_legacy_collector = None
 
     try:
         async with tdx.main.lifespan(app):
-            assert tdx.main.tdx_legacy_adapter is fake_adapter
-
-        assert fake_adapter.shutdown_called is True
-        assert tdx.main.tdx_legacy_adapter is None
-
-        tdx.main.tdx_provider = FakeTdxProvider()
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/health")
-
-        assert response.json()["tqInitialized"] is False
+            assert isinstance(tdx.main.tdx_provider, CloseAwareProvider)
+        assert tdx.main.tdx_provider is None
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_legacy_bridge = previous_bridge
-        tdx.main.tdx_legacy_collector = previous_collector
-        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
@@ -1608,18 +1528,11 @@ async def test_lifespan_closes_owned_provider_not_replacement(monkeypatch) -> No
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_legacy_bridge
-    previous_collector = tdx.main.tdx_legacy_collector
-    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
-    fake_adapter = FakeAdapter()
     owned_provider = CloseAwareProvider()
     replacement_provider = CloseAwareProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
     tdx.main.tdx_provider = None
-    tdx.main.tdx_legacy_bridge = None
-    tdx.main.tdx_legacy_collector = None
 
     try:
         async with tdx.main.lifespan(app):
@@ -1631,28 +1544,18 @@ async def test_lifespan_closes_owned_provider_not_replacement(monkeypatch) -> No
         assert tdx.main.tdx_provider is replacement_provider
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_legacy_bridge = previous_bridge
-        tdx.main.tdx_legacy_collector = previous_collector
-        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider
 
 
 @pytest.mark.asyncio
-async def test_lifespan_shutdown_cleans_adapter_when_provider_close_raises(monkeypatch) -> None:
+async def test_lifespan_clears_owned_provider_when_close_raises(monkeypatch) -> None:
     import tdx.main
 
     previous_provider = tdx.main.tdx_provider
-    previous_bridge = tdx.main.tdx_legacy_bridge
-    previous_collector = tdx.main.tdx_legacy_collector
-    previous_adapter = tdx.main.tdx_legacy_adapter
     previous_owned_provider = tdx.main._tdx_provider_owned_by_main
-    fake_adapter = FakeAdapter()
     owned_provider = RaisingCloseProvider()
-    monkeypatch.setattr(tdx.main, "create_tdx_legacy_adapter", lambda: fake_adapter)
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
     tdx.main.tdx_provider = None
-    tdx.main.tdx_legacy_bridge = None
-    tdx.main.tdx_legacy_collector = None
 
     try:
         with pytest.raises(RuntimeError, match="provider close failed"):
@@ -1660,13 +1563,8 @@ async def test_lifespan_shutdown_cleans_adapter_when_provider_close_raises(monke
                 assert tdx.main.tdx_provider is owned_provider
 
         assert owned_provider.close_attempted is True
-        assert fake_adapter.shutdown_called is True
-        assert tdx.main.tdx_legacy_adapter is None
         assert tdx.main.tdx_provider is None
         assert tdx.main._tdx_provider_owned_by_main is None
     finally:
         tdx.main.tdx_provider = previous_provider
-        tdx.main.tdx_legacy_bridge = previous_bridge
-        tdx.main.tdx_legacy_collector = previous_collector
-        tdx.main.tdx_legacy_adapter = previous_adapter
         tdx.main._tdx_provider_owned_by_main = previous_owned_provider

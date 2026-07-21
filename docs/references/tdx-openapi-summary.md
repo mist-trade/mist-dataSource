@@ -1,306 +1,9 @@
-# TDX OpenAPI Summary (legacy)
+# TDX OpenAPI Summary (builtin_experimental)
 
-Title: Mist DataSource - TDX Adapter
-Version: 0.1.0
+Title: Mist DataSource - TDX
+Version: 1.0.0
 
-Generated from the `tdx` FastAPI app in `legacy` mode.
-
-## GET /api/tdx/bkjy-value
-
-- Operation ID: `get_bkjy_value_api_tdx_bkjy_value_get`
-- Tags: Value
-- Summary: Get Bkjy Value
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/bkjy-value-by-date
-
-- Operation ID: `get_bkjy_value_by_date_api_tdx_bkjy_value_by_date_get`
-- Tags: Value
-- Summary: Get Bkjy Value By Date
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/clear-sector
-
-- Operation ID: `clear_sector_api_tdx_clear_sector_post`
-- Tags: Sector
-- Summary: Clear Sector
-- Request Body: `SectorRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/create-sector
-
-- Operation ID: `create_sector_api_tdx_create_sector_post`
-- Tags: Sector
-- Summary: Create Sector
-- Request Body: `SectorRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/delete-sector
-
-- Operation ID: `delete_sector_api_tdx_delete_sector_post`
-- Tags: Sector
-- Summary: Delete Sector
-- Request Body: `SectorRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/divid-factors
-
-- Operation ID: `get_divid_factors_api_tdx_divid_factors_get`
-- Tags: Market
-- Summary: Get Divid Factors
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/download-file
-
-- Operation ID: `download_file_api_tdx_download_file_post`
-- Tags: Market
-- Summary: Download File
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=false); down_time (query, string, required=false); down_type (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/exec-to-tdx
-
-- Operation ID: `exec_to_tdx_api_tdx_exec_to_tdx_post`
-- Tags: Client
-- Summary: Exec To Tdx
-- Request Body: `ExecRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/financial-data
-
-- Operation ID: `get_financial_data_api_tdx_financial_data_get`
-- Tags: Financial
-- Summary: Get Financial Data
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false); report_type (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/financial-data-by-date
-
-- Operation ID: `get_financial_data_by_date_api_tdx_financial_data_by_date_get`
-- Tags: Financial
-- Summary: Get Financial Data By Date
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/gb-info
-
-- Operation ID: `get_gb_info_api_tdx_gb_info_get`
-- Tags: Market
-- Summary: Get Gb Info
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true); date_list (query, string, required=false); count (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/gp-one-data
-
-- Operation ID: `get_gp_one_data_api_tdx_gp_one_data_get`
-- Tags: Financial
-- Summary: Get Gp One Data
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/gpjy-value
-
-- Operation ID: `get_gpjy_value_api_tdx_gpjy_value_get`
-- Tags: Value
-- Summary: Get Gpjy Value
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/gpjy-value-by-date
-
-- Operation ID: `get_gpjy_value_by_date_api_tdx_gpjy_value_by_date_get`
-- Tags: Value
-- Summary: Get Gpjy Value By Date
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/ipo-info
-
-- Operation ID: `get_ipo_info_api_tdx_ipo_info_get`
-- Tags: ETF
-- Summary: Get Ipo Info
-- Request Body: `-`
-- Parameters: ipo_type (query, integer, required=false); ipo_date (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/kzz-info
-
-- Operation ID: `get_kzz_info_api_tdx_kzz_info_get`
-- Tags: ETF
-- Summary: Get Kzz Info
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true); fields (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/market-data
-
-- Operation ID: `get_market_data_api_tdx_market_data_get`
-- Tags: Market
-- Summary: Get Market Data
-- Request Body: `-`
-- Parameters: stocks (query, string, required=true); fields (query, string, required=false); period (query, string, required=false); start_time (query, string, required=false); end_time (query, string, required=false); dividend_type (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/market-snapshot
-
-- Operation ID: `get_market_snapshot_api_tdx_market_snapshot_get`
-- Tags: Market
-- Summary: Get Market Snapshot
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true); fields (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/more-info
-
-- Operation ID: `get_more_info_api_tdx_more_info_get`
-- Tags: Stock
-- Summary: Get More Info
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true); fields (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/refresh-cache
-
-- Operation ID: `refresh_cache_api_tdx_refresh_cache_post`
-- Tags: Market
-- Summary: Refresh Cache
-- Request Body: `-`
-- Parameters: market (query, string, required=false); force (query, boolean, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/refresh-kline
-
-- Operation ID: `refresh_kline_api_tdx_refresh_kline_post`
-- Tags: Market
-- Summary: Refresh Kline
-- Request Body: `-`
-- Parameters: stock_list (query, string, required=false); period (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/relation
-
-- Operation ID: `get_relation_api_tdx_relation_get`
-- Tags: Stock
-- Summary: Get Relation
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/rename-sector
-
-- Operation ID: `rename_sector_api_tdx_rename_sector_post`
-- Tags: Sector
-- Summary: Rename Sector
-- Request Body: `SectorRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/scjy-value
-
-- Operation ID: `get_scjy_value_api_tdx_scjy_value_get`
-- Tags: Value
-- Summary: Get Scjy Value
-- Request Body: `-`
-- Parameters: fields (query, string, required=true); start_time (query, string, required=false); end_time (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/scjy-value-by-date
-
-- Operation ID: `get_scjy_value_by_date_api_tdx_scjy_value_by_date_get`
-- Tags: Value
-- Summary: Get Scjy Value By Date
-- Request Body: `-`
-- Parameters: fields (query, string, required=true); year (query, integer, required=true); mmdd (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/sector-list
-
-- Operation ID: `get_sector_list_api_tdx_sector_list_get`
-- Tags: Sector
-- Summary: Get Sector List
-- Request Body: `-`
-- Parameters: list_type (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## POST /api/tdx/send-user-block
-
-- Operation ID: `send_user_block_api_tdx_send_user_block_post`
-- Tags: Sector
-- Summary: Send User Block
-- Request Body: `SectorRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/stock-info
-
-- Operation ID: `get_stock_info_api_tdx_stock_info_get`
-- Tags: Stock
-- Summary: Get Stock Info
-- Request Body: `-`
-- Parameters: stock_code (query, string, required=true)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/stock-list
-
-- Operation ID: `get_stock_list_api_tdx_stock_list_get`
-- Tags: Stock
-- Summary: Get Stock List
-- Request Body: `-`
-- Parameters: market (query, string, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/stock-list-in-sector
-
-- Operation ID: `get_stock_list_in_sector_api_tdx_stock_list_in_sector_get`
-- Tags: Market
-- Summary: Get Stock List In Sector
-- Request Body: `-`
-- Parameters: block_code (query, string, required=false); block_type (query, integer, required=false); list_type (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/trackzs-etf-info
-
-- Operation ID: `get_trackzs_etf_info_api_tdx_trackzs_etf_info_get`
-- Tags: ETF
-- Summary: Get Trackzs Etf Info
-- Request Body: `-`
-- Parameters: zs_code (query, string, required=true)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/trading-dates
-
-- Operation ID: `get_trading_dates_api_tdx_trading_dates_get`
-- Tags: Market
-- Summary: Get Trading Dates
-- Request Body: `-`
-- Parameters: market (query, string, required=false); start_time (query, string, required=false); end_time (query, string, required=false); count (query, integer, required=false)
-- Responses: 200: -; 422: HTTPValidationError
-
-## GET /api/tdx/user-sectors
-
-- Operation ID: `get_user_sectors_api_tdx_user_sectors_get`
-- Tags: Sector
-- Summary: Get User Sectors
-- Request Body: `-`
-- Parameters: -
-- Responses: 200: -
+Generated from the `tdx` FastAPI app in `builtin_experimental` mode.
 
 ## GET /health
 
@@ -309,7 +12,7 @@ Generated from the `tdx` FastAPI app in `legacy` mode.
 - Summary: Health
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: -
+- Responses: 200: object
 
 ## GET /providers
 
@@ -319,6 +22,60 @@ Generated from the `tdx` FastAPI app in `legacy` mode.
 - Request Body: `-`
 - Parameters: -
 - Responses: 200: -
+
+## GET /tdx/bridge/evidence/{symbol}
+
+- Operation ID: `bridge_native_evidence_tdx_bridge_evidence__symbol__get`
+- Tags: TDX Bridge
+- Summary: Bridge Native Evidence
+- Request Body: `-`
+- Parameters: symbol (path, string, required=true)
+- Responses: 200: object; 422: HTTPValidationError
+
+## GET /tdx/bridge/health
+
+- Operation ID: `bridge_health_tdx_bridge_health_get`
+- Tags: TDX Bridge
+- Summary: Bridge Health
+- Request Body: `-`
+- Parameters: -
+- Responses: 200: object
+
+## POST /tdx/bridge/owner
+
+- Operation ID: `register_owner_tdx_bridge_owner_post`
+- Tags: TDX Bridge
+- Summary: Register Owner
+- Request Body: `OwnerRegisterRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /tdx/bridge/poll
+
+- Operation ID: `poll_tdx_bridge_poll_post`
+- Tags: TDX Bridge
+- Summary: Poll
+- Request Body: `PollRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /tdx/bridge/result
+
+- Operation ID: `post_result_tdx_bridge_result_post`
+- Tags: TDX Bridge
+- Summary: Post Result
+- Request Body: `ResultRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /tdx/bridge/snapshot
+
+- Operation ID: `post_snapshot_tdx_bridge_snapshot_post`
+- Tags: TDX Bridge
+- Summary: Post Snapshot
+- Request Body: `SnapshotRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
 
 ## POST /v1/bars/query
 
@@ -655,12 +412,15 @@ Generated from the `tdx` FastAPI app in `legacy` mode.
 
 ## Schemas
 
-- `ExecRequest`
 - `FormulaCallRequest`
 - `HTTPValidationError`
+- `OwnerRegisterRequest`
+- `PollRequest`
 - `RawTdxCallRequest`
+- `RejectedItem`
+- `ResultRequest`
 - `SectorQueryRequest`
-- `SectorRequest`
+- `SnapshotRequest`
 - `TdxBarQueryRequest`
 - `TdxConvertibleBondInfoQueryRequest`
 - `TdxDividendFactorsQueryRequest`

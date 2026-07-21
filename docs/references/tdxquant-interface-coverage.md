@@ -7,11 +7,9 @@ NestJS on provider-neutral `/v1` datasource contracts. The target is broad
 coverage for non-trading data APIs. Trading/account execution APIs are outside
 the market datasource boundary.
 
-Legacy `/api/tdx/*` routes are migration-only compatibility surfaces; product
-callers use `/v1` normalized routes or the datasource WebSocket contract. New
-product integrations must not add dependencies on old bare-dict route
-responses. Legacy route responses emit a `Deprecation` header. The Deprecation
-header and OpenAPI deprecated flag let consumers detect the migration boundary.
+Product callers use `/v1` normalized routes. Realtime snapshots use the TDX
+builtin bridge and its dedicated WebSocket. The old `/api/tdx/*` and
+`/ws/quote/*` surfaces have been removed.
 
 Related references:
 

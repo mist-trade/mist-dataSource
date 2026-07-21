@@ -4,7 +4,7 @@ Loopback-only (127.0.0.1 / ::1). The terminal strategy script calls these to
 register ownership, poll desired subscription state, report reconcile results,
 and post native snapshots.
 
-Only mounted when ``TDX_REALTIME_MODE=builtin_experimental``.
+Mounted unconditionally by the TDX datasource.
 """
 
 from __future__ import annotations
@@ -227,22 +227,3 @@ async def bridge_native_evidence(symbol: str, request: Request) -> dict[str, Any
             status_code=status.HTTP_404_NOT_FOUND,
             detail=_gateway_error(exc),
         ) from exc
-
-
-class SyncDesiredRequest(StrictRequestModel):
-    symbols: list[str] = Field(default_factory=list)
-
-
-@router.post("/tdx/bridge/desired")
-async def sync_desired(body: SyncDesiredRequest, request: Request) -> dict[str, Any]:
-    """Set the desired subscription set (full replace).
-
-    This is the production desired-state entry point: Mist or an operator
-    calls this to tell the gateway which symbols the terminal bridge should
-    subscribe to. The terminal polls this via /tdx/bridge/poll.
-    Loopback-only: must be called from the same machine (Mist backend).
-    """
-    _require_loopback(request)
-    gateway = _get_gateway(request)
-    revision = await gateway.sync_desired(body.symbols)
-    return {"desiredRevision": revision, "symbolCount": len(body.symbols)}

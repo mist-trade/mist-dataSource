@@ -1,254 +1,98 @@
-"""TDX 适配器 FastAPI 应用入口 (Port 9001).
+"""TDX datasource application (port 9001).
 
-启动方式: uvicorn tdx.main:app --port 9001 --reload
-对应 TDX SDK: tqcenter.tq (通过 TdxLegacyAdapterBase 适配器层调用)
+Historical and reference requests use the official TDX HTTP endpoint on
+port 17709. Realtime snapshots are owned by the terminal builtin bridge.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.adapter_legacy import create_tdx_legacy_adapter
-from src.adapter_legacy.base import TdxLegacyAdapterProtocol
 from src.core.config import settings
 from src.core.logging import setup_logging
-from src.datasource.tdx.runtime import TdxRuntime
+from src.datasource.tdx.experimental_gateway import ExperimentalTdxRealtimeGateway
 from src.datasource.tdx_provider import TdxDatasourceProvider
 from src.ws.manager import ConnectionManager
-from tdx.routes.legacy.client import router as client_router
-from tdx.routes.legacy.etf import router as etf_router
-from tdx.routes.legacy.financial import router as financial_router
-from tdx.routes.legacy.market import router as market_router
-from tdx.routes.legacy.sector import router as sector_router
-from tdx.routes.legacy.stock import router as stock_router
-from tdx.routes.legacy.value import router as value_router
-from tdx.routes.legacy.ws import router as ws_router
+from src.ws.protocol import ws_stream_started
+from tdx.routes.experimental import router as bridge_router
+from tdx.routes.experimental_ws import router as realtime_ws_router
 from tdx.routes.v1 import router as v1_router
 
 setup_logging()
 
-tdx_legacy_adapter: TdxLegacyAdapterProtocol | None = None
 tdx_provider: TdxDatasourceProvider | None = None
-tdx_legacy_bridge: Any | None = None
-tdx_legacy_collector: Any | None = None
-tdx_legacy_subscription_client: Any | None = None
-ws_manager = ConnectionManager()
-tdx_runtime: TdxRuntime | None = None
-# Experimental builtin-bridge components (only active when realtime_mode ==
-# "builtin_experimental"). Isolated from legacy ws_manager.
-tdx_experimental_gateway: Any | None = None
-tdx_experimental_ws_manager: Any | None = None
-LEGACY_TDX_API_DEPRECATION_HEADERS = {
-    "Deprecation": "true",
-    "Link": '</v1/bars/query>; rel="successor-version"',
-}
+tdx_experimental_gateway: ExperimentalTdxRealtimeGateway | None = None
+tdx_experimental_ws_manager: ConnectionManager | None = None
 _tdx_provider_owned_by_main: TdxDatasourceProvider | None = None
-_tdx_legacy_adapter_owned_by_main: TdxLegacyAdapterProtocol | None = None
-_tdx_legacy_bridge_owned_by_main: Any | None = None
-_tdx_legacy_collector_owned_by_main: Any | None = None
-_tdx_legacy_subscription_client_owned_by_main: Any | None = None
 
 
-def _sync_app_state(target_app: FastAPI) -> None:
-    target_app.state.tdx_runtime = tdx_runtime
-    target_app.state.tdx_legacy_adapter = tdx_legacy_adapter
-    target_app.state.tdx_provider = tdx_provider
-    target_app.state.tdx_legacy_bridge = tdx_legacy_bridge
-    target_app.state.tdx_legacy_collector = tdx_legacy_collector
-    target_app.state.tdx_legacy_subscription_client = tdx_legacy_subscription_client
-    target_app.state.ws_manager = ws_manager
-    target_app.state.tdx_experimental_gateway = tdx_experimental_gateway
-    target_app.state.tdx_experimental_ws_manager = tdx_experimental_ws_manager
-
-
-def _runtime_from_globals() -> TdxRuntime:
-    mode = _realtime_mode()
-    no_rt = mode != "legacy"
-    return TdxRuntime(
-        adapter=tdx_legacy_adapter,
-        provider=tdx_provider,
-        bridge=None if no_rt else tdx_legacy_bridge,
-        collector=None if no_rt else tdx_legacy_collector,
-        subscription_client=None if no_rt else tdx_legacy_subscription_client,
-        ws_manager=ws_manager,
-        adapter_factory=create_tdx_legacy_adapter,
-        provider_factory=TdxDatasourceProvider,
-        realtime_disabled=no_rt,
-    )
-
-
-def _realtime_mode() -> str:
-    """Validated TDX_REALTIME_MODE accessor. Raises on unknown value."""
-    mode = (settings.tdx.realtime_mode or "legacy").strip().lower()
-    if mode not in ("legacy", "builtin_experimental", "off"):
-        raise RuntimeError(
-            f"invalid TDX_REALTIME_MODE={mode!r}; expected legacy|builtin_experimental|off"
-        )
-    return mode
-
-
-def _init_experimental() -> None:
-    """Instantiate experimental gateway + isolated WS manager (global state)."""
-    global tdx_experimental_gateway, tdx_experimental_ws_manager
-    from src.datasource.tdx.experimental_gateway import ExperimentalTdxRealtimeGateway
-    from src.ws.manager import ConnectionManager as _CM
-    from src.ws.protocol import ws_stream_started
-
-    tdx_experimental_ws_manager = _CM()
-
-    async def _broadcast_epoch_change(
-        stream_epoch: str,
-        generation: int,
-        owner_id: str,
-        bridge_build_id: str,
-    ) -> None:
-        """Broadcast stream_started when owner generation changes."""
-        if tdx_experimental_ws_manager is not None:
-            await tdx_experimental_ws_manager.broadcast(
-                ws_stream_started(
-                    "tdx",
-                    {
-                        "streamEpoch": stream_epoch,
-                        "generation": generation,
-                        "mode": "builtin_experimental",
-                        "ownerId": owner_id,
-                        "bridgeBuildId": bridge_build_id,
-                    },
-                )
-            )
-
-    tdx_experimental_gateway = ExperimentalTdxRealtimeGateway(
-        max_subscriptions=settings.tdx.max_subscriptions,
-        on_epoch_change=_broadcast_epoch_change,
-    )
-
-
-def _clear_experimental() -> None:
-    global tdx_experimental_gateway, tdx_experimental_ws_manager
-    tdx_experimental_gateway = None
-    tdx_experimental_ws_manager = None
-
-
-def _sync_globals_from_runtime(runtime: TdxRuntime) -> None:
-    global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
-    global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
-    global _tdx_legacy_subscription_client_owned_by_main
-    global \
-        tdx_legacy_adapter, \
-        tdx_legacy_bridge, \
-        tdx_legacy_collector, \
-        tdx_provider, \
-        tdx_legacy_subscription_client
-
-    tdx_legacy_adapter = runtime.adapter
-    tdx_provider = runtime.provider
-    tdx_legacy_bridge = runtime.bridge
-    tdx_legacy_collector = runtime.collector
-    tdx_legacy_subscription_client = runtime.subscription_client
-    _tdx_legacy_adapter_owned_by_main = runtime.adapter if runtime.owns_adapter else None
-    _tdx_provider_owned_by_main = runtime.provider if runtime.owns_provider else None
-    _tdx_legacy_bridge_owned_by_main = runtime.bridge if runtime.owns_bridge else None
-    _tdx_legacy_collector_owned_by_main = runtime.collector if runtime.owns_collector else None
-    _tdx_legacy_subscription_client_owned_by_main = (
-        runtime.subscription_client if runtime.owns_subscription_client else None
-    )
-
-
-def _clear_owned_globals_after_stop(
-    *,
-    owned_adapter: Any | None,
-    owned_provider: Any | None,
-    owned_bridge: Any | None,
-    owned_collector: Any | None,
-    owned_subscription_client: Any | None,
+async def _broadcast_epoch_change(
+    stream_epoch: str,
+    generation: int,
+    owner_id: str,
+    bridge_build_id: str,
 ) -> None:
-    global _tdx_legacy_adapter_owned_by_main, _tdx_legacy_bridge_owned_by_main
-    global _tdx_legacy_collector_owned_by_main, _tdx_provider_owned_by_main
-    global _tdx_legacy_subscription_client_owned_by_main
-    global \
-        tdx_legacy_adapter, \
-        tdx_legacy_bridge, \
-        tdx_legacy_collector, \
-        tdx_provider, \
-        tdx_legacy_subscription_client
+    if tdx_experimental_ws_manager is None:
+        return
+    await tdx_experimental_ws_manager.broadcast(
+        ws_stream_started(
+            "tdx",
+            {
+                "streamEpoch": stream_epoch,
+                "generation": generation,
+                "mode": "builtin_experimental",
+                "ownerId": owner_id,
+                "bridgeBuildId": bridge_build_id,
+            },
+        )
+    )
 
-    if tdx_legacy_subscription_client is owned_subscription_client:
-        tdx_legacy_subscription_client = None
-    if tdx_legacy_collector is owned_collector:
-        tdx_legacy_collector = None
-    if tdx_legacy_bridge is owned_bridge:
-        tdx_legacy_bridge = None
-    if tdx_provider is owned_provider:
-        tdx_provider = None
-    if tdx_legacy_adapter is owned_adapter:
-        tdx_legacy_adapter = None
 
-    _tdx_legacy_subscription_client_owned_by_main = None
-    _tdx_legacy_collector_owned_by_main = None
-    _tdx_legacy_bridge_owned_by_main = None
-    _tdx_provider_owned_by_main = None
-    _tdx_legacy_adapter_owned_by_main = None
+def _sync_app_state(target: FastAPI) -> None:
+    target.state.tdx_provider = tdx_provider
+    target.state.tdx_experimental_gateway = tdx_experimental_gateway
+    target.state.tdx_experimental_ws_manager = tdx_experimental_ws_manager
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """应用生命周期管理器.
+async def lifespan(target: FastAPI):
+    global _tdx_provider_owned_by_main
+    global tdx_experimental_gateway, tdx_experimental_ws_manager, tdx_provider
 
-    启动时创建并初始化 TDX 适配器，关闭时执行清理.
-    对应 TDX SDK: tq.initialize(__file__)
-
-    Args:
-        app: FastAPI 应用实例
-
-    Yields:
-        None
-    """
-    global tdx_runtime
-    mode = _realtime_mode()
-    runtime = _runtime_from_globals()
-    tdx_runtime = runtime
-    # start() initializes adapter+provider (historical HTTP). When
-    # realtime_disabled (builtin_experimental/off), bridge/collector/subscription
-    # are NOT initialized — true runtime isolation.
-    await runtime.start()
-    _sync_globals_from_runtime(runtime)
-    if mode == "builtin_experimental":
-        _init_experimental()
-    # mode == "off": runtime started (historical HTTP available), no realtime.
-    _sync_app_state(_app)
+    owned_provider: TdxDatasourceProvider | None = None
+    if tdx_provider is None:
+        tdx_provider = TdxDatasourceProvider()
+        owned_provider = tdx_provider
+        _tdx_provider_owned_by_main = owned_provider
+    if tdx_experimental_ws_manager is None:
+        tdx_experimental_ws_manager = ConnectionManager()
+    if tdx_experimental_gateway is None:
+        tdx_experimental_gateway = ExperimentalTdxRealtimeGateway(
+            max_subscriptions=settings.tdx.max_subscriptions,
+            on_epoch_change=_broadcast_epoch_change,
+        )
+    _sync_app_state(target)
 
     try:
         yield
     finally:
-        owned_subscription_client = _tdx_legacy_subscription_client_owned_by_main
-        owned_collector = _tdx_legacy_collector_owned_by_main
-        owned_bridge = _tdx_legacy_bridge_owned_by_main
-        owned_provider = _tdx_provider_owned_by_main
-        owned_adapter = _tdx_legacy_adapter_owned_by_main
         try:
-            await runtime.stop()
+            if owned_provider is not None:
+                await owned_provider.aclose()
         finally:
-            _clear_owned_globals_after_stop(
-                owned_adapter=owned_adapter,
-                owned_provider=owned_provider,
-                owned_bridge=owned_bridge,
-                owned_collector=owned_collector,
-                owned_subscription_client=owned_subscription_client,
-            )
-            if mode == "builtin_experimental":
-                _clear_experimental()
-            if tdx_runtime is runtime:
-                tdx_runtime = None
-            _sync_app_state(_app)
+            if tdx_provider is owned_provider:
+                tdx_provider = None
+            _tdx_provider_owned_by_main = None
+            _sync_app_state(target)
 
 
 app = FastAPI(
-    title="Mist DataSource - TDX Adapter",
-    description="通达信数据源适配器 - 提供 HTTP/WebSocket 接口",
-    version="0.1.0",
+    title="Mist DataSource - TDX",
+    description="TDX HTTP provider and builtin realtime bridge",
+    version="1.0.0",
     lifespan=lifespan,
 )
 _sync_app_state(app)
@@ -262,53 +106,48 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def add_legacy_tdx_deprecation_headers(
-    request: Request,
-    call_next: Callable[[Request], Awaitable[Response]],
-) -> Response:
-    response = await call_next(request)
-    if request.url.path.startswith("/api/tdx/"):
-        for header, value in LEGACY_TDX_API_DEPRECATION_HEADERS.items():
-            response.headers[header] = value
-    return response
+async def _provider_health() -> dict[str, Any]:
+    if tdx_provider is None:
+        return {"tdxHttpReachable": False, "lastError": "TDX provider is not initialized"}
+    try:
+        value: Any = await tdx_provider.health()
+        if not isinstance(value, Mapping):
+            return {
+                "tdxHttpReachable": False,
+                "lastError": "TDX provider health returned a non-mapping payload",
+            }
+        payload = cast(Mapping[str, Any], value)
+        return {
+            "tdxHttpReachable": bool(payload.get("tdxHttpReachable", False)),
+            "lastError": payload.get("lastError"),
+        }
+    except Exception as exc:
+        return {"tdxHttpReachable": False, "lastError": str(exc)}
 
 
 @app.get("/health")
-async def health():
-    """健康检查端点.
-
-    Returns:
-        包含以下字段的字典:
-        - status (str): 服务状态，固定为 "ok"
-        - instance (str): 实例标识，固定为 "tdx"
-        - adapter (str): 当前适配器类名，未初始化时为 "none"
-        - connections (int): 当前 WebSocket 连接数
-
-    Examples:
-        >>> GET /health
-        {"status": "ok", "instance": "tdx", "adapter": "TdxLegacyMockAdapter", "connections": 0}
-    """
-    return await _runtime_from_globals().health(instance="tdx")
+async def health() -> dict[str, Any]:
+    provider_health = await _provider_health()
+    bridge_health = (
+        await tdx_experimental_gateway.health()
+        if tdx_experimental_gateway is not None
+        else {"tdxExperimentalBridgeReady": False}
+    )
+    connections = (
+        tdx_experimental_ws_manager.connection_count
+        if tdx_experimental_ws_manager is not None
+        else 0
+    )
+    return {
+        "status": "ok",
+        "instance": "tdx",
+        "connections": connections,
+        "wsConnected": connections > 0,
+        **provider_health,
+        **bridge_health,
+    }
 
 
 app.include_router(v1_router, tags=["V1"])
-app.include_router(market_router, prefix="/api/tdx", tags=["Market"], deprecated=True)
-app.include_router(stock_router, prefix="/api/tdx", tags=["Stock"], deprecated=True)
-app.include_router(financial_router, prefix="/api/tdx", tags=["Financial"], deprecated=True)
-app.include_router(value_router, prefix="/api/tdx", tags=["Value"], deprecated=True)
-app.include_router(sector_router, prefix="/api/tdx", tags=["Sector"], deprecated=True)
-app.include_router(etf_router, prefix="/api/tdx", tags=["ETF"], deprecated=True)
-app.include_router(client_router, prefix="/api/tdx", tags=["Client"], deprecated=True)
-
-# Legacy realtime WS route only mounted under mode=legacy.
-if _realtime_mode() == "legacy":
-    app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
-
-# Experimental builtin-bridge routes + WS (only when builtin_experimental).
-if _realtime_mode() == "builtin_experimental":
-    from tdx.routes.experimental import router as experimental_bridge_router
-    from tdx.routes.experimental_ws import router as experimental_ws_router
-
-    app.include_router(experimental_bridge_router, tags=["ExperimentalBridge"])
-    app.include_router(experimental_ws_router, tags=["ExperimentalWebSocket"])
+app.include_router(bridge_router, tags=["TDX Bridge"])
+app.include_router(realtime_ws_router, tags=["TDX Realtime"])

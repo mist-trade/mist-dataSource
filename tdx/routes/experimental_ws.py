@@ -1,12 +1,10 @@
 """Experimental TDX realtime WebSocket endpoint.
 
-Independent of the legacy ``/ws/quote`` route. Uses an isolated
-``ConnectionManager`` instance so experimental frames never reach legacy
-consumers and vice versa. The experimental Mist client connects here to receive
+Uses a dedicated ``ConnectionManager`` instance. The Mist client connects here to receive
 ``tdx.experimental.snapshot`` frames plus ``ready``/``stream_started`` control
 events.
 
-Only mounted when ``TDX_REALTIME_MODE=builtin_experimental``.
+Mounted unconditionally by the TDX datasource.
 """
 
 from __future__ import annotations
@@ -14,6 +12,7 @@ from __future__ import annotations
 import json
 from contextlib import suppress
 from json import JSONDecodeError
+from typing import cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -23,7 +22,7 @@ from src.datasource.tdx.experimental_gateway import (
     ACCEPTED_PAYLOAD_TYPE,
     ACCEPTED_SCHEMA_VERSION,
 )
-from src.ws.protocol import ws_ready
+from src.ws.protocol import ws_error, ws_ready, ws_subscription_ack
 
 router = APIRouter()
 
@@ -40,6 +39,17 @@ def _get_gateway(websocket: WebSocket):
     if gateway is None:
         raise RuntimeError("experimental gateway not initialized on app.state")
     return gateway
+
+
+def _parse_symbols(value: object) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    symbols: list[str] = []
+    for item in cast(list[object], value):
+        if not isinstance(item, str):
+            return None
+        symbols.append(item)
+    return symbols
 
 
 @router.websocket("/ws/tdx-experimental/{client_id}")
@@ -77,8 +87,8 @@ async def experimental_tdx_realtime(websocket: WebSocket, client_id: str) -> Non
     try:
         while True:
             raw = await websocket.receive_text()
-            # The experimental endpoint is push-only from the server side.
-            # Client messages are limited to ping for liveness.
+            # Control messages share this connection so the backend never needs
+            # access to the loopback-only bridge HTTP routes.
             with suppress(JSONDecodeError):
                 msg: object = json.loads(raw)
                 if isinstance(msg, dict):
@@ -87,6 +97,30 @@ async def experimental_tdx_realtime(websocket: WebSocket, client_id: str) -> Non
                         from src.ws.protocol import ws_pong
 
                         await manager.send_to_client(client_id, ws_pong("tdx"))
+                    elif msg_dict.get("type") == "sync_subscriptions":
+                        typed_symbols = _parse_symbols(msg_dict.get("symbols"))
+                        if typed_symbols is None:
+                            await manager.send_to_client(
+                                client_id,
+                                ws_error(
+                                    provider="tdx",
+                                    code="TDX_SUBSCRIPTIONS_INVALID",
+                                    message="symbols must be a list of strings",
+                                    retryable=False,
+                                ),
+                            )
+                            continue
+                        await gateway.sync_desired(typed_symbols)
+                        await manager.send_to_client(
+                            client_id,
+                            ws_subscription_ack(
+                                provider="tdx",
+                                msg_type="subscribed",
+                                accepted=typed_symbols,
+                                rejected=[],
+                                active=typed_symbols,
+                            ),
+                        )
     except WebSocketDisconnect:
         pass
     finally:

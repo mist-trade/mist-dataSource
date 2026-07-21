@@ -17,24 +17,14 @@ def test_tdx_datasource_settings_defaults(monkeypatch):
     """Test default TDX datasource settings values."""
     for env_name in (
         "TDX_HTTP_URL",
-        "TDX_MINUTE_PERIOD",
-        "TDX_COLLECT_DELAY_SECONDS",
-        "TDX_RETRY_DELAY_SECONDS",
-        "TDX_RECONCILE_INTERVAL_SECONDS",
         "TDX_MAX_SUBSCRIPTIONS",
-        "TDX_WS_QUEUE_MAX_SIZE",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
     tdx_settings = TDXSettings(_env_file=None)
 
     assert tdx_settings.http_url == "http://127.0.0.1:17709/"
-    assert tdx_settings.minute_period == "1m"
-    assert tdx_settings.collect_delay_seconds == 2
-    assert tdx_settings.retry_delay_seconds == 8
-    assert tdx_settings.reconcile_interval_seconds == 60
     assert tdx_settings.max_subscriptions == 100
-    assert tdx_settings.ws_queue_max_size == 1000
 
 
 def test_qmt_datasource_settings_defaults(monkeypatch):

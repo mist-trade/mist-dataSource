@@ -85,10 +85,9 @@ def test_qmt_alignment_reference_is_linked_from_coverage_matrix() -> None:
     assert "`get_market_data_ex(..., subscribe=False)`" in qmt_text
 
 
-def test_old_tdx_routes_are_documented_as_migration_only() -> None:
+def test_removed_tdx_routes_are_documented() -> None:
     text = " ".join(_coverage_text().split())
 
     assert "`/api/tdx/*`" in text
-    assert "migration-only" in text
-    assert "product callers use `/v1`" in text
-    assert "Deprecation header" in text
+    assert "have been removed" in text
+    assert "Product callers use `/v1`" in text

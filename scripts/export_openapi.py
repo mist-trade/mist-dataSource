@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_JSON_PATH = ROOT / "docs" / "references" / "tdx-openapi.json"
 DEFAULT_SUMMARY_PATH = ROOT / "docs" / "references" / "tdx-openapi-summary.md"
 ARTIFACTS = {
-    ("tdx", "legacy"): ("tdx-openapi-legacy.json", "tdx-openapi-legacy-summary.md"),
     ("tdx", "builtin_experimental"): (
         "tdx-openapi-builtin-experimental.json",
         "tdx-openapi-builtin-experimental-summary.md",
@@ -87,7 +86,9 @@ def _parameters(operation: Mapping[str, Any]) -> list[str]:
     return rows or ["-"]
 
 
-def build_summary(openapi: dict[str, Any], *, source: str = "tdx", mode: str = "legacy") -> str:
+def build_summary(
+    openapi: dict[str, Any], *, source: str = "tdx", mode: str = "builtin_experimental"
+) -> str:
     info = _mapping(openapi.get("info"))
     paths = _mapping(openapi.get("paths"))
     lines = [
@@ -137,7 +138,6 @@ def build_summary(openapi: dict[str, Any], *, source: str = "tdx", mode: str = "
 
 def _load_app(source: str, mode: str):
     if source == "tdx":
-        os.environ["TDX_REALTIME_MODE"] = mode
         from tdx.main import app
 
         return app
@@ -152,7 +152,7 @@ def export_openapi(
     summary_path: Path,
     *,
     source: str = "tdx",
-    mode: str = "legacy",
+    mode: str = "builtin_experimental",
 ) -> None:
     app = _load_app(source, mode)
     openapi = app.openapi()
@@ -182,13 +182,13 @@ def export_all() -> None:
             ],
             check=True,
         )
-    legacy_json, legacy_summary = ARTIFACTS[("tdx", "legacy")]
+    tdx_json, tdx_summary = ARTIFACTS[("tdx", "builtin_experimental")]
     DEFAULT_JSON_PATH.write_text(
-        (ROOT / "docs" / "references" / legacy_json).read_text(encoding="utf-8"),
+        (ROOT / "docs" / "references" / tdx_json).read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     DEFAULT_SUMMARY_PATH.write_text(
-        (ROOT / "docs" / "references" / legacy_summary).read_text(encoding="utf-8"),
+        (ROOT / "docs" / "references" / tdx_summary).read_text(encoding="utf-8"),
         encoding="utf-8",
     )
 
@@ -197,7 +197,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="export every supported mode")
     parser.add_argument("--source", choices=("tdx", "qmt"), default="tdx")
-    parser.add_argument("--mode", default="legacy")
+    parser.add_argument("--mode", default="builtin_experimental")
     parser.add_argument("--json", type=Path, default=DEFAULT_JSON_PATH)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY_PATH)
     args = parser.parse_args()
@@ -206,7 +206,7 @@ def main() -> None:
         export_all()
         return
     allowed_modes = {
-        "tdx": {"legacy", "off", "builtin_experimental"},
+        "tdx": {"builtin_experimental"},
         "qmt": {"off", "builtin_experimental"},
     }
     if args.mode not in allowed_modes[args.source]:

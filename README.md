@@ -112,9 +112,9 @@ uv run pytest --cov=src --cov=tdx --cov=qmt
 
 ### Windows 生产
 - `APP_ENV=production`；TDX 历史接口走官方 `:17709`，QMT 历史 bars 由内置脚本执行 `get_market_data_ex`
-- legacy TDX 实时链路由 datasource SDK adapter 持有；实验链路由终端内置脚本持有
+- TDX 实时链路固定由终端内置 bridge 持有，不再存在 datasource 进程内 SDK adapter 或 mode switch
 - 前置条件：相应终端已启动；内置策略脚本只能由操作员手工注册和启停
-- 使用 `scripts/deploy_windows.ps1` 安装依赖并做临时启动验证
+- WinSW datasource 与桌面终端恢复由 `mist-deploy` 仓库分别管理
 
 ## 目录结构
 
@@ -126,13 +126,8 @@ mist-datasource/
 │   │   ├── config.py         # pydantic-settings 配置
 │   │   ├── logging.py        # 日志配置
 │   │   └── exceptions.py     # 自定义异常
-│   ├── adapter_legacy/       # TDX legacy SDK 适配器层
-│   │   ├── base.py           # TdxLegacyAdapterBase 抽象基类
-│   │   ├── tdx/              # TDX legacy 真实适配器
-│   │   └── mock/             # TDX legacy Mock 适配器 (开发用)
-│   ├── datasource/           # TDX/QMT provider 与 legacy 订阅链
-│   │   ├── tdx/              # TDX V1 与 experimental gateway/runtime
-│   │   ├── tdx_legacy/       # TDX legacy WS subscription/bridge/collector
+│   ├── datasource/           # TDX/QMT provider 与实时 gateway
+│   │   ├── tdx/              # TDX V1 与 builtin realtime gateway
 │   │   └── qmt/              # QMT native bridge datasource
 │   └── ws/                   # WebSocket 管理
 │       ├── protocol.py       # WSMessage 消息协议
@@ -140,11 +135,9 @@ mist-datasource/
 ├── tdx/                      # TDX 适配器服务 (Port 9001)
 │   ├── main.py               # FastAPI 应用入口
 │   ├── routes/               # REST API 路由
-│   │   ├── legacy/           # legacy /api/tdx/* 路由
 │   │   ├── v1/               # normalized /v1/* TDX 路由
-│   │   ├── experimental.py   # builtin experimental HTTP bridge
-│   │   ├── experimental_ws.py # builtin experimental downstream WS
-│   │   └── legacy/ws.py      # legacy WebSocket quote 路由
+│   │   ├── experimental.py   # builtin HTTP bridge
+│   │   └── experimental_ws.py # builtin downstream WS
 │   └── builtin_bridge/       # TDX 终端 Python 3.7 实时脚本
 ├── qmt/                      # QMT datasource 服务 (Port 9002)
 │   ├── main.py               # FastAPI 应用入口
@@ -167,12 +160,10 @@ mist-datasource/
 │       ├── test_qmt_v1.py
 │       ├── test_qmt_bridge_routes.py
 │       └── test_tdx_live.py  # 需要真实环境 (标记为 live)
-├── scripts/                  # 脚本
+├── scripts/                  # 本地开发与契约导出脚本
 │   ├── start_all.sh          # 启动所有服务
 │   ├── stop_all.sh           # 停止所有服务
-│   ├── health_check.sh       # 健康检查
-│   ├── deploy_windows.ps1    # Windows 部署脚本
-│   └── run_live_tests.ps1    # 运行真实环境测试
+│   └── health_check.sh       # 健康检查
 ```
 
 ## API 文档
@@ -203,15 +194,12 @@ mist-datasource/
 | POST | `/v1/instruments/convertible-bonds/query` | normalized 可转债信息 |
 | POST | `/v1/instruments/tracking-etfs/query` | normalized 跟踪 ETF 信息 |
 | POST | `/v1/raw/tdx/call` | operator/debug only TDX raw 调用 |
-| WS | `/ws/quote/{client_id}` | legacy 模式实时行情订阅 |
+| WS | `/ws/tdx-experimental/{client_id}` | TDX builtin 实时行情与订阅同步 |
 
-`TDX_REALTIME_MODE=builtin_experimental` 时，legacy WebSocket 不注册，并启用
 `/tdx/bridge/owner`、`/tdx/bridge/poll`、`/tdx/bridge/result`、
 `/tdx/bridge/snapshot`、`/tdx/bridge/evidence/{symbol}`、`/tdx/bridge/health`
-及独立实验 WebSocket。evidence 只允许 loopback 读取，且不会返回 lease token。
-
-`/api/tdx/*` legacy endpoints 仍在运行时保留并标记 deprecated，只用于旧调用方兼容；
-新接入和 Mist 后端主路径应使用 `/v1/*`。
+和独立实时 WebSocket始终注册。bridge HTTP 路由只允许 loopback 访问；Mist backend
+通过 WebSocket同步完整订阅集合，不直接访问这些 HTTP 路由。
 
 #### QMT datasource (Port 9002)
 
@@ -271,7 +259,7 @@ uv run pyright src/
 
 ## Windows 部署
 
-使用 PowerShell 脚本一键部署（需要管理员权限）：
+Windows 部署由 `mist-deploy` 仓库统一管理。
 
 ### TDX WinSW 服务路径
 
@@ -281,10 +269,8 @@ uv run pyright src/
 
 Windows 服务名为 `mist-tdx-datasource`，由 WinSW 管理：
 
-```powershell
-.\scripts\winsw\install-tdx-datasource.ps1 -WinSWExe D:\tools\winsw\winsw.exe
-.\scripts\winsw\test-tdx-datasource.ps1
-```
+生产部署和 smoke 请使用 `mist-deploy` 的 `Manage Windows TDX Datasource`
+workflow；本仓库不再保留旧 adapter-aware WinSW smoke。
 
 ### QMT WinSW 服务路径
 
@@ -312,8 +298,8 @@ NestJS / MySQL 负责，Python adapter 只维护运行时订阅、采集和转�
 
 TDX 终端登录、授权状态和通达信策略清理不属于公开服务自动化的一部分。部署或重启
 前仍需要运维人员确认通达信终端已登录，并在终端中手动清理冲突策略。公共
-`/health` 保持 legacy 兼容；实验状态通过 loopback-only bridge health 与 monitoring
-指标观测。
+`/health` 直接报告 TDX HTTP 与 builtin bridge 状态；详细 lease 信息也可通过
+loopback-only bridge health 观测。
 
 ### OpenAPI / Swagger
 
@@ -324,10 +310,9 @@ http://127.0.0.1:9001/docs
 http://127.0.0.1:9001/openapi.json
 ```
 
-仓库保存四种模式的确定性契约：
+仓库保存 TDX 唯一运行时与 QMT 两种模式的确定性契约：
 
 ```text
-docs/references/tdx-openapi-legacy.json
 docs/references/tdx-openapi-builtin-experimental.json
 docs/references/qmt-openapi-off.json
 docs/references/qmt-openapi-builtin-experimental.json
@@ -339,27 +324,11 @@ docs/references/qmt-openapi-builtin-experimental.json
 uv run python scripts/export_openapi.py --all
 ```
 
-### SDK 路径约束
+### 内置脚本边界
 
-Windows 生产部署不会复制或打包通达信 SDK 文件。QMT 生产接入不再走本地 SDK 目录，而是通过大 QMT 内置 Python bridge 与 datasource 通信。
-
-TDX 预期目录结构：
-
-```text
-F:/quant/tdx/PYPlugins/
-├── TPythClient.dll
-├── tpythclient.py        # 如果你的通达信安装提供这个文件，通常在这里
-└── user/
-    └── tqcenter.py
-```
-
-legacy 模式下，`TDX_SDK_PATH` 必须指向包含 `tqcenter.py` 的 `user` 目录：
-
-```env
-TDX_SDK_PATH=F:/quant/tdx/PYPlugins/user
-```
-
-不要只复制 `tqcenter.py` 到部署包。`TPythClient.dll` 在 `TDX_SDK_PATH` 的上一级目录，SDK 会按这个父目录关系定位它；移动目录后需要同步修改 `.env`，并可能需要在通达信终端里清理旧策略身份。
+Windows datasource 不复制或加载 TDX SDK。TDX 的 `tqcenter` 仅由操作员放入并注册的
+终端内置脚本使用；部署 workflow 不写入 `PYPlugins/user`。QMT 同样通过大 QMT
+内置 Python bridge 与 datasource 通信。
 
 QMT bridge 预期配置：
 
@@ -382,52 +351,8 @@ QMT 服务始终暴露 native `/v1/bars/query` 和 HTTP polling bridge；实验�
 bridge 脚本只允许 stdlib HTTP polling；不得在 bridge 生产脚本中使用第三方库、
 监听端口、线程或子进程。
 
-部署前可先运行 SDK 预检：
-
-```powershell
-.\scripts\preflight-sdk.ps1
-```
-
-`deploy_windows.ps1` 只负责依赖安装和临时启动验证；Mist Windows appliance
-不再依赖 NSSM。生产服务注册由 TDX/QMT 各自的 WinSW installer 负责，QMT 策略
-脚本的加载、注册和删除仍保持人工操作。
-
-```powershell
-# 完整验证（安装依赖 + 运行测试）
-.\scripts\deploy_windows.ps1
-
-# 仅安装
-.\scripts\deploy_windows.ps1 -Only install
-
-# 仅运行测试
-.\scripts\deploy_windows.ps1 -Only test
-```
-
-部署完成并启动 WinSW 服务后，用运行态总入口做一次完整验收：
-
-```powershell
-.\scripts\run-runtime-checks.ps1 -ApplianceRoot F:\quant\MistAPI
-
-# 交易时间强制等待实时 quote；这会改 TDX 订阅，只在 backend 未占用 leader 时使用
-.\scripts\run-runtime-checks.ps1 -ApplianceRoot F:\quant\MistAPI -RequireLiveQuote -AllowWebSocketSubscriptionChange
-
-# 加测 Phase 3 财务/报告链路；默认用 get_gp_one_data，适合非交易时段
-.\scripts\run-runtime-checks.ps1 -ApplianceRoot F:\quant\MistAPI -IncludeFinanceReportSmoke
-
-# 加测 Phase 2/4 深烟测；默认不跑，适合人工真机验证时开启
-.\scripts\run-runtime-checks.ps1 -ApplianceRoot F:\quant\MistAPI -IncludeReferenceInstrumentSmoke -IncludeFormulaSmoke
-
-# 需要从 datasource 侧重跑安装/临时启动验证时显式开启
-.\scripts\run-runtime-checks.ps1 -RunDatasourceInstall -RunDatasourceStartupTest
-```
-
-运行态总入口会检查 datasource health、provider manifest、TDX native HTTP
-shape、normalized bars/snapshots/sectors、Phase 1 calendar/security/sector-list/
-price-volume endpoints、WebSocket ping/pong，以及 appliance health。通过
-`-IncludeFinanceReportSmoke` 可额外检查 Phase 3 finance/report 的 native
-`get_gp_one_data` 与 normalized `/v1/finance/single-data/query`；
-`-IncludeReferenceInstrumentSmoke` 与 `-IncludeFormulaSmoke` 可额外检查
-Phase 2 reference/instrument 和 Phase 4 formula 的 read-only 路径。
+部署完成后的运行态验收由 `mist-deploy` 中独立的 datasource smoke 与 desktop
+recovery workflow 执行，避免仓库内另一套脚本重新引入旧 SDK 或路由假设。
 
 TDX `/v1` 请求固定使用 TDX schema，不接受 `provider` 字段。QMT 历史 bars
 请调用 QMT 服务的 `http://127.0.0.1:9002/v1/bars/query`。

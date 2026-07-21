@@ -62,8 +62,8 @@ def test_terminal_payloads_complete_real_http_route_chain() -> None:
         lease = owner["leaseToken"]
         epoch = owner["streamEpoch"]
 
-        desired = client.post("/tdx/bridge/desired", json={"symbols": ["600519.SH"]}).json()
-        revision = desired["desiredRevision"]
+        gateway = client.app.state.tdx_experimental_gateway
+        revision = client.portal.call(gateway.sync_desired, ["600519.SH"])
 
         poll = client.post(
             "/tdx/bridge/poll",

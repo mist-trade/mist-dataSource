@@ -11,8 +11,7 @@ This document describes how to install, start, stop, and roll back the
 
 - TDX terminal (internal/beta build) with `tqcenter` SDK
 - Python 3.7+ (bundled with TDX terminal)
-- `mist-datasource` service running on `http://127.0.0.1:9001` with
-  `TDX_REALTIME_MODE=builtin_experimental`
+- `mist-datasource` service running on `http://127.0.0.1:9001`
 - Allowlist symbols configured via `TDX_EXPERIMENTAL_ALLOWLIST` on the Mist
   backend (comma-separated, max 5, e.g. `600519.SH,000001.SZ`). Mist resolves
   them against its security database and publishes the resulting desired set
@@ -33,8 +32,7 @@ This document describes how to install, start, stop, and roll back the
    The SHA is reported to the gateway at registration and surfaced in
    `/tdx/bridge/health`.
 
-3. Ensure the datasource is running with `TDX_REALTIME_MODE=builtin_experimental`
-   before starting the script.
+3. Ensure the datasource is healthy before starting the script.
 
 ## Start
 
@@ -59,13 +57,9 @@ loopback-protected bridge route; there is no public `/health/experimental`.
 
 ## Set Desired Symbols
 
-The datasource's desired subscription set is controlled by the Mist backend
-(via `POST /tdx/bridge/desired` after WS ready). For manual testing:
-```bash
-curl -X POST http://127.0.0.1:9001/tdx/bridge/desired \
-  -H "Content-Type: application/json" \
-  -d '{"symbols": ["600519.SH"]}'
-```
+The datasource's desired subscription set is controlled by the Mist backend on
+the dedicated realtime WebSocket. Bridge HTTP routes remain loopback-only and
+do not expose a separate desired-state mutation endpoint.
 
 ## Stop
 
@@ -77,17 +71,6 @@ stale after 10 seconds (`OWNER_STALE_AFTER_SECONDS`). If TDX leaves an old
 external TPyth process alive while launching a new one, a continuously retrying
 new owner replaces it after the 5-second takeover grace. The replaced v0.2
 script exits when its lease is fenced.
-
-## Roll Back
-
-To revert to legacy realtime:
-
-1. Stop the bridge script (above).
-2. Change the datasource mode to `legacy`:
-   ```bash
-   # Set TDX_REALTIME_MODE=legacy in the datasource .env and restart.
-   ```
-3. The legacy `adapter_legacy` + `tdx_legacy` collector path resumes.
 
 ## Uninstall
 
@@ -101,8 +84,8 @@ To revert to legacy realtime:
   Missing dependencies such as `numpy` or a missing native DLL can fail while
   importing `tqcenter`. Otherwise ensure the script is loaded via the TQ
   Strategy Manager. Set `MIST_BRIDGE_USE_FAKE_TQ=1` only for tests.
-- **`registration failed`**: The datasource is not running or not in
-  `builtin_experimental` mode. Check `/tdx/bridge/health`.
+- **`registration failed`**: The datasource is not running or another fresh
+  owner holds the lease. Check `/tdx/bridge/health`.
 - **`snapshot rejected: NOT_CONVERGED`**: The symbol is not in the converged
   subscription set. Verify desired symbols and terminal SDK subscription.
 - **`lease lost, re-registering`**: The datasource gateway evicted the owner
