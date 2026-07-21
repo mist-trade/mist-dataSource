@@ -367,7 +367,7 @@ def _valid_snapshot(value: Any, now: datetime) -> bool:
         return False
     snapshot = cast(dict[str, Any], value)
     try:
-        timetag = datetime.strptime(str(snapshot["timetag"]), "%Y%m%d%H%M%S")
+        timetag = _parse_qmt_timetag(snapshot["timetag"])
         numbers = {field: float(snapshot[field]) for field in required if field != "timetag"}
     except (TypeError, ValueError):
         return False
@@ -378,3 +378,13 @@ def _valid_snapshot(value: Any, now: datetime) -> bool:
         and numbers["amount"] >= 0
         and all(number == number and abs(number) != float("inf") for number in numbers.values())
     )
+
+
+def _parse_qmt_timetag(value: Any) -> datetime:
+    text = str(value).strip()
+    for format_string in ("%Y%m%d%H%M%S", "%Y%m%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, format_string)
+        except ValueError:
+            continue
+    raise ValueError(f"unsupported QMT timetag: {text}")

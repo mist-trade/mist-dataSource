@@ -91,6 +91,44 @@ async def test_collector_publishes_valid_subscribed_native_results():
 
 
 @pytest.mark.asyncio
+async def test_collector_accepts_native_qmt_timetag_with_separators():
+    gateway = QmtCommandGateway()
+    gateway.register_owner("owner")
+    published = []
+    collector = QmtRealtimeCollector(
+        gateway=gateway,
+        publisher=published.append,
+        now=lambda: datetime(2026, 7, 21, 14, 25, 15, tzinfo=BEIJING),
+    )
+    collector.sync_subscriptions(["300502.SZ"])
+
+    await collector.collect_once()
+    command = gateway.poll("owner")[0]
+    native_snapshot = {
+        "time": 1784615115000,
+        "timetag": "20260721 14:25:15",
+        "lastPrice": 548.9,
+        "open": 519.0,
+        "high": 554.4,
+        "low": 490.99,
+        "lastClose": 510.0,
+        "amount": 35873673600.0,
+        "volume": 683985,
+    }
+    gateway.post_result(
+        "owner",
+        command.command_id,
+        ok=True,
+        result={"300502.SZ": native_snapshot},
+    )
+
+    assert await collector.collect_once() == 1
+    assert published[0]["native"] == native_snapshot
+    assert collector.health()["sequence"] == 1
+    assert collector.health()["lastErrorCode"] is None
+
+
+@pytest.mark.asyncio
 async def test_collector_sequence_is_monotonic_and_owner_replacement_rotates_epoch():
     monotonic = [0.0]
     gateway = QmtCommandGateway(clock=lambda: monotonic[0], owner_stale_after_seconds=1.0)
