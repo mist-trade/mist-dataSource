@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.config import settings
-from src.datasource.contracts import DatasourceError, ResponseMeta, normalize_beijing_iso
+from src.datasource.contracts import normalize_beijing_iso
 
 
 class TdxModel(BaseModel):
@@ -313,13 +313,3 @@ class TdxFormulaOperationResult(TdxModel):
 class RawTdxCallRequest(TdxModel):
     method: str
     params: dict[str, Any] = Field(default_factory=dict)
-
-
-class TdxWsMessage(TdxModel):
-    type: str
-    request_id: str | None = Field(default=None, alias="requestId")
-    event_id: str | None = Field(default=None, alias="eventId")
-    provider: str = "tdx"
-    data: Any | None = None
-    meta: ResponseMeta | None = None
-    error: DatasourceError | None = None

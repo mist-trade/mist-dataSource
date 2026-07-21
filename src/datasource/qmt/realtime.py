@@ -242,7 +242,7 @@ class QmtRealtimeCollector:
                     "sequence": self.sequence,
                     "symbol": symbol,
                     "capturedAt": now.isoformat(),
-                    "native": dict(cast(dict[str, Any], snapshot)),
+                    "native": snapshot,
                 }
             )
             if inspect.isawaitable(value):

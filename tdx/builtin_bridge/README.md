@@ -3,9 +3,8 @@
 This document describes how to install, start, stop, and roll back the
 `mist_tdx_realtime_bridge.py` strategy script inside the TDX terminal.
 
-> ⚠️ **HIL required**: This script has not been validated on a real Windows/TDX
-> build. All operations below assume a target TDX terminal with `tqcenter.tq`
-> SDK available. macOS development uses `MIST_BRIDGE_USE_FAKE_TQ=1`.
+The script requires the target TDX terminal with its real `tqcenter.tq` SDK.
+It fails closed when that SDK is unavailable and contains no fake runtime path.
 
 ## Prerequisites
 
@@ -83,7 +82,7 @@ script exits when its lease is fenced.
 - **`FATAL: tqcenter not available`**: Read the appended `Import error` first.
   Missing dependencies such as `numpy` or a missing native DLL can fail while
   importing `tqcenter`. Otherwise ensure the script is loaded via the TQ
-  Strategy Manager. Set `MIST_BRIDGE_USE_FAKE_TQ=1` only for tests.
+  Strategy Manager.
 - **`registration failed`**: The datasource is not running or another fresh
   owner holds the lease. Check `/tdx/bridge/health`.
 - **`snapshot rejected: NOT_CONVERGED`**: The symbol is not in the converged

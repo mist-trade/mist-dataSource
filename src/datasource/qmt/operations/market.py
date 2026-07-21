@@ -129,7 +129,10 @@ class QmtMarketOperations:
 def _dict_details(value: Any) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
-    return _string_key_object_dict(cast(dict[Any, Any], value))
+    mapping = cast(dict[Any, Any], value)
+    if not all(isinstance(key, str) for key in mapping):
+        return {}
+    return cast(dict[str, object], mapping)
 
 
 def _resolve_bridge_result(
@@ -167,7 +170,15 @@ def _normalize_bridge_market_data(
             details={"resultType": type(value).__name__},
         )
 
-    bridge_value = _string_key_object_dict(cast(dict[Any, Any], value))
+    mapping = cast(dict[Any, Any], value)
+    if not all(isinstance(key, str) for key in mapping):
+        raise QmtBridgeError(
+            code="QMT_BRIDGE_INVALID_MARKET_DATA",
+            message="QMT bridge result contains non-string object keys",
+            retryable=True,
+            details={},
+        )
+    bridge_value = cast(dict[str, object], mapping)
     market_data_value = bridge_value.get("marketData", bridge_value)
     if not isinstance(market_data_value, dict):
         raise QmtBridgeError(
@@ -178,7 +189,7 @@ def _normalize_bridge_market_data(
         )
 
     result: dict[str, object] = {
-        "marketData": _string_key_object_dict(cast(dict[Any, Any], market_data_value)),
+        "marketData": market_data_value,
         "source": "native_bridge",
     }
     if include_raw:
@@ -188,7 +199,3 @@ def _normalize_bridge_market_data(
             "commandId": command_id,
         }
     return result
-
-
-def _string_key_object_dict(value: dict[Any, Any]) -> dict[str, object]:
-    return {str(key): cast(object, item) for key, item in value.items()}

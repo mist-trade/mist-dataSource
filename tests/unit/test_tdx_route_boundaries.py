@@ -1,6 +1,10 @@
 """TDX route registration contracts after builtin realtime convergence."""
 
+from pathlib import Path
+
 from tdx.main import app
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _paths() -> set[str]:
@@ -32,3 +36,11 @@ def test_tdx_legacy_routes_are_removed() -> None:
     paths = _paths()
     assert not any(path.startswith("/api/tdx/") for path in paths)
     assert "/ws/quote/{client_id}" not in paths
+
+
+def test_retired_tdx_config_and_websocket_models_stay_removed() -> None:
+    assert not (PROJECT_ROOT / "tdx" / "config.py").exists()
+    models = (PROJECT_ROOT / "src" / "datasource" / "tdx_models.py").read_text()
+    protocol = (PROJECT_ROOT / "src" / "ws" / "protocol.py").read_text()
+    assert "class TdxWsMessage" not in models
+    assert "def ws_quote" not in protocol

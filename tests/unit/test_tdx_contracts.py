@@ -1,6 +1,11 @@
 from src.datasource.capabilities import ProviderCapabilityUnsupported
-from src.datasource.contracts import DatasourceError, ResponseEnvelope, ResponseMeta
-from src.datasource.tdx_models import TdxBarQueryRequest, TdxWsMessage
+from src.datasource.contracts import (
+    DatasourceError,
+    ResponseEnvelope,
+    ResponseMeta,
+    serialize_response_data,
+)
+from src.datasource.tdx_models import TdxBarQueryRequest
 
 
 def test_success_envelope_has_stable_shape():
@@ -55,7 +60,7 @@ def test_error_envelope_has_stable_error_code():
     assert payload["error"]["retryable"] is True
 
 
-def test_tdx_requests_and_ws_messages_use_camel_case_aliases():
+def test_tdx_requests_use_camel_case_aliases():
     request = TdxBarQueryRequest(
         symbols=["600519.SH"],
         period="1m",
@@ -64,39 +69,29 @@ def test_tdx_requests_and_ws_messages_use_camel_case_aliases():
         count=10,
         includeRaw=True,
     )
-    message = TdxWsMessage(
-        type="bar",
-        requestId="req_test",
-        eventId="evt_test",
-        provider="tdx",
-        data={"symbol": "600519.SH"},
-    )
-
     request_payload = request.model_dump()
-    message_payload = message.model_dump()
 
     assert request_payload["startTime"] == "2026-06-26T09:30:00+08:00"
     assert request_payload["endTime"] == "2026-06-26T10:00:00+08:00"
     assert request_payload["includeRaw"] is True
-    assert message_payload["requestId"] == "req_test"
-    assert message_payload["eventId"] == "evt_test"
 
 
-def test_tdx_ws_message_uses_structured_meta_and_error_models():
-    message = TdxWsMessage.model_validate(
-        {
-            "type": "error",
-            "error": {"code": "X", "message": "bad", "retryable": True, "details": {}},
-            "meta": {"transport": "ws", "asOf": "2026-06-26T10:00:00"},
-        }
-    )
+def test_response_data_serialization_handles_nested_models_once():
+    meta = ResponseMeta(transport="http", asOf="2026-06-26T10:00:00")
+    payload = {"items": [meta]}
 
-    payload = message.model_dump()
+    serialized = serialize_response_data(payload)
 
-    assert isinstance(message.error, DatasourceError)
-    assert isinstance(message.meta, ResponseMeta)
-    assert payload["error"]["code"] == "X"
-    assert payload["meta"]["asOf"] == "2026-06-26T10:00:00+08:00"
+    assert serialized == {
+        "items": [
+            {
+                "sourceLatencyMs": None,
+                "transport": "http",
+                "asOf": "2026-06-26T10:00:00+08:00",
+                "requestKey": None,
+            }
+        ]
+    }
 
 
 def test_provider_capability_unsupported_has_stable_error_shape():

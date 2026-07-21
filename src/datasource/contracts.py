@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -88,3 +88,15 @@ class ResponseEnvelope(DatasourceModel):
             meta=meta,
             error=error,
         )
+
+
+def serialize_response_data(value: Any) -> Any:
+    """Serialize nested datasource models once at the response boundary."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(by_alias=True)
+    if isinstance(value, list):
+        return [serialize_response_data(item) for item in cast(list[Any], value)]
+    if isinstance(value, dict):
+        mapping = cast(dict[Any, Any], value)
+        return {str(key): serialize_response_data(item) for key, item in mapping.items()}
+    return value

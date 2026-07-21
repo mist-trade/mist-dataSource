@@ -209,33 +209,22 @@ class BridgeOwner:
 
 
 class TqCenterWrapper:
-    """Wraps tqcenter.tq SDK calls. Uses fake tq for macOS testing."""
+    """Wrap the real tqcenter.tq SDK and fail closed when it is unavailable."""
 
     def __init__(self) -> None:
         self._tq = None
-        self._is_fake = False
 
     def initialize(self) -> None:
-        # Fail-closed: if MIST_BRIDGE_USE_FAKE_TQ is NOT set, missing tqcenter
-        # is a fatal error (production must not silently send fake data).
-        use_fake = os.environ.get("MIST_BRIDGE_USE_FAKE_TQ", "") == "1"
-        if use_fake:
-            print("[mist-bridge] MIST_BRIDGE_USE_FAKE_TQ=1, using fake (test only)")
-            self._tq = _FakeTq()
-            self._is_fake = True
-            return
         try:
             from tqcenter import tq  # type: ignore[import-not-found]
 
             tq.initialize(__file__)
             self._tq = tq
-            self._is_fake = False
             print("[mist-bridge] tqcenter initialized (real SDK)")
         except ImportError as exc:
             raise SystemExit(
-                "[mist-bridge] FATAL: tqcenter not available and MIST_BRIDGE_USE_FAKE_TQ!=1."
-                " This script must run inside the TDX terminal. Set MIST_BRIDGE_USE_FAKE_TQ=1"
-                f" only for testing. Import error: {exc}"
+                "[mist-bridge] FATAL: tqcenter not available."
+                f" This script must run inside the TDX terminal. Import error: {exc}"
             ) from exc
 
     def subscribe_hq(self, codes: list[str], callback) -> None:
@@ -262,45 +251,6 @@ class TqCenterWrapper:
             return result or []
         except Exception:
             return []
-
-
-class _FakeTq:
-    """Fake tqcenter for macOS development/testing."""
-
-    def __init__(self) -> None:
-        self._subscriptions: set[str] = set()
-        self._tick_count = 0
-
-    def initialize(self, file_path: str) -> None:
-        pass
-
-    def subscribe_hq(self, codes: list[str], callback) -> None:
-        self._subscriptions.update(codes)
-        # Simulate immediate callback for each.
-        for code in codes:
-            self._tick_count += 1
-            callback(json.dumps({"Code": code, "ErrorId": "0"}))
-
-    def unsubscribe_hq(self, codes: list[str]) -> None:
-        for c in codes:
-            self._subscriptions.discard(c)
-
-    def get_market_snapshot(self, code: str) -> dict:
-        return {
-            "Code": code,
-            "ErrorId": "0",
-            "Now": "1685.0",
-            "Open": "1670.0",
-            "Max": "1690.0",
-            "Min": "1665.0",
-            "LastClose": "1672.5",
-            "Volume": "12345600",
-            "Amount": "20800000000",
-            "AsOf": "2026-07-17T14:30:00.000+08:00",
-        }
-
-    def get_subscribe_hq_stock_list(self) -> list[str]:
-        return list(self._subscriptions)
 
 
 # --- Main bridge loop -------------------------------------------------

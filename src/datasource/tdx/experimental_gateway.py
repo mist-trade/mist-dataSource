@@ -599,7 +599,7 @@ class ExperimentalTdxRealtimeGateway:
                 "nativeAmount": snapshot.nativeAmount,
             },
             "unitStatus": "native-unverified",
-            "quality": dict(snapshot.quality),
+            "quality": snapshot.quality,
         }
 
     # --- health --------------------------------------------------------

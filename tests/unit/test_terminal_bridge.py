@@ -1,12 +1,7 @@
-"""Tests for the terminal bridge script logic (callback dirty-only, reconcile).
-
-Uses the _FakeTq to simulate tqcenter on macOS. Does NOT test real SDK —
-that requires Windows HIL.
-"""
+"""Tests for terminal bridge callback, fencing, and reconciliation logic."""
 
 from __future__ import annotations
 
-import json
 import sys
 from builtins import __import__ as builtin_import
 from pathlib import Path
@@ -42,32 +37,8 @@ class TestDirtySymbolQueue:
         assert len(result) == _bridge_mod.DIRTY_QUEUE_MAX  # 200
 
 
-class TestFakeTq:
-    def test_subscribe_triggers_callback(self) -> None:
-        fake = _bridge_mod._FakeTq()
-        received: list[str] = []
-        fake.subscribe_hq(["600519.SH"], lambda data: received.append(data))
-        assert len(received) == 1
-        parsed = json.loads(received[0])
-        assert parsed["Code"] == "600519.SH"
-
-    def test_get_market_snapshot(self) -> None:
-        fake = _bridge_mod._FakeTq()
-        snap = fake.get_market_snapshot("600519.SH")
-        assert snap["Code"] == "600519.SH"
-        assert snap["Now"] == "1685.0"
-        assert snap["ErrorId"] == "0"
-
-    def test_unsubscribe(self) -> None:
-        fake = _bridge_mod._FakeTq()
-        fake.subscribe_hq(["600519.SH"], lambda _: None)
-        assert "600519.SH" in fake.get_subscribe_hq_stock_list()
-        fake.unsubscribe_hq(["600519.SH"])
-        assert "600519.SH" not in fake.get_subscribe_hq_stock_list()
-
-    def test_real_sdk_import_error_preserves_dependency_name(self, monkeypatch) -> None:
-        monkeypatch.delenv("MIST_BRIDGE_USE_FAKE_TQ", raising=False)
-
+class TestTqCenterWrapper:
+    def test_real_sdk_import_error_preserves_dependency_name(self) -> None:
         def import_with_missing_dependency(name, *args, **kwargs):
             if name == "tqcenter":
                 raise ImportError("No module named 'numpy'")
@@ -120,9 +91,6 @@ class TestCallbackDirtyOnly:
     def test_callback_does_not_call_sdk(self) -> None:
         """The callback should only call dirty_queue.mark_dirty, not get_market_snapshot."""
         q = _bridge_mod.DirtySymbolQueue()
-        tq_wrapper = _bridge_mod.TqCenterWrapper()
-        tq_wrapper._tq = _bridge_mod._FakeTq()
-        tq_wrapper._is_fake = True
 
         # Patch mark_dirty to track it was called.
         with patch.object(q, "mark_dirty", wraps=q.mark_dirty) as mock_mark:
@@ -137,3 +105,5 @@ def test_terminal_bridge_threading_guardrail() -> None:
     source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text()
     assert "threading.Lock()" in source
     assert "threading.Thread(" not in source
+    assert "MIST_BRIDGE_USE_FAKE_TQ" not in source
+    assert "class _FakeTq" not in source

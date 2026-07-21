@@ -135,7 +135,3 @@ def create_qmt_app(
 qmt_command_gateway = QmtCommandGateway()
 qmt_provider: QmtDatasourceProvider | None = QmtDatasourceProvider()
 app = create_qmt_app(gateway=qmt_command_gateway, provider=qmt_provider)
-qmt_realtime_collector: QmtRealtimeCollector | None = getattr(
-    app.state, "qmt_realtime_collector", None
-)
-ws_manager: ConnectionManager | None = getattr(app.state, "qmt_experimental_ws_manager", None)

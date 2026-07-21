@@ -7,7 +7,13 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.datasource.capabilities import build_provider_manifests
-from src.datasource.contracts import BEIJING_TZ, DatasourceError, ResponseEnvelope, ResponseMeta
+from src.datasource.contracts import (
+    BEIJING_TZ,
+    DatasourceError,
+    ResponseEnvelope,
+    ResponseMeta,
+    serialize_response_data,
+)
 from src.datasource.tdx_http_client import TdxHttpError
 from src.datasource.tdx_models import (
     RawTdxCallRequest,
@@ -88,21 +94,11 @@ def _meta() -> ResponseMeta:
     return ResponseMeta(transport="http", asOf=datetime.now(BEIJING_TZ).isoformat())
 
 
-def _dump(value: Any) -> Any:
-    if hasattr(value, "model_dump"):
-        return value.model_dump(by_alias=True)
-    if isinstance(value, list):
-        return [_dump(item) for item in cast(list[Any], value)]
-    if isinstance(value, dict):
-        return {str(key): _dump(item) for key, item in cast(dict[Any, Any], value).items()}
-    return value
-
-
 def _success(request: Request, data: Any, *, provider: str = "tdx") -> ResponseEnvelope:
     return ResponseEnvelope.success(
         request_id=_request_id(request),
         provider=provider,
-        data=_dump(data),
+        data=serialize_response_data(data),
         meta=_meta(),
     )
 

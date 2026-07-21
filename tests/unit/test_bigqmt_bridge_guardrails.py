@@ -220,6 +220,10 @@ def test_qmt_local_dat_binary_parsing_stays_out_of_qmt_v1_routes() -> None:
     assert "QmtDatasourceProvider" in source
 
 
+def test_retired_qmt_instance_config_stays_removed() -> None:
+    assert not (PROJECT_ROOT / "qmt" / "config.py").exists()
+
+
 def test_qmt_product_market_operation_never_reads_local_dat() -> None:
     source = (PROJECT_ROOT / "src" / "datasource" / "qmt" / "operations" / "market.py").read_text(
         encoding="utf-8"

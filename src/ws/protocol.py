@@ -11,12 +11,6 @@ class WSMessage(BaseModel):
 
     type: Literal[
         "ready",
-        "bar",
-        "quote",
-        "trade",
-        "order",
-        "position",
-        "heartbeat",
         "ping",
         "pong",
         "sync_subscriptions",
@@ -89,17 +83,10 @@ def ws_subscription_ack(
     )
 
 
-def ws_quote(provider: str, data: dict[str, Any]) -> WSMessage:
-    """Create a quote event message."""
-    return WSMessage(type="quote", provider=provider, data=data)
-
-
 def ws_experimental_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:
     """Create an isolated experimental realtime snapshot frame.
 
-    Distinct from ``ws_quote`` (which uses ``type="quote"`` and re-enters legacy
-    aggregation semantics). The experimental consumer only listens for this
-    type.
+    The realtime consumers only listen for provider-specific snapshot types.
     """
     if provider == "qmt":
         return WSMessage(type="qmt.experimental.snapshot", provider=provider, data=data)

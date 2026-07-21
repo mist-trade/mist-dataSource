@@ -7,7 +7,6 @@ from src.ws.protocol import (
     ws_error,
     ws_experimental_snapshot,
     ws_pong,
-    ws_quote,
     ws_ready,
     ws_stream_started,
     ws_subscription_ack,
@@ -16,8 +15,8 @@ from src.ws.protocol import (
 
 def test_ws_message_creation():
     """Test creating a WSMessage."""
-    msg = WSMessage(type="quote", data={"symbol": "SH600519", "price": 1800.0})
-    assert msg.type == "quote"
+    msg = WSMessage(type="ready", data={"symbol": "SH600519", "price": 1800.0})
+    assert msg.type == "ready"
     assert msg.data["symbol"] == "SH600519"
     assert msg.data["price"] == 1800.0
     assert datetime.fromisoformat(msg.timestamp)  # Validate timestamp format
@@ -25,10 +24,10 @@ def test_ws_message_creation():
 
 def test_ws_message_to_json():
     """Test converting WSMessage to JSON."""
-    msg = WSMessage(type="heartbeat", data={})
+    msg = WSMessage(type="ping", data={})
     json_str = msg.to_json()
     assert isinstance(json_str, str)
-    assert "heartbeat" in json_str
+    assert "ping" in json_str
 
 
 def test_ws_pong_helper_emits_timestamped_provider_envelope():
@@ -77,22 +76,12 @@ def test_ws_subscription_ack_helper_keeps_ack_fields_under_data():
     }
 
 
-def test_ws_ready_and_quote_helpers_share_common_envelope():
+def test_ws_ready_helper_uses_common_envelope():
     ready = ws_ready(provider="tdx", data={"active": []})
-    quote = ws_quote(
-        provider="tdx",
-        data={
-            "stock_code": "600519.SH",
-            "snapshot": {"Code": "600519.SH", "Now": 10.25},
-        },
-    )
 
     assert ready.type == "ready"
     assert ready.provider == "tdx"
     assert ready.data == {"active": []}
-    assert quote.type == "quote"
-    assert quote.provider == "tdx"
-    assert quote.data["snapshot"]["Now"] == 10.25
 
 
 def test_experimental_ws_factories_keep_snapshot_and_epoch_events_isolated():

@@ -5,7 +5,13 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.datasource.contracts import BEIJING_TZ, DatasourceError, ResponseEnvelope, ResponseMeta
+from src.datasource.contracts import (
+    BEIJING_TZ,
+    DatasourceError,
+    ResponseEnvelope,
+    ResponseMeta,
+    serialize_response_data,
+)
 from src.datasource.qmt.command_gateway import QmtCommandGateway
 from src.datasource.qmt.operations.market import QmtBridgeError
 from src.datasource.qmt_provider import QmtDatasourceProvider
@@ -55,21 +61,11 @@ def _meta() -> ResponseMeta:
     return ResponseMeta(transport="http", asOf=datetime.now(BEIJING_TZ).isoformat())
 
 
-def _dump(value: Any) -> Any:
-    if hasattr(value, "model_dump"):
-        return value.model_dump(by_alias=True)
-    if isinstance(value, list):
-        return [_dump(item) for item in cast(list[Any], value)]
-    if isinstance(value, dict):
-        return {str(key): _dump(item) for key, item in cast(dict[Any, Any], value).items()}
-    return value
-
-
 def _success(request: Request, data: Any) -> ResponseEnvelope:
     return ResponseEnvelope.success(
         request_id=_request_id(request),
         provider="qmt",
-        data=_dump(data),
+        data=serialize_response_data(data),
         meta=_meta(),
     )
 
