@@ -58,6 +58,7 @@ Assert-Equal `
 
 $windowsEnvExample = Get-Content (Join-Path $ProjectDir ".env.windows.example") -Raw
 $deployWindows = Get-Content (Join-Path $ProjectDir "scripts\deploy_windows.ps1") -Raw
+$sdkPreflight = Get-Content (Join-Path $ProjectDir "scripts\preflight-sdk.ps1") -Raw
 $runtimeChecks = Get-Content (Join-Path $ProjectDir "scripts\run-runtime-checks.ps1") -Raw
 $tdxWinswInstall = Get-Content (Join-Path $ProjectDir "scripts\winsw\install-tdx-datasource.ps1") -Raw
 $tdxWinswSmoke = Get-Content (Join-Path $ProjectDir "scripts\winsw\test-tdx-datasource.ps1") -Raw
@@ -82,6 +83,12 @@ Assert-Match "deploy script defaults to Python 3.12" $deployWindows 'if (-not $u
 Assert-Match "deploy script syncs from frozen lockfile" $deployWindows "--frozen"
 Assert-Match "deploy script no longer supports service-only step" $deployWindows "Use: install, test"
 Assert-Match "deploy script documents no service registration" $deployWindows "不再注册 Windows 服务"
+foreach ($script in @($deployWindows, $sdkPreflight)) {
+    if ($script -match "QMT historical bars are unavailable" -or $script -match "QMT full-client bridge") {
+        throw "TDX deployment/preflight scripts must not infer QMT bridge availability."
+    }
+}
+Write-Host "  [PASS] TDX deployment checks do not infer QMT bridge availability" -ForegroundColor Green
 if ($deployWindows -match [regex]::Escape('--locked')) {
     throw "deploy script must use --frozen, not --locked, during appliance installs."
 }

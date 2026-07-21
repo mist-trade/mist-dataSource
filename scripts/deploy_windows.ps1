@@ -213,14 +213,8 @@ if (-not $Only -or $Only -eq "test") {
         }
     }
 
-    Write-Step "Step 4/4: QMT bridge status"
-    $qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
-    if ($qmtBridgeGatewayUrl) {
-        Write-Host "  QMT bridge gateway configured: $qmtBridgeGatewayUrl" -ForegroundColor Yellow
-        Write-Host "  QMT bridge is configured; use Windows full-QMT evidence before relying on live commands." -ForegroundColor Yellow
-    } else {
-        Write-Host "  QMT bridge gateway not configured; QMT historical bars are unavailable." -ForegroundColor Yellow
-    }
+    Write-Step "Step 4/4: Provider boundary"
+    Write-Host "  TDX validation completed. QMT health and historical commands are validated by the dedicated QMT runtime smoke." -ForegroundColor Yellow
 }
 
 Write-Host "`n===== 部署完成 =====" -ForegroundColor Green

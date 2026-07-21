@@ -76,11 +76,4 @@ $strategyFile = Join-Path $tdxSdk "mist_datasource.py"
 Write-Host "  TDX strategy identity path: $strategyFile" -ForegroundColor Yellow
 Write-Host "  Keep TDX_SDK_PATH stable. If it changes, clean stale strategy entries in TDX." -ForegroundColor Yellow
 
-$qmtBridgeGatewayUrl = Get-EnvValue $envContent "QMT_BRIDGE_GATEWAY_URL"
-if ($qmtBridgeGatewayUrl) {
-    Write-Warn "QMT full-client bridge is configured; rely on live commands only after Windows evidence is captured: $qmtBridgeGatewayUrl"
-} else {
-    Write-Warn "QMT full-client bridge is not configured; QMT historical bars are unavailable"
-}
-
 Write-Ok "SDK preflight passed"
