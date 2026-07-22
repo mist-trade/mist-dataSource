@@ -1,12 +1,13 @@
 """TDX datasource application (port 9001).
 
 Historical and reference requests use the official TDX HTTP endpoint on
-port 17709. Realtime snapshots are owned by the terminal builtin bridge.
+port 17709. Realtime defaults to ``builtin`` and is omitted only when an
+operator explicitly selects ``off`` for rollback.
 """
 
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,10 +24,19 @@ from tdx.routes.v1 import router as v1_router
 
 setup_logging()
 
+TdxRealtimeMode = Literal["off", "builtin"]
+TDX_REALTIME_MODES = {"off", "builtin"}
+
 tdx_provider: TdxDatasourceProvider | None = None
 tdx_realtime_gateway: TdxRealtimeGateway | None = None
 tdx_realtime_ws_manager: ConnectionManager | None = None
 _tdx_provider_owned_by_main: TdxDatasourceProvider | None = None
+
+
+def _validated_realtime_mode(value: str) -> TdxRealtimeMode:
+    if value not in TDX_REALTIME_MODES:
+        raise ValueError("TDX_REALTIME_MODE must be one of: off, builtin")
+    return cast(TdxRealtimeMode, value)
 
 
 async def _broadcast_epoch_change(
@@ -73,13 +83,15 @@ async def lifespan(target: FastAPI):
         tdx_provider = TdxDatasourceProvider()
         owned_provider = tdx_provider
         _tdx_provider_owned_by_main = owned_provider
-    if tdx_realtime_ws_manager is None:
-        tdx_realtime_ws_manager = ConnectionManager()
-    if tdx_realtime_gateway is None:
-        tdx_realtime_gateway = TdxRealtimeGateway(
-            max_subscriptions=settings.tdx.max_subscriptions,
-            on_epoch_change=_broadcast_epoch_change,
-        )
+    mode = _validated_realtime_mode(target.state.tdx_realtime_mode)
+    if mode == "builtin":
+        if tdx_realtime_ws_manager is None:
+            tdx_realtime_ws_manager = ConnectionManager()
+        if tdx_realtime_gateway is None:
+            tdx_realtime_gateway = TdxRealtimeGateway(
+                max_subscriptions=settings.tdx.max_subscriptions,
+                on_epoch_change=_broadcast_epoch_change,
+            )
     _sync_app_state(target)
 
     try:
@@ -101,6 +113,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.state.tdx_realtime_mode = _validated_realtime_mode(settings.tdx.realtime_mode)
 _sync_app_state(app)
 
 app.add_middleware(
@@ -154,6 +167,12 @@ async def health() -> dict[str, Any]:
     }
 
 
-app.include_router(v1_router, tags=["V1"])
-app.include_router(bridge_router, tags=["TDX Bridge"])
-app.include_router(realtime_ws_router, tags=["TDX Realtime"])
+def mount_routes(target: FastAPI, mode: TdxRealtimeMode) -> None:
+    """Mount product APIs and the mode-gated TDX realtime surface."""
+    target.include_router(v1_router, tags=["V1"])
+    if mode == "builtin":
+        target.include_router(bridge_router, tags=["TDX Bridge"])
+        target.include_router(realtime_ws_router, tags=["TDX Realtime"])
+
+
+mount_routes(app, app.state.tdx_realtime_mode)

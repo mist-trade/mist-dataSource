@@ -11,8 +11,10 @@ owner。脚本目标语法为 Python 3.7+，只依赖标准库与官方 `tqcente
 3. 记录安装文件 SHA-256。
 4. 确认 `mist-tdx-datasource` 已运行在 `http://127.0.0.1:9001`。
 
-首次注册属于人工操作。后续 TDX 正常重启由终端自动启动已注册脚本；deploy 和
-recovery workflow 不复制、注册或删除策略。
+首次注册和后续版本覆盖都属于人工操作。每次 bridge 版本变化，操作员必须覆盖
+`PYPlugins/user` 中的 installed file、记录 SHA-256，并让 TDX 重新加载；终端正常重启
+只会启动当前已安装的已注册脚本。deploy 和 recovery workflow 不复制、注册、删除或
+升级策略。
 
 ## 运行链路
 

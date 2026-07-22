@@ -2,14 +2,16 @@
 
 from pathlib import Path
 
-from tdx.main import app
+from fastapi import FastAPI
+
+from tdx.main import app, mount_routes
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _paths() -> set[str]:
+def _paths(target: FastAPI = app) -> set[str]:
     paths: set[str] = set()
-    for app_route in app.routes:
+    for app_route in target.routes:
         path = getattr(app_route, "path", None)
         if path is not None:
             paths.add(str(path))
@@ -30,6 +32,18 @@ def test_tdx_mounts_only_v1_and_builtin_realtime_surfaces() -> None:
     assert "/tdx/bridge/owner" in paths
     assert "/tdx/bridge/health" in paths
     assert "/ws/realtime/tdx/{client_id}" in paths
+
+
+def test_tdx_off_keeps_product_apis_and_omits_realtime_surfaces() -> None:
+    off_app = FastAPI()
+    mount_routes(off_app, "off")
+    paths = _paths(off_app)
+
+    assert "/v1/bars/query" in paths
+    assert "/v1/snapshots/query" in paths
+    assert "/tdx/bridge/owner" not in paths
+    assert "/tdx/bridge/health" not in paths
+    assert "/ws/realtime/tdx/{client_id}" not in paths
 
 
 def test_tdx_legacy_routes_are_removed() -> None:

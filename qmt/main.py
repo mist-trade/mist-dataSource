@@ -1,7 +1,8 @@
 """QMT datasource FastAPI application entrypoint (Port 9002).
 
 The product QMT HTTP bridge and historical APIs are always available. The
-memory-only realtime transport is mounted only when explicitly enabled.
+memory-only realtime transport defaults to ``builtin`` and is mounted unless
+an operator explicitly selects ``off`` for rollback.
 """
 
 from collections.abc import AsyncGenerator, Callable

@@ -16,6 +16,7 @@ class TDXSettings(BaseSettings):
     http_url: str = "http://127.0.0.1:17709/"
     max_subscriptions: int = 100
     formula_timeout_ms: int = 10000
+    realtime_mode: Literal["off", "builtin"] = "builtin"
 
 
 class QMTSettings(BaseSettings):

@@ -18,6 +18,7 @@ def test_tdx_datasource_settings_defaults(monkeypatch):
     for env_name in (
         "TDX_HTTP_URL",
         "TDX_MAX_SUBSCRIPTIONS",
+        "TDX_REALTIME_MODE",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
@@ -25,6 +26,16 @@ def test_tdx_datasource_settings_defaults(monkeypatch):
 
     assert tdx_settings.http_url == "http://127.0.0.1:17709/"
     assert tdx_settings.max_subscriptions == 100
+    assert tdx_settings.realtime_mode == "builtin"
+
+
+def test_tdx_realtime_mode_accepts_only_formal_values(monkeypatch):
+    monkeypatch.setenv("TDX_REALTIME_MODE", "off")
+    assert TDXSettings(_env_file=None).realtime_mode == "off"
+
+    monkeypatch.setenv("TDX_REALTIME_MODE", "legacy")
+    with pytest.raises(ValueError):
+        TDXSettings(_env_file=None)
 
 
 def test_qmt_datasource_settings_defaults(monkeypatch):

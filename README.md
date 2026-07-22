@@ -20,10 +20,11 @@ TDX/QMT datasource WebSocket --------------> Mist backend leader
 ```
 
 - TDX 非实时接口走官方 `:17709`，datasource 进程不加载 `tqcenter`。
-- TDX realtime 始终挂载，没有 legacy mode switch；终端脚本调用官方
+- TDX realtime 默认 `builtin`，`off` 仅用于受控回滚；终端脚本调用官方
   `get_market_snapshot`。
 - QMT 历史 bars 通过 full-QMT 内置 Python 执行 `get_market_data_ex`，不读取 DAT。
-- QMT realtime 默认 `builtin`，`off` 仅用于受控回滚。
+- TDX/QMT 在 `off` 时都保留 `/health` 与历史查询，但不创建或挂载对应 realtime
+  gateway/collector 与 route。
 - 生产路径禁止已退役的轻量客户端/API package、外部 QMT SDK、bridge WebSocket、
   内置脚本线程和子进程。
 
@@ -107,11 +108,15 @@ Windows smoke、部署和恢复统一从 `mist-deploy` 执行；本仓库不维�
 - Datasource restart 使用对应 `Manage Windows ... Datasource` workflow。
 - 桌面终端 restart 使用对应 `Recover Windows ... Runtime` workflow。
 - Deploy/runner 不复制、注册、删除或强杀终端 bridge。
-- TDX bridge 首次由操作员放入 `PYPlugins/user` 并注册自动运行；终端正常重启后由
-  TDX 自己启动。
-- QMT 登录全自动，recovery 不执行登录点击；终端已配置的 bridge 随 QMT 启动。
+- TDX bridge 首次由操作员放入 `PYPlugins/user` 并注册自动运行；每次 bridge 版本变化
+  仍由操作员手动覆盖 installed file，并让 TDX 重新加载。
+- QMT bridge 同样由操作员在大 QMT 内置 Python 环境中手动覆盖；datasource checkout
+  中的 `qmt/builtin_bridge/mist_qmt_bridge.py` 更新不代表终端已加载新版本。
+- QMT 登录全自动，recovery 不执行登录点击；终端重启后只会加载操作员已覆盖的已注册
+  bridge。
 
-TDX bridge 运维见 [`tdx/builtin_bridge/README.md`](tdx/builtin_bridge/README.md)。
+TDX bridge 运维见 [`tdx/builtin_bridge/README.md`](tdx/builtin_bridge/README.md)，QMT
+bridge 运维见 [`qmt/builtin_bridge/README.md`](qmt/builtin_bridge/README.md)。
 生产基线与盘中/盘后边界见 `mist` 仓库
 `docs/production-baseline-verification.md`。
 
