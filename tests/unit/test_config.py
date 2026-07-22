@@ -38,12 +38,12 @@ def test_qmt_datasource_settings_defaults(monkeypatch):
     qmt_settings = QMTSettings(_env_file=None)
 
     assert qmt_settings.bridge_gateway_url == "http://127.0.0.1:9002/qmt/bridge"
-    assert qmt_settings.realtime_mode == "off"
+    assert qmt_settings.realtime_mode == "builtin"
 
 
-def test_qmt_realtime_mode_accepts_only_explicit_experimental_value(monkeypatch):
-    monkeypatch.setenv("QMT_REALTIME_MODE", "builtin_experimental")
-    assert QMTSettings(_env_file=None).realtime_mode == "builtin_experimental"
+def test_qmt_realtime_mode_accepts_only_formal_values(monkeypatch):
+    monkeypatch.setenv("QMT_REALTIME_MODE", "builtin")
+    assert QMTSettings(_env_file=None).realtime_mode == "builtin"
 
     monkeypatch.setenv("QMT_REALTIME_MODE", "product")
     with pytest.raises(ValueError):

@@ -1,9 +1,9 @@
-# QMT OpenAPI Summary (builtin_experimental)
+# QMT OpenAPI Summary (builtin)
 
 Title: Mist DataSource - QMT
 Version: 0.1.0
 
-Generated from the `qmt` FastAPI app in `builtin_experimental` mode.
+Generated from the `qmt` FastAPI app in `builtin` mode.
 
 ## GET /health
 
@@ -71,7 +71,7 @@ Generated from the `qmt` FastAPI app in `builtin_experimental` mode.
 ## GET /qmt/realtime/health
 
 - Operation ID: `realtime_health_qmt_realtime_health_get`
-- Tags: QMT Experimental Realtime
+- Tags: QMT Realtime
 - Summary: Realtime Health
 - Request Body: `-`
 - Parameters: -

@@ -17,7 +17,7 @@ def _collector(websocket: WebSocket) -> QmtRealtimeCollector:
 
 
 def _manager(websocket: WebSocket) -> ConnectionManager:
-    return websocket.app.state.qmt_experimental_ws_manager
+    return websocket.app.state.qmt_realtime_ws_manager
 
 
 def _is_leader(collector: QmtRealtimeCollector, client_id: str) -> bool:
@@ -34,7 +34,7 @@ def _symbols(message: dict[str, Any]) -> list[str] | None:
     return cast(list[str], items)
 
 
-@router.websocket("/ws/qmt-experimental/{client_id}")
+@router.websocket("/ws/realtime/qmt/{client_id}")
 async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
     manager = _manager(websocket)
     collector = _collector(websocket)
@@ -60,7 +60,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
             "leaderClientId": collector.leader_client_id,
             "active": list(collector.active_subscriptions),
             "collectorReady": bridge["ready"],
-            "ownerGeneration": bridge["ownerGeneration"],
+            "generation": bridge["ownerGeneration"],
             "ownerId": bridge["ownerId"],
         }
     )

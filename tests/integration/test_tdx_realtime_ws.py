@@ -1,23 +1,23 @@
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from src.datasource.tdx.experimental_gateway import ExperimentalTdxRealtimeGateway
+from src.datasource.tdx.realtime_gateway import TdxRealtimeGateway
 from src.ws.manager import ConnectionManager
-from tdx.routes.experimental_ws import router
+from tdx.routes.realtime_ws import router
 
 
 def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:
     app = FastAPI()
     app.include_router(router)
-    gateway = ExperimentalTdxRealtimeGateway()
-    app.state.tdx_experimental_gateway = gateway
-    app.state.tdx_experimental_ws_manager = ConnectionManager()
+    gateway = TdxRealtimeGateway()
+    app.state.tdx_realtime_gateway = gateway
+    app.state.tdx_realtime_ws_manager = ConnectionManager()
 
     with (
         TestClient(app) as client,
-        client.websocket_connect("/ws/tdx-experimental/backend-test") as websocket,
+        client.websocket_connect("/ws/realtime/tdx/backend-test") as websocket,
     ):
-        assert websocket.receive_json()["type"] == "ready"
+        assert websocket.receive_json()["type"] == "realtime.ready"
         websocket.send_json(
             {"type": "sync_subscriptions", "symbols": ["600030.SH"]}
         )
@@ -38,12 +38,12 @@ def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:
 def test_realtime_websocket_rejects_invalid_subscription_shape() -> None:
     app = FastAPI()
     app.include_router(router)
-    app.state.tdx_experimental_gateway = ExperimentalTdxRealtimeGateway()
-    app.state.tdx_experimental_ws_manager = ConnectionManager()
+    app.state.tdx_realtime_gateway = TdxRealtimeGateway()
+    app.state.tdx_realtime_ws_manager = ConnectionManager()
 
     with (
         TestClient(app) as client,
-        client.websocket_connect("/ws/tdx-experimental/backend-test") as websocket,
+        client.websocket_connect("/ws/realtime/tdx/backend-test") as websocket,
     ):
         websocket.receive_json()
         websocket.send_json({"type": "sync_subscriptions", "symbols": "600030.SH"})

@@ -29,7 +29,7 @@ def test_tdx_mounts_only_v1_and_builtin_realtime_surfaces() -> None:
     assert "/v1/snapshots/query" in paths
     assert "/tdx/bridge/owner" in paths
     assert "/tdx/bridge/health" in paths
-    assert "/ws/tdx-experimental/{client_id}" in paths
+    assert "/ws/realtime/tdx/{client_id}" in paths
 
 
 def test_tdx_legacy_routes_are_removed() -> None:

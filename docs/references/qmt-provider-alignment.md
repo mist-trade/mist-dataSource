@@ -14,8 +14,8 @@ datasource.
   it has no realtime mode switch.
 - QMT service `:9002` exposes `/health`, `:9002/v1/bars/query`, and the
   full-QMT HTTP polling bridge endpoints used by the built-in Python script.
-- `QMT_REALTIME_MODE=builtin_experimental` additionally exposes datasource-side
-  `/ws/qmt-experimental/{clientId}` and loopback `/qmt/realtime/health`.
+- `QMT_REALTIME_MODE=builtin` exposes datasource-side
+  `/ws/realtime/qmt/{clientId}` and loopback `/qmt/realtime/health`.
 - QMT native `marketData` is returned as column-oriented JSON shaped after
   `ContextInfo.get_market_data_ex(..., subscribe=False)`: `{field: {stime:
   value}}`.
@@ -28,7 +28,7 @@ datasource.
 - QMT built-in production script must not use third-party packages, threads,
   subprocesses, separate Python processes, local port listeners, or WebSocket
   transport.
-- The experimental QMT WebSocket is downstream of the datasource. It does not
+- The QMT realtime WebSocket is downstream of the datasource. It does not
   change the built-in script transport or native historical response shape.
 
 ## Native Bars

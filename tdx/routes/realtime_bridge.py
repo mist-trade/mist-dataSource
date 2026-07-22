@@ -1,4 +1,4 @@
-"""Experimental TDX builtin-bridge loopback HTTP routes.
+"""TDX realtime builtin-bridge loopback HTTP routes.
 
 Loopback-only (127.0.0.1 / ::1). The terminal strategy script calls these to
 register ownership, poll desired subscription state, report reconcile results,
@@ -14,13 +14,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.datasource.tdx.experimental_gateway import (
+from src.datasource.tdx.realtime_gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
-    ACCEPTED_DRAFT_REVISION,
     ACCEPTED_SCHEMA_VERSION,
-    ExperimentalTdxRealtimeGateway,
     GatewayError,
+    TdxRealtimeGateway,
 )
+from src.ws.protocol import ws_realtime_snapshot
 
 router = APIRouter()
 
@@ -39,7 +39,6 @@ class OwnerRegisterRequest(StrictRequestModel):
     bridgeArtifactSha256: str
     acquisitionProfile: str = ACCEPTED_ACQUISITION_PROFILE
     schemaVersion: int = ACCEPTED_SCHEMA_VERSION
-    draftRevision: int = ACCEPTED_DRAFT_REVISION
 
 
 class PollRequest(StrictRequestModel):
@@ -76,13 +75,13 @@ class SnapshotRequest(StrictRequestModel):
 # --- helpers ------------------------------------------------------------
 
 
-def _get_gateway(request: Request) -> ExperimentalTdxRealtimeGateway:
-    gateway: ExperimentalTdxRealtimeGateway | None = getattr(
-        request.app.state, "tdx_experimental_gateway", None
+def _get_gateway(request: Request) -> TdxRealtimeGateway:
+    gateway: TdxRealtimeGateway | None = getattr(
+        request.app.state, "tdx_realtime_gateway", None
     )
     if gateway is None:
         raise GatewayError(
-            "TDX_BRIDGE_NOT_READY", "experimental gateway not initialized", retryable=True
+            "TDX_BRIDGE_NOT_READY", "realtime gateway not initialized", retryable=True
         )
     return gateway
 
@@ -120,10 +119,10 @@ async def register_owner(body: OwnerRegisterRequest, request: Request) -> dict[s
     _require_loopback(request)
     gateway = _get_gateway(request)
     try:
-        if body.mode != "builtin_experimental":
+        if body.mode != "builtin":
             raise GatewayError(
                 "TDX_BRIDGE_MODE_MISMATCH",
-                f"owner mode must be 'builtin_experimental' (got {body.mode!r})",
+                f"owner mode must be 'builtin' (got {body.mode!r})",
                 retryable=False,
             )
         return await gateway.register_owner(
@@ -132,7 +131,6 @@ async def register_owner(body: OwnerRegisterRequest, request: Request) -> dict[s
             bridge_artifact_sha256=body.bridgeArtifactSha256,
             acquisition_profile=body.acquisitionProfile,
             schema_version=body.schemaVersion,
-            draft_revision=body.draftRevision,
         )
     except GatewayError as exc:
         return {"accepted": False, "error": _gateway_error(exc)}
@@ -182,16 +180,14 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
             captured_at=body.capturedAt,
             native=body.native,
         )
-        # Broadcast the typed frame on the experimental WS manager (isolated).
-        from src.ws.protocol import ws_experimental_snapshot
-
-        ws_manager = getattr(request.app.state, "tdx_experimental_ws_manager", None)
+        # Broadcast the validated native frame on the realtime WS manager.
+        ws_manager = getattr(request.app.state, "tdx_realtime_ws_manager", None)
         if ws_manager is not None and result.get("accepted"):
-            await ws_manager.broadcast(ws_experimental_snapshot("tdx", result["frame"]))
+            await ws_manager.broadcast(ws_realtime_snapshot("tdx", result["frame"]))
         return {"accepted": result["accepted"], "sequence": result["sequence"]}
     except GatewayError as exc:
         return {"accepted": False, "error": _gateway_error(exc)}
-    except Exception as exc:  # ExperimentalDecoderError etc.
+    except Exception as exc:  # Native validation error etc.
         return {
             "accepted": False,
             "error": {"code": "TDX_BRIDGE_DECODE_ERROR", "message": str(exc)},

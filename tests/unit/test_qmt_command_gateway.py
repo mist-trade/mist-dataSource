@@ -126,6 +126,8 @@ def test_qmt_command_gateway_health_reports_owner_readiness_and_staleness() -> N
         "ownerAgeSeconds": None,
         "ownerStale": False,
         "ownerGeneration": 0,
+        "bridgeBuildId": None,
+        "bridgeArtifactSha256": None,
         "ready": False,
         "pendingCount": 0,
         "inFlightCount": 0,
@@ -162,3 +164,30 @@ def test_qmt_command_gateway_replaces_stale_owner_and_marks_old_commands_failed(
     assert result.ok is False
     assert result.error is not None
     assert result.error["code"] == "QMT_BRIDGE_OWNER_REPLACED"
+
+
+def test_qmt_command_gateway_rejects_retired_generation_result() -> None:
+    clock = ManualClock()
+    gateway = QmtCommandGateway(clock=clock, owner_stale_after_seconds=5.0)
+    first = gateway.register_owner("bridge-a")
+    command = gateway.enqueue("get_full_tick", {"symbols": ["300502.SZ"]})
+    gateway.poll(
+        first.owner_id,
+        lease_token=first.lease_token,
+        generation=first.generation,
+    )
+
+    clock.advance(6.0)
+    second = gateway.register_owner("bridge-a")
+    assert second.generation == first.generation + 1
+    assert second.lease_token != first.lease_token
+
+    with pytest.raises(QmtBridgeOwnershipError):
+        gateway.post_result(
+            first.owner_id,
+            command.command_id,
+            lease_token=first.lease_token,
+            generation=first.generation,
+            ok=True,
+            result={"300502.SZ": {}},
+        )

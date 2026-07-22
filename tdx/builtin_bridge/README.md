@@ -33,7 +33,7 @@ Invoke-RestMethod http://127.0.0.1:9001/tdx/bridge/health
 
 重点字段：
 
-- `tdxExperimentalBridgeReady=true`
+- `tdxRealtimeBridgeReady=true`
 - `ownerId` 与 `ownerAgeSeconds`
 - `desiredRevision == convergedRevision`
 - `desiredSymbols == convergedSymbols`

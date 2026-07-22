@@ -1,7 +1,7 @@
-"""Experimental TDX realtime WebSocket endpoint.
+"""TDX realtime WebSocket endpoint.
 
 Uses a dedicated ``ConnectionManager`` instance. The Mist client connects here to receive
-``tdx.experimental.snapshot`` frames plus ``ready``/``stream_started`` control
+``realtime.native_snapshot`` frames plus formal ready/stream-started control
 events.
 
 Mounted unconditionally by the TDX datasource.
@@ -16,9 +16,8 @@ from typing import cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from src.datasource.tdx.experimental_gateway import (
+from src.datasource.tdx.realtime_gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
-    ACCEPTED_DRAFT_REVISION,
     ACCEPTED_PAYLOAD_TYPE,
     ACCEPTED_SCHEMA_VERSION,
 )
@@ -27,17 +26,17 @@ from src.ws.protocol import ws_error, ws_ready, ws_subscription_ack
 router = APIRouter()
 
 
-def _get_experimental_ws_manager(websocket: WebSocket):
-    manager = getattr(websocket.app.state, "tdx_experimental_ws_manager", None)
+def _get_realtime_ws_manager(websocket: WebSocket):
+    manager = getattr(websocket.app.state, "tdx_realtime_ws_manager", None)
     if manager is None:
-        raise RuntimeError("experimental ws manager not initialized on app.state")
+        raise RuntimeError("realtime ws manager not initialized on app.state")
     return manager
 
 
 def _get_gateway(websocket: WebSocket):
-    gateway = getattr(websocket.app.state, "tdx_experimental_gateway", None)
+    gateway = getattr(websocket.app.state, "tdx_realtime_gateway", None)
     if gateway is None:
-        raise RuntimeError("experimental gateway not initialized on app.state")
+        raise RuntimeError("realtime gateway not initialized on app.state")
     return gateway
 
 
@@ -52,10 +51,10 @@ def _parse_symbols(value: object) -> list[str] | None:
     return symbols
 
 
-@router.websocket("/ws/tdx-experimental/{client_id}")
-async def experimental_tdx_realtime(websocket: WebSocket, client_id: str) -> None:
-    """Experimental realtime WS: push snapshot frames + control events."""
-    manager = _get_experimental_ws_manager(websocket)
+@router.websocket("/ws/realtime/tdx/{client_id}")
+async def tdx_realtime(websocket: WebSocket, client_id: str) -> None:
+    """Formal realtime WS: push native snapshot frames and control events."""
+    manager = _get_realtime_ws_manager(websocket)
     gateway = _get_gateway(websocket)
 
     accepted = await manager.connect_unique(websocket, client_id)
@@ -70,15 +69,17 @@ async def experimental_tdx_realtime(websocket: WebSocket, client_id: str) -> Non
         ws_ready(
             "tdx",
             {
-                "mode": "builtin_experimental",
+                "mode": "builtin",
                 "payloadType": ACCEPTED_PAYLOAD_TYPE,
                 "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-                "draftRevision": ACCEPTED_DRAFT_REVISION,
+                "sequenceScope": "symbol",
+                "source": "tdx",
                 "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
-                "currentStreamEpoch": owner.stream_epoch if owner else None,
-                "currentGeneration": owner.generation if owner else None,
+                "streamEpoch": owner.stream_epoch if owner else None,
+                "generation": owner.generation if owner else 0,
+                "sequence": 0,
                 "ownerId": owner.owner_id if owner else None,
-                "datasourceBuildId": "mist-datasource-experimental",
+                "datasourceBuildId": "mist-datasource-realtime-v1",
                 "bridgeBuildId": owner.bridge_build_id if owner else None,
             },
         ),

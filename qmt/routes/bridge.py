@@ -32,15 +32,21 @@ class OwnerRequest(BridgeModel):
     owner_id: str = Field(alias="ownerId")
     started_at: str | None = Field(default=None, alias="startedAt")
     last_poll_at: str | None = Field(default=None, alias="lastPollAt")
+    bridge_build_id: str = Field(alias="bridgeBuildId")
+    bridge_artifact_sha256: str = Field(alias="bridgeArtifactSha256")
 
 
 class PollRequest(BridgeModel):
     owner_id: str = Field(alias="ownerId")
+    lease_token: str = Field(alias="leaseToken")
+    generation: int
     limit: int = 1
 
 
 class ResultRequest(BridgeModel):
     owner_id: str = Field(alias="ownerId")
+    lease_token: str = Field(alias="leaseToken")
+    generation: int
     command_id: str = Field(alias="commandId")
     ok: bool
     result: Any | None = None
@@ -185,13 +191,19 @@ async def get_command_result(command_id: str, request: Request, response: Respon
 async def register_owner(payload: OwnerRequest, request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
     try:
-        owner = gateway.register_owner(payload.owner_id)
+        owner = gateway.register_owner(
+            payload.owner_id,
+            bridge_build_id=payload.bridge_build_id,
+            bridge_artifact_sha256=payload.bridge_artifact_sha256,
+        )
     except QmtBridgeOwnershipError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "ownerId": owner.owner_id,
         "registeredAt": owner.registered_at,
         "lastHeartbeatAt": owner.last_heartbeat_at,
+        "leaseToken": owner.lease_token,
+        "generation": owner.generation,
     }
 
 
@@ -199,7 +211,12 @@ async def register_owner(payload: OwnerRequest, request: Request) -> dict[str, A
 async def poll_commands(payload: PollRequest, request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
     try:
-        commands = gateway.poll(payload.owner_id, limit=payload.limit)
+        commands = gateway.poll(
+            payload.owner_id,
+            lease_token=payload.lease_token,
+            generation=payload.generation,
+            limit=payload.limit,
+        )
     except QmtBridgeOwnershipError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
@@ -222,6 +239,8 @@ async def post_result(payload: ResultRequest, request: Request) -> dict[str, Any
         result = gateway.post_result(
             payload.owner_id,
             payload.command_id,
+            lease_token=payload.lease_token,
+            generation=payload.generation,
             ok=payload.ok,
             result=payload.result,
             error=payload.error,

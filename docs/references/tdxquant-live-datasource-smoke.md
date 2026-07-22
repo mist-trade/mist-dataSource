@@ -396,7 +396,7 @@ before appliance smoke testing.
 Live mode is trading-time sensitive:
 
 1. Ensure the backend leader is connected to
-   `ws://127.0.0.1:9001/ws/tdx-experimental/<client_id>`.
+   `ws://127.0.0.1:9001/ws/realtime/tdx/<client_id>`.
 2. Expect a `ready` message.
 3. The backend leader sends the complete desired set:
 

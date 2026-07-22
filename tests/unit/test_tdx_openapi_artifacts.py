@@ -10,12 +10,12 @@ MODE_ARTIFACTS = {
     "tdx-builtin": ROOT
     / "docs"
     / "references"
-    / "tdx-openapi-builtin-experimental.json",
+    / "tdx-openapi-builtin.json",
     "qmt-off": ROOT / "docs" / "references" / "qmt-openapi-off.json",
     "qmt-builtin": ROOT
     / "docs"
     / "references"
-    / "qmt-openapi-builtin-experimental.json",
+    / "qmt-openapi-builtin.json",
 }
 
 
@@ -34,7 +34,7 @@ def test_tdx_openapi_json_matches_fastapi_schema() -> None:
 def test_tdx_openapi_summary_documents_contract_shapes() -> None:
     summary = OPENAPI_SUMMARY.read_text(encoding="utf-8")
 
-    assert "# TDX OpenAPI Summary (builtin_experimental)" in summary
+    assert "# TDX OpenAPI Summary (builtin)" in summary
     assert "POST /v1/finance/financial-data/query" in summary
     assert "Request Body" in summary
     assert "Responses" in summary

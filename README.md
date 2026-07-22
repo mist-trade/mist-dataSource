@@ -9,12 +9,12 @@ FastAPI 服务。它不是跨 provider 的统一数据模型，也不负责交�
 ```text
 TDX Desktop
   official POST :17709 ---------------------> TDX datasource /v1/* :9001
-  builtin bridge /tdx/bridge/* ------------> /ws/tdx-experimental/*
+  builtin bridge /tdx/bridge/* ------------> /ws/realtime/tdx/*
 
 QMT Desktop builtin Python
   stdlib HTTP polling /qmt/bridge/* --------> QMT datasource :9002
   get_market_data_ex(subscribe=False) ------> /v1/bars/query
-  get_full_tick (mode-gated realtime) ------> /ws/qmt-experimental/*
+  get_full_tick (builtin realtime) ----------> /ws/realtime/qmt/*
 
 TDX/QMT datasource WebSocket --------------> Mist backend leader
 ```
@@ -23,7 +23,7 @@ TDX/QMT datasource WebSocket --------------> Mist backend leader
 - TDX realtime 始终挂载，没有 legacy mode switch；终端脚本调用官方
   `get_market_snapshot`。
 - QMT 历史 bars 通过 full-QMT 内置 Python 执行 `get_market_data_ex`，不读取 DAT。
-- QMT realtime 默认 `off`，可独立切换到 `builtin_experimental`。
+- QMT realtime 默认 `builtin`，`off` 仅用于受控回滚。
 - 生产路径禁止已退役的轻量客户端/API package、外部 QMT SDK、bridge WebSocket、
   内置脚本线程和子进程。
 
@@ -55,7 +55,7 @@ Python 3.6 不支持的语法。
 - `POST /tdx/bridge/owner|poll|result|snapshot`（loopback）
 - `GET /tdx/bridge/health`（loopback）
 - `GET /tdx/bridge/evidence/{symbol}`（loopback、bounded evidence）
-- `WS /ws/tdx-experimental/{client_id}`
+- `WS /ws/realtime/tdx/{client_id}`
 
 已删除的 `/api/tdx/*` 和 `/ws/quote/*` 不得恢复。
 
@@ -66,7 +66,7 @@ Python 3.6 不支持的语法。
 - `POST /qmt/bridge/owner|commands|poll|result`
 - `GET /qmt/bridge/commands/{command_id}|health`
 - QMT realtime 启用时：`GET /qmt/realtime/health` 与
-  `WS /ws/qmt-experimental/{client_id}`
+  `WS /ws/realtime/qmt/{client_id}`
 
 QMT `/v1/bars/query` 使用官方 snake_case 字段，不接受 TDX camelCase 或
 `provider` selector。
@@ -94,9 +94,9 @@ uv run python scripts/export_openapi.py --all
 确定性 OpenAPI 产物：
 
 - `docs/references/tdx-openapi.json`
-- `docs/references/tdx-openapi-builtin-experimental.json`
+- `docs/references/tdx-openapi-builtin.json`
 - `docs/references/qmt-openapi-off.json`
-- `docs/references/qmt-openapi-builtin-experimental.json`
+- `docs/references/qmt-openapi-builtin.json`
 
 Windows smoke、部署和恢复统一从 `mist-deploy` 执行；本仓库不维护第二套生产部署
 脚本。

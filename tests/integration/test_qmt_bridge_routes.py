@@ -20,16 +20,24 @@ async def test_qmt_bridge_owner_poll_and_result_flow(qmt_client):
 
     owner_response = await qmt_client.post(
         "/qmt/bridge/owner",
-        json={"ownerId": "bridge-a", "startedAt": "2026-07-04T10:00:00+08:00"},
+        json={
+            "ownerId": "bridge-a",
+            "startedAt": "2026-07-04T10:00:00+08:00",
+            "bridgeBuildId": "test-bridge-v1",
+            "bridgeArtifactSha256": "a" * 64,
+        },
     )
+    identity = owner_response.json()
     poll_response = await qmt_client.post(
         "/qmt/bridge/poll",
-        json={"ownerId": "bridge-a", "limit": 1},
+        json={"ownerId": "bridge-a", "leaseToken": identity["leaseToken"], "generation": identity["generation"], "limit": 1},
     )
     result_response = await qmt_client.post(
         "/qmt/bridge/result",
         json={
             "ownerId": "bridge-a",
+            "leaseToken": identity["leaseToken"],
+            "generation": identity["generation"],
             "commandId": command.command_id,
             "ok": True,
             "result": {"status": "ok"},
@@ -65,7 +73,7 @@ async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
 
     owner_response = await qmt_client.post(
         "/qmt/bridge/owner",
-        json={"ownerId": "bridge-a"},
+        json={"ownerId": "bridge-a", "bridgeBuildId": "test-bridge-v1", "bridgeArtifactSha256": "b" * 64},
     )
     enqueue_response = await qmt_client.post(
         "/qmt/bridge/commands",
@@ -79,10 +87,11 @@ async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
     assert owner_response.status_code == 200
     assert enqueue_response.status_code == 200
     command_id = enqueue_response.json()["commandId"]
+    identity = owner_response.json()
 
     poll_response = await qmt_client.post(
         "/qmt/bridge/poll",
-        json={"ownerId": "bridge-a", "limit": 1},
+        json={"ownerId": "bridge-a", "leaseToken": identity["leaseToken"], "generation": identity["generation"], "limit": 1},
     )
     assert poll_response.json()["commands"] == [
         {
@@ -101,6 +110,8 @@ async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
         "/qmt/bridge/result",
         json={
             "ownerId": "bridge-a",
+            "leaseToken": identity["leaseToken"],
+            "generation": identity["generation"],
             "commandId": command_id,
             "ok": True,
             "result": {"marketData": {}},

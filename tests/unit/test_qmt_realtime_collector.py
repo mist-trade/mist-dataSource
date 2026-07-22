@@ -69,10 +69,11 @@ async def test_collector_publishes_valid_subscribed_native_results():
     assert await collector.collect_once() == 1
     assert published == [
         {
-            "payloadType": "qmt.experimental.snapshot",
-            "schemaVersion": 0,
-            "draftRevision": 1,
-            "acquisitionProfile": "qmt.get_full_tick.v0",
+            "payloadType": "mist.realtime.native_snapshot",
+            "schemaVersion": 1,
+            "source": "qmt",
+            "sequenceScope": "symbol",
+            "acquisitionProfile": "qmt.get_full_tick",
             "streamEpoch": collector.stream_epoch,
             "sequence": 1,
             "symbol": "600030.SH",
@@ -124,7 +125,7 @@ async def test_collector_accepts_native_qmt_timetag_with_separators():
 
     assert await collector.collect_once() == 1
     assert published[0]["native"] == native_snapshot
-    assert collector.health()["sequence"] == 1
+    assert collector.health()["sequences"] == {"300502.SZ": 1}
     assert collector.health()["lastErrorCode"] is None
 
 
@@ -145,7 +146,7 @@ async def test_collector_sequence_is_monotonic_and_owner_replacement_rotates_epo
 
     await collector.collect_once()
     first_epoch = collector.stream_epoch
-    assert epochs[-1]["ownerGeneration"] == 1
+    assert epochs[-1]["generation"] == 1
     command = gateway.poll("owner-a")[0]
     gateway.post_result(
         "owner-a",
@@ -161,8 +162,8 @@ async def test_collector_sequence_is_monotonic_and_owner_replacement_rotates_epo
     gateway.register_owner("owner-b")
     await collector.collect_once()
     assert collector.stream_epoch != first_epoch
-    assert collector.sequence == 0
-    assert epochs[-1]["ownerGeneration"] == 2
+    assert collector.sequences == {}
+    assert epochs[-1]["generation"] == 2
     assert epochs[-1]["ownerId"] == "owner-b"
 
 

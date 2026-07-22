@@ -9,15 +9,18 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.realtime_native_safety import (
+    NativePayloadSafetyError,
+    validate_native_payload_safety,
+)
 
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 CN_REALTIME_MARKETS = {"SH", "SZ", "BJ"}
 HK_REALTIME_MARKETS = {"HK"}
-QMT_EXPERIMENTAL_PAYLOAD_TYPE = "qmt.experimental.snapshot"
-QMT_EXPERIMENTAL_SCHEMA_VERSION = 0
-QMT_EXPERIMENTAL_DRAFT_REVISION = 1
-QMT_EXPERIMENTAL_ACQUISITION_PROFILE = "qmt.get_full_tick.v0"
-QMT_EXPERIMENTAL_MAX_SUBSCRIPTIONS = 5
+QMT_REALTIME_PAYLOAD_TYPE = "mist.realtime.native_snapshot"
+QMT_REALTIME_SCHEMA_VERSION = 1
+QMT_REALTIME_ACQUISITION_PROFILE = "qmt.get_full_tick"
+QMT_REALTIME_MAX_SUBSCRIPTIONS = 5
 QMT_SYMBOL_PATTERN = re.compile(r"^(?:\d{6}\.(?:SH|SZ|BJ)|\d{5,6}\.HK)$")
 
 
@@ -54,7 +57,7 @@ class QmtRealtimeCollector:
         self.last_error_code: str | None = None
         self.last_error: str | None = None
         self.stream_epoch = str(uuid4())
-        self.sequence = 0
+        self.sequences: dict[str, int] = {}
         self._owner_generation = 0
 
     def claim_leader(self, client_id: str) -> bool:
@@ -86,17 +89,17 @@ class QmtRealtimeCollector:
                 rejected.append(
                     {
                         "symbol": symbol,
-                        "code": "QMT_EXPERIMENTAL_SYMBOL_INVALID",
+                        "code": "QMT_REALTIME_SYMBOL_INVALID",
                         "reason": "symbol must use an exact QMT market suffix",
                     }
                 )
                 continue
-            if len(accepted) >= QMT_EXPERIMENTAL_MAX_SUBSCRIPTIONS:
+            if len(accepted) >= QMT_REALTIME_MAX_SUBSCRIPTIONS:
                 rejected.append(
                     {
                         "symbol": symbol,
-                        "code": "QMT_EXPERIMENTAL_ALLOWLIST_LIMIT",
-                        "reason": "at most five experimental symbols are allowed",
+                        "code": "QMT_REALTIME_ALLOWLIST_LIMIT",
+                        "reason": "at most five realtime symbols are allowed",
                     }
                 )
                 continue
@@ -231,15 +234,22 @@ class QmtRealtimeCollector:
                     f"Invalid QMT realtime payload for {symbol}",
                 )
                 continue
-            self.sequence += 1
+            try:
+                validate_native_payload_safety(cast(dict[str, Any], snapshot))
+            except NativePayloadSafetyError as exc:
+                self._set_error("QMT_REALTIME_UNSAFE_NATIVE", str(exc))
+                continue
+            sequence = self.sequences.get(symbol, 0) + 1
+            self.sequences[symbol] = sequence
             value = self.publisher(
                 {
-                    "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
-                    "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
-                    "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
-                    "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
+                    "payloadType": QMT_REALTIME_PAYLOAD_TYPE,
+                    "schemaVersion": QMT_REALTIME_SCHEMA_VERSION,
+                    "source": "qmt",
+                    "acquisitionProfile": QMT_REALTIME_ACQUISITION_PROFILE,
                     "streamEpoch": self.stream_epoch,
-                    "sequence": self.sequence,
+                    "sequence": sequence,
+                    "sequenceScope": "symbol",
                     "symbol": symbol,
                     "capturedAt": now.isoformat(),
                     "native": snapshot,
@@ -270,13 +280,14 @@ class QmtRealtimeCollector:
 
     def health(self) -> dict[str, Any]:
         return {
-            "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
-            "mode": "builtin_experimental",
-            "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
-            "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
-            "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
+            "payloadType": QMT_REALTIME_PAYLOAD_TYPE,
+            "mode": "builtin",
+            "schemaVersion": QMT_REALTIME_SCHEMA_VERSION,
+            "source": "qmt",
+            "sequenceScope": "symbol",
+            "acquisitionProfile": QMT_REALTIME_ACQUISITION_PROFILE,
             "streamEpoch": self.stream_epoch,
-            "sequence": self.sequence,
+            "sequences": dict(self.sequences),
             "state": self.state,
             "connectionCount": len(self.connected_clients),
             "leaderClientId": self.leader_client_id,
@@ -292,13 +303,14 @@ class QmtRealtimeCollector:
 
     def ready_contract(self) -> dict[str, Any]:
         return {
-            "payloadType": QMT_EXPERIMENTAL_PAYLOAD_TYPE,
-            "mode": "builtin_experimental",
-            "schemaVersion": QMT_EXPERIMENTAL_SCHEMA_VERSION,
-            "draftRevision": QMT_EXPERIMENTAL_DRAFT_REVISION,
-            "acquisitionProfile": QMT_EXPERIMENTAL_ACQUISITION_PROFILE,
+            "payloadType": QMT_REALTIME_PAYLOAD_TYPE,
+            "mode": "builtin",
+            "schemaVersion": QMT_REALTIME_SCHEMA_VERSION,
+            "source": "qmt",
+            "sequenceScope": "symbol",
+            "acquisitionProfile": QMT_REALTIME_ACQUISITION_PROFILE,
             "streamEpoch": self.stream_epoch,
-            "sequence": self.sequence,
+            "sequence": 0,
         }
 
     async def _sync_owner_epoch(self, owner_generation: int, owner_id: str | None) -> None:
@@ -310,7 +322,7 @@ class QmtRealtimeCollector:
             value = self.epoch_publisher(
                 {
                     **self.ready_contract(),
-                    "ownerGeneration": owner_generation,
+                    "generation": owner_generation,
                     "ownerId": owner_id,
                 }
             )
@@ -319,7 +331,7 @@ class QmtRealtimeCollector:
 
     def _rotate_epoch(self) -> None:
         self.stream_epoch = str(uuid4())
-        self.sequence = 0
+        self.sequences.clear()
 
 
 def is_realtime_trading_session(now: datetime, symbols: list[str]) -> bool:

@@ -7,6 +7,7 @@ socket listeners. The external Mist datasource owns concurrency; this script
 polls one local command gateway and executes commands serially.
 """
 
+import hashlib
 import json
 import os
 import time
@@ -51,6 +52,8 @@ class BridgeState:
     tick_count: int
     last_error: str
     last_poll_at: str
+    lease_token: str
+    generation: int
     started_at: str
 
 
@@ -61,6 +64,12 @@ STATE.poll_interval_seconds = 1
 STATE.tick_count = 0
 STATE.last_error = ""
 STATE.last_poll_at = ""
+STATE.lease_token = ""
+STATE.generation = 0
+
+BRIDGE_BUILD_ID = "mist-qmt-bridge-v1.0"
+with open(__file__, "rb") as _bridge_file:
+    BRIDGE_ARTIFACT_SHA256 = hashlib.sha256(_bridge_file.read()).hexdigest()
 STATE.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -91,7 +100,12 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
         _register_owner()
         poll_payload = _post_json(
             STATE.gateway_url + "/poll",
-            {"ownerId": STATE.owner_id, "limit": 1},
+            {
+                "ownerId": STATE.owner_id,
+                "leaseToken": STATE.lease_token,
+                "generation": STATE.generation,
+                "limit": 1,
+            },
         )
         commands_value = poll_payload.get("commands", [])
         commands = (
@@ -108,6 +122,8 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
                 STATE.gateway_url + "/result",
                 {
                     "ownerId": STATE.owner_id,
+                    "leaseToken": STATE.lease_token,
+                    "generation": STATE.generation,
                     "commandId": command.get("commandId"),
                     "ok": result.get("ok", False),
                     "result": result.get("result"),
@@ -120,14 +136,19 @@ def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
 
 
 def _register_owner() -> Dict[str, Any]:
-    return _post_json(
+    response = _post_json(
         STATE.gateway_url + "/owner",
         {
             "ownerId": STATE.owner_id,
             "startedAt": STATE.started_at,
             "lastPollAt": STATE.last_poll_at,
+            "bridgeBuildId": BRIDGE_BUILD_ID,
+            "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
         },
     )
+    STATE.lease_token = str(response.get("leaseToken", ""))
+    STATE.generation = int(response.get("generation", 0))
+    return response
 
 
 def _log_tick(command_count: int) -> None:

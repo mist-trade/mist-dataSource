@@ -1,4 +1,4 @@
-"""Loopback-only diagnostics for the QMT experimental realtime transport."""
+"""Loopback-only diagnostics for the QMT realtime transport."""
 
 from typing import Any
 
@@ -16,7 +16,7 @@ def _require_loopback(request: Request) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "code": "QMT_REALTIME_NOT_LOOPBACK",
-                "message": "QMT experimental realtime diagnostics are loopback-only",
+                "message": "QMT realtime diagnostics are loopback-only",
                 "retryable": False,
             },
         )
@@ -39,5 +39,5 @@ async def realtime_health(request: Request) -> dict[str, Any]:
         request.app.state, "qmt_realtime_collector", None
     )
     if collector is None:
-        raise HTTPException(status_code=404, detail="QMT experimental realtime is disabled")
+        raise HTTPException(status_code=404, detail="QMT realtime is disabled")
     return collector.health()

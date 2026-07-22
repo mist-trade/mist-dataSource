@@ -1,4 +1,4 @@
-"""Unit tests for the experimental TDX realtime gateway state machine."""
+"""Unit tests for the formal TDX realtime gateway state machine."""
 
 from __future__ import annotations
 
@@ -6,18 +6,18 @@ import asyncio
 
 import pytest
 
-from src.datasource.tdx.experimental_gateway import (
+from src.datasource.tdx.realtime_gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
-    ACCEPTED_DRAFT_REVISION,
     ACCEPTED_SCHEMA_VERSION,
-    ExperimentalTdxRealtimeGateway,
     GatewayError,
+)
+from src.datasource.tdx.realtime_gateway import (
+    TdxRealtimeGateway as ExperimentalTdxRealtimeGateway,
 )
 
 CONTRACT_KWARGS = {
     "acquisition_profile": ACCEPTED_ACQUISITION_PROFILE,
     "schema_version": ACCEPTED_SCHEMA_VERSION,
-    "draft_revision": ACCEPTED_DRAFT_REVISION,
 }
 
 
@@ -56,7 +56,7 @@ class TestOwnerRegistration:
             events.append((epoch, generation, owner_id, build_id))
 
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.experimental_gateway.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime_gateway.time.monotonic", lambda: clock)
         callback_gateway = ExperimentalTdxRealtimeGateway(on_epoch_change=capture)
         async_loop.run_until_complete(
             callback_gateway.register_owner(
@@ -96,7 +96,7 @@ class TestOwnerRegistration:
         )
         assert "leaseToken" in result
         assert "streamEpoch" in result
-        assert result["acceptedContractTuple"]["payloadType"] == "tdx.realtime.snapshot"
+        assert result["acceptedContractTuple"]["payloadType"] == "mist.realtime.native_snapshot"
 
     def test_contract_mismatch_rejected(
         self, gateway: ExperimentalTdxRealtimeGateway, async_loop
@@ -109,7 +109,6 @@ class TestOwnerRegistration:
                     bridge_artifact_sha256="9f2c",
                     acquisition_profile="wrong",
                     schema_version=0,
-                    draft_revision=1,
                 )
             )
         assert exc_info.value.code == "TDX_BRIDGE_CONTRACT_MISMATCH"
@@ -163,7 +162,7 @@ class TestOwnerRegistration:
         self, gateway: ExperimentalTdxRealtimeGateway, async_loop, monkeypatch
     ) -> None:
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.experimental_gateway.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime_gateway.time.monotonic", lambda: clock)
         old = async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-old",
@@ -232,7 +231,7 @@ class TestOwnerRegistration:
         self, gateway: ExperimentalTdxRealtimeGateway, async_loop, monkeypatch
     ) -> None:
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.experimental_gateway.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime_gateway.time.monotonic", lambda: clock)
         result = async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-1",

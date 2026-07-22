@@ -65,11 +65,6 @@
             "title": "Bridgebuildid",
             "type": "string"
           },
-          "draftRevision": {
-            "default": 1,
-            "title": "Draftrevision",
-            "type": "integer"
-          },
           "mode": {
             "title": "Mode",
             "type": "string"
@@ -79,7 +74,7 @@
             "type": "string"
           },
           "schemaVersion": {
-            "default": 0,
+            "default": 1,
             "title": "Schemaversion",
             "type": "integer"
           }

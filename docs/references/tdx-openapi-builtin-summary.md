@@ -1,9 +1,9 @@
-# TDX OpenAPI Summary (builtin_experimental)
+# TDX OpenAPI Summary (builtin)
 
 Title: Mist DataSource - TDX
 Version: 1.0.0
 
-Generated from the `tdx` FastAPI app in `builtin_experimental` mode.
+Generated from the `tdx` FastAPI app in `builtin` mode.
 
 ## GET /health
 

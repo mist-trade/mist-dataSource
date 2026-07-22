@@ -15,14 +15,14 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_JSON_PATH = ROOT / "docs" / "references" / "tdx-openapi.json"
 DEFAULT_SUMMARY_PATH = ROOT / "docs" / "references" / "tdx-openapi-summary.md"
 ARTIFACTS = {
-    ("tdx", "builtin_experimental"): (
-        "tdx-openapi-builtin-experimental.json",
-        "tdx-openapi-builtin-experimental-summary.md",
+    ("tdx", "builtin"): (
+        "tdx-openapi-builtin.json",
+        "tdx-openapi-builtin-summary.md",
     ),
     ("qmt", "off"): ("qmt-openapi-off.json", "qmt-openapi-off-summary.md"),
-    ("qmt", "builtin_experimental"): (
-        "qmt-openapi-builtin-experimental.json",
-        "qmt-openapi-builtin-experimental-summary.md",
+    ("qmt", "builtin"): (
+        "qmt-openapi-builtin.json",
+        "qmt-openapi-builtin-summary.md",
     ),
 }
 
@@ -87,7 +87,7 @@ def _parameters(operation: Mapping[str, Any]) -> list[str]:
 
 
 def build_summary(
-    openapi: dict[str, Any], *, source: str = "tdx", mode: str = "builtin_experimental"
+    openapi: dict[str, Any], *, source: str = "tdx", mode: str = "builtin"
 ) -> str:
     info = _mapping(openapi.get("info"))
     paths = _mapping(openapi.get("paths"))
@@ -152,7 +152,7 @@ def export_openapi(
     summary_path: Path,
     *,
     source: str = "tdx",
-    mode: str = "builtin_experimental",
+    mode: str = "builtin",
 ) -> None:
     app = _load_app(source, mode)
     openapi = app.openapi()
@@ -182,7 +182,7 @@ def export_all() -> None:
             ],
             check=True,
         )
-    tdx_json, tdx_summary = ARTIFACTS[("tdx", "builtin_experimental")]
+    tdx_json, tdx_summary = ARTIFACTS[("tdx", "builtin")]
     DEFAULT_JSON_PATH.write_text(
         (ROOT / "docs" / "references" / tdx_json).read_text(encoding="utf-8"),
         encoding="utf-8",
@@ -197,7 +197,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="export every supported mode")
     parser.add_argument("--source", choices=("tdx", "qmt"), default="tdx")
-    parser.add_argument("--mode", default="builtin_experimental")
+    parser.add_argument("--mode", default="builtin")
     parser.add_argument("--json", type=Path, default=DEFAULT_JSON_PATH)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY_PATH)
     args = parser.parse_args()
@@ -206,8 +206,8 @@ def main() -> None:
         export_all()
         return
     allowed_modes = {
-        "tdx": {"builtin_experimental"},
-        "qmt": {"off", "builtin_experimental"},
+        "tdx": {"builtin"},
+        "qmt": {"off", "builtin"},
     }
     if args.mode not in allowed_modes[args.source]:
         parser.error(f"unsupported mode {args.mode!r} for {args.source}")

@@ -13,19 +13,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
 from src.core.logging import setup_logging
-from src.datasource.tdx.experimental_gateway import ExperimentalTdxRealtimeGateway
+from src.datasource.tdx.realtime_gateway import TdxRealtimeGateway
 from src.datasource.tdx_provider import TdxDatasourceProvider
 from src.ws.manager import ConnectionManager
 from src.ws.protocol import ws_stream_started
-from tdx.routes.experimental import router as bridge_router
-from tdx.routes.experimental_ws import router as realtime_ws_router
+from tdx.routes.realtime_bridge import router as bridge_router
+from tdx.routes.realtime_ws import router as realtime_ws_router
 from tdx.routes.v1 import router as v1_router
 
 setup_logging()
 
 tdx_provider: TdxDatasourceProvider | None = None
-tdx_experimental_gateway: ExperimentalTdxRealtimeGateway | None = None
-tdx_experimental_ws_manager: ConnectionManager | None = None
+tdx_realtime_gateway: TdxRealtimeGateway | None = None
+tdx_realtime_ws_manager: ConnectionManager | None = None
 _tdx_provider_owned_by_main: TdxDatasourceProvider | None = None
 
 
@@ -35,15 +35,21 @@ async def _broadcast_epoch_change(
     owner_id: str,
     bridge_build_id: str,
 ) -> None:
-    if tdx_experimental_ws_manager is None:
+    if tdx_realtime_ws_manager is None:
         return
-    await tdx_experimental_ws_manager.broadcast(
+    await tdx_realtime_ws_manager.broadcast(
         ws_stream_started(
             "tdx",
             {
+                "payloadType": "mist.realtime.native_snapshot",
+                "schemaVersion": 1,
+                "source": "tdx",
+                "sequenceScope": "symbol",
+                "acquisitionProfile": "tdx.get_market_snapshot",
                 "streamEpoch": stream_epoch,
                 "generation": generation,
-                "mode": "builtin_experimental",
+                "sequence": 0,
+                "mode": "builtin",
                 "ownerId": owner_id,
                 "bridgeBuildId": bridge_build_id,
             },
@@ -53,24 +59,24 @@ async def _broadcast_epoch_change(
 
 def _sync_app_state(target: FastAPI) -> None:
     target.state.tdx_provider = tdx_provider
-    target.state.tdx_experimental_gateway = tdx_experimental_gateway
-    target.state.tdx_experimental_ws_manager = tdx_experimental_ws_manager
+    target.state.tdx_realtime_gateway = tdx_realtime_gateway
+    target.state.tdx_realtime_ws_manager = tdx_realtime_ws_manager
 
 
 @asynccontextmanager
 async def lifespan(target: FastAPI):
     global _tdx_provider_owned_by_main
-    global tdx_experimental_gateway, tdx_experimental_ws_manager, tdx_provider
+    global tdx_realtime_gateway, tdx_realtime_ws_manager, tdx_provider
 
     owned_provider: TdxDatasourceProvider | None = None
     if tdx_provider is None:
         tdx_provider = TdxDatasourceProvider()
         owned_provider = tdx_provider
         _tdx_provider_owned_by_main = owned_provider
-    if tdx_experimental_ws_manager is None:
-        tdx_experimental_ws_manager = ConnectionManager()
-    if tdx_experimental_gateway is None:
-        tdx_experimental_gateway = ExperimentalTdxRealtimeGateway(
+    if tdx_realtime_ws_manager is None:
+        tdx_realtime_ws_manager = ConnectionManager()
+    if tdx_realtime_gateway is None:
+        tdx_realtime_gateway = TdxRealtimeGateway(
             max_subscriptions=settings.tdx.max_subscriptions,
             on_epoch_change=_broadcast_epoch_change,
         )
@@ -129,13 +135,13 @@ async def _provider_health() -> dict[str, Any]:
 async def health() -> dict[str, Any]:
     provider_health = await _provider_health()
     bridge_health = (
-        await tdx_experimental_gateway.health()
-        if tdx_experimental_gateway is not None
-        else {"tdxExperimentalBridgeReady": False}
+        await tdx_realtime_gateway.health()
+        if tdx_realtime_gateway is not None
+        else {"tdxRealtimeBridgeReady": False}
     )
     connections = (
-        tdx_experimental_ws_manager.connection_count
-        if tdx_experimental_ws_manager is not None
+        tdx_realtime_ws_manager.connection_count
+        if tdx_realtime_ws_manager is not None
         else 0
     )
     return {

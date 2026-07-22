@@ -24,7 +24,7 @@ TDX_SNAPSHOT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "eventTime": ("AsOf",),
 }
 
-TDX_EXPERIMENTAL_LOGICAL_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+TDX_REALTIME_LOGICAL_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
     "last": ("Now", "Last", "Close"),
     "open": ("Open",),
     "high": ("Max", "High"),
@@ -62,7 +62,7 @@ def extract_tdx_snapshot_native_fields(
     """Project native aliases without applying a consumer-specific policy.
 
     Each provider field is projected independently. This preserves the
-    historical HTTP behavior while allowing the experimental decoder to apply
+    historical HTTP behavior while allowing the realtime validator to apply
     a separate logical-alias policy after its strict conflict check.
     """
     values = {
@@ -210,7 +210,7 @@ def normalize_tdx_snapshot(symbol: str, native: dict[str, Any]) -> TdxSnapshot:
     return TdxSnapshot(
         symbol=normalized_symbol,
         # Formal HTTP semantics are intentionally frozen to the historical
-        # provider fields. Experimental-only aliases must not leak here.
+        # provider fields. Realtime-only aliases must not leak here.
         last=normalize_number(raw.now),
         open=normalize_number(raw.open),
         high=normalize_number(raw.maximum),

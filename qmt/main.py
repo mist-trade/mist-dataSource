@@ -22,17 +22,17 @@ from src.datasource.qmt.command_gateway import QmtCommandGateway
 from src.datasource.qmt.realtime import QmtRealtimeCollector
 from src.datasource.qmt_provider import QmtDatasourceProvider
 from src.ws.manager import ConnectionManager
-from src.ws.protocol import ws_error, ws_experimental_snapshot, ws_stream_started
+from src.ws.protocol import ws_error, ws_realtime_snapshot, ws_stream_started
 
 setup_logging()
 
-QmtRealtimeMode = Literal["off", "builtin_experimental"]
-QMT_REALTIME_MODES = {"off", "builtin_experimental"}
+QmtRealtimeMode = Literal["off", "builtin"]
+QMT_REALTIME_MODES = {"off", "builtin"}
 
 
 def _validated_realtime_mode(value: str) -> QmtRealtimeMode:
     if value not in QMT_REALTIME_MODES:
-        raise ValueError("QMT_REALTIME_MODE must be one of: off, builtin_experimental")
+        raise ValueError("QMT_REALTIME_MODE must be one of: off, builtin")
     return cast(QmtRealtimeMode, value)
 
 
@@ -50,12 +50,12 @@ def create_qmt_app(
     manager: ConnectionManager | None = None
     collector: QmtRealtimeCollector | None = None
 
-    if mode == "builtin_experimental":
+    if mode == "builtin":
         manager = ConnectionManager()
 
         async def publish_snapshot(data: dict[str, Any]) -> None:
             assert manager is not None
-            await manager.broadcast(ws_experimental_snapshot("qmt", data))
+            await manager.broadcast(ws_realtime_snapshot("qmt", data))
 
         async def publish_error(code: str, message: str) -> None:
             assert manager is not None
@@ -104,7 +104,7 @@ def create_qmt_app(
     target.state.qmt_command_gateway = app_gateway
     target.state.qmt_provider = app_provider
     if manager is not None and collector is not None:
-        target.state.qmt_experimental_ws_manager = manager
+        target.state.qmt_realtime_ws_manager = manager
         target.state.qmt_realtime_collector = collector
 
     target.add_middleware(
@@ -126,9 +126,9 @@ def create_qmt_app(
 
     target.include_router(v1_router, tags=["V1"])
     target.include_router(bridge_router, prefix="/qmt/bridge", tags=["QMT Bridge"])
-    if mode == "builtin_experimental":
-        target.include_router(ws_router, tags=["QMT Experimental WebSocket"])
-        target.include_router(realtime_router, tags=["QMT Experimental Realtime"])
+    if mode == "builtin":
+        target.include_router(ws_router, tags=["QMT Realtime WebSocket"])
+        target.include_router(realtime_router, tags=["QMT Realtime"])
     return target
 
 

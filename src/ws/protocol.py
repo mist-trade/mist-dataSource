@@ -10,7 +10,7 @@ class WSMessage(BaseModel):
     """WebSocket 消息标准格式."""
 
     type: Literal[
-        "ready",
+        "realtime.ready",
         "ping",
         "pong",
         "sync_subscriptions",
@@ -19,9 +19,8 @@ class WSMessage(BaseModel):
         "subscribed",
         "unsubscribed",
         "error",
-        "tdx.experimental.snapshot",
-        "qmt.experimental.snapshot",
-        "stream_started",
+        "realtime.native_snapshot",
+        "realtime.stream_started",
     ]
     provider: str | None = None
     data: dict[str, Any]
@@ -34,7 +33,7 @@ class WSMessage(BaseModel):
 
 def ws_ready(provider: str, data: dict[str, Any]) -> WSMessage:
     """Create a ready message for a datasource WebSocket connection."""
-    return WSMessage(type="ready", provider=provider, data=data)
+    return WSMessage(type="realtime.ready", provider=provider, data=data)
 
 
 def ws_pong(provider: str) -> WSMessage:
@@ -83,14 +82,9 @@ def ws_subscription_ack(
     )
 
 
-def ws_experimental_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:
-    """Create an isolated experimental realtime snapshot frame.
-
-    The realtime consumers only listen for provider-specific snapshot types.
-    """
-    if provider == "qmt":
-        return WSMessage(type="qmt.experimental.snapshot", provider=provider, data=data)
-    return WSMessage(type="tdx.experimental.snapshot", provider=provider, data=data)
+def ws_realtime_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:
+    """Create a formal provider-native realtime snapshot frame."""
+    return WSMessage(type="realtime.native_snapshot", provider=provider, data=data)
 
 
 def ws_stream_started(provider: str, data: dict[str, Any]) -> WSMessage:
@@ -99,4 +93,4 @@ def ws_stream_started(provider: str, data: dict[str, Any]) -> WSMessage:
     Already-connected clients receive this; late-connecting clients recover the
     epoch via ``ready``.
     """
-    return WSMessage(type="stream_started", provider=provider, data=data)
+    return WSMessage(type="realtime.stream_started", provider=provider, data=data)

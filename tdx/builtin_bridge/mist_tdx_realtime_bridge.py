@@ -2,7 +2,7 @@
 """mist_tdx_realtime_bridge.py — TDX terminal builtin bridge strategy script.
 
 Runs INSIDE the TDX terminal's tqcenter Python environment (Python 3.7 +
-stdlib + tqcenter only). Communicates with the datasource experimental gateway
+stdlib + tqcenter only). Communicates with the datasource realtime gateway
 over loopback HTTP.
 
 Design invariants (frozen in C0.1):
@@ -48,11 +48,10 @@ DIRTY_QUEUE_MAX = 200
 
 # Contract tuple (must match gateway ACCEPTED_* constants).
 ACQUISITION_PROFILE = "tdx.get_market_snapshot"
-SCHEMA_VERSION = 0
-DRAFT_REVISION = 1
+SCHEMA_VERSION = 1
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-bridge-v0.2"
+BRIDGE_BUILD_ID = "mist-tdx-bridge-v1.0"
 
 
 def _compute_artifact_sha() -> str:
@@ -157,12 +156,11 @@ class BridgeOwner:
     def registration_payload(self) -> dict:
         return {
             "ownerId": self.owner_id,
-            "mode": "builtin_experimental",
+            "mode": "builtin",
             "bridgeBuildId": BRIDGE_BUILD_ID,
             "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
             "acquisitionProfile": ACQUISITION_PROFILE,
             "schemaVersion": SCHEMA_VERSION,
-            "draftRevision": DRAFT_REVISION,
         }
 
     def request_identity(self) -> dict:

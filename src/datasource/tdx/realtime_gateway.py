@@ -1,6 +1,6 @@
-"""Experimental TDX realtime gateway.
+"""Formal TDX realtime gateway.
 
-Control-plane authority for the experimental builtin-bridge pathway. Owns:
+Control-plane authority for the builtin-bridge pathway. Owns:
 - single-owner lease (with opaque token + stale eviction)
 - four-state subscription convergence (desired / attempted / converged /
   observedNative) under a stable owner epoch
@@ -13,7 +13,7 @@ reference; its state machine had structural defects (no lease/epoch/build,
 result advances on error, snapshot checks desired not converged, sequence
 committed after await).
 
-Data-plane snapshot validation lives in ``experimental_decoder``. This gateway
+Data-plane snapshot validation lives in ``realtime_native_validator``. This gateway
 is transport/control only — it does not interpret price semantics.
 """
 
@@ -28,15 +28,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.datasource.tdx.experimental_decoder import (
-    decode_experimental_tdx_snapshot,
+from src.datasource.realtime_native_safety import validate_native_payload_safety
+from src.datasource.tdx.realtime_native_validator import (
+    validate_tdx_realtime_native_snapshot,
 )
 from src.datasource.tdx_normalization import dedupe_stable
 
 # Contract tuple accepted by this gateway build.
-ACCEPTED_PAYLOAD_TYPE = "tdx.realtime.snapshot"
-ACCEPTED_SCHEMA_VERSION = 0
-ACCEPTED_DRAFT_REVISION = 1
+ACCEPTED_PAYLOAD_TYPE = "mist.realtime.native_snapshot"
+ACCEPTED_SCHEMA_VERSION = 1
 ACCEPTED_ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 
 #: Owner stale after this many seconds without a poll/heartbeat.
@@ -85,14 +85,13 @@ class BridgeOwner:
     bridge_artifact_sha256: str
     acquisition_profile: str
     schema_version: int
-    draft_revision: int
     last_seen_monotonic: float
     generation: int  # increments each owner registration
 
 
 @dataclass
 class _OwnerTakeoverCandidate:
-    fingerprint: tuple[str, str, str, str, int, int]
+    fingerprint: tuple[str, str, str, str, int]
     first_seen_monotonic: float
     last_seen_monotonic: float
 
@@ -106,12 +105,12 @@ class _InstrumentState:
 
 
 @dataclass
-class ExperimentalTdxRealtimeGateway:
-    """Control-plane gateway for experimental TDX builtin bridge."""
+class TdxRealtimeGateway:
+    """Control-plane gateway for the TDX builtin bridge."""
 
     max_subscriptions: int = 100
     # Callback invoked when stream_epoch changes (owner generation change).
-    # Set by the lifespan wiring to broadcast stream_started on the experimental
+    # Set by the lifespan wiring to broadcast stream_started on the realtime
     # WS manager. Signature: async (stream_epoch, generation, owner_id,
     # bridge_build_id) -> None.
     on_epoch_change: Any = None
@@ -164,13 +163,11 @@ class ExperimentalTdxRealtimeGateway:
         bridge_artifact_sha256: str,
         acquisition_profile: str,
         schema_version: int,
-        draft_revision: int,
     ) -> dict[str, Any]:
         """Register (or replace) the terminal owner. Returns lease info."""
         self._validate_contract_tuple(
             acquisition_profile=acquisition_profile,
             schema_version=schema_version,
-            draft_revision=draft_revision,
         )
         async with self._lock:
             now = time.monotonic()
@@ -193,7 +190,6 @@ class ExperimentalTdxRealtimeGateway:
                         bridge_artifact_sha256,
                         acquisition_profile,
                         schema_version,
-                        draft_revision,
                     )
                     candidate = self._takeover_candidate
                     if (
@@ -238,7 +234,6 @@ class ExperimentalTdxRealtimeGateway:
                 bridge_artifact_sha256=bridge_artifact_sha256,
                 acquisition_profile=acquisition_profile,
                 schema_version=schema_version,
-                draft_revision=draft_revision,
                 last_seen_monotonic=time.monotonic(),
                 generation=generation,
             )
@@ -259,7 +254,6 @@ class ExperimentalTdxRealtimeGateway:
                 "acceptedContractTuple": {
                     "payloadType": ACCEPTED_PAYLOAD_TYPE,
                     "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-                    "draftRevision": ACCEPTED_DRAFT_REVISION,
                     "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 },
             }
@@ -279,17 +273,16 @@ class ExperimentalTdxRealtimeGateway:
         return result
 
     def _validate_contract_tuple(
-        self, *, acquisition_profile: str, schema_version: int, draft_revision: int
+        self, *, acquisition_profile: str, schema_version: int
     ) -> None:
         if (
             acquisition_profile != ACCEPTED_ACQUISITION_PROFILE
             or schema_version != ACCEPTED_SCHEMA_VERSION
-            or draft_revision != ACCEPTED_DRAFT_REVISION
         ):
             raise GatewayError(
                 "TDX_BRIDGE_CONTRACT_MISMATCH",
                 f"contract tuple mismatch: got (acquisitionProfile={acquisition_profile},"
-                f" schemaVersion={schema_version}, draftRevision={draft_revision})",
+                f" schemaVersion={schema_version})",
                 retryable=False,
             )
 
@@ -480,8 +473,9 @@ class ExperimentalTdxRealtimeGateway:
         """
         # Validate captured_at is RFC3339 (reject non-conforming timestamps).
         self._validate_rfc3339(captured_at, field_name="capturedAt")
-        # Strict decode (raises ExperimentalDecoderError on bad data).
-        snapshot = decode_experimental_tdx_snapshot(symbol, native, expected_code=symbol)
+        # Strictly validate the native object before preserving it on the wire.
+        validate_native_payload_safety(native)
+        validate_tdx_realtime_native_snapshot(symbol, native, expected_code=symbol)
         # All state access under lock.
         async with self._lock:
             owner = self._require_owner_epoch_locked(lease_token, stream_epoch)
@@ -510,7 +504,7 @@ class ExperimentalTdxRealtimeGateway:
                 symbol=symbol,
                 sequence=outbound_sequence,
                 captured_at=captured_at,
-                snapshot=snapshot,
+                native=native,
             )
             self._last_snapshot_monotonic = time.monotonic()
             self._last_snapshot_at = dt.datetime.now(dt.UTC).isoformat()
@@ -550,7 +544,7 @@ class ExperimentalTdxRealtimeGateway:
 
         Rejects pure dates ("2026-07-17") and offset-less times
         ("2026-07-17T14:30:00"). This is stricter than normalize_beijing_iso
-        (which fills missing offset with Beijing TZ) — experimental gateway
+        (which fills missing offset with Beijing TZ) — the realtime gateway
         requires the terminal to provide a complete timestamp.
         """
         stripped = value
@@ -576,30 +570,19 @@ class ExperimentalTdxRealtimeGateway:
         symbol: str,
         sequence: int,
         captured_at: str,
-        snapshot: Any,
+        native: dict[str, Any],
     ) -> dict[str, Any]:
         return {
             "payloadType": ACCEPTED_PAYLOAD_TYPE,
             "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-            "draftRevision": ACCEPTED_DRAFT_REVISION,
-            "contractStatus": "experimental",
+            "source": "tdx",
             "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
             "streamEpoch": owner.stream_epoch,
             "sequence": sequence,
+            "sequenceScope": "symbol",
             "symbol": symbol,
             "capturedAt": captured_at,
-            "eventTime": snapshot.eventTime,
-            "snapshot": {
-                "last": snapshot.last,
-                "open": snapshot.open,
-                "high": snapshot.high,
-                "low": snapshot.low,
-                "lastClose": snapshot.lastClose,
-                "nativeVolume": snapshot.nativeVolume,
-                "nativeAmount": snapshot.nativeAmount,
-            },
-            "unitStatus": "native-unverified",
-            "quality": snapshot.quality,
+            "native": copy.deepcopy(native),
         }
 
     # --- health --------------------------------------------------------
@@ -609,7 +592,7 @@ class ExperimentalTdxRealtimeGateway:
             owner = self._owner
             ready = owner is not None and self._is_owner_fresh()
             return {
-                "tdxExperimentalBridgeReady": ready,
+                "tdxRealtimeBridgeReady": ready,
                 "ownerId": owner.owner_id if owner else None,
                 "ownerAgeSeconds": (
                     round(time.monotonic() - owner.last_seen_monotonic, 3) if owner else None
@@ -634,7 +617,6 @@ class ExperimentalTdxRealtimeGateway:
                 "acceptedContractTuple": {
                     "payloadType": ACCEPTED_PAYLOAD_TYPE,
                     "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-                    "draftRevision": ACCEPTED_DRAFT_REVISION,
                     "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 },
             }
