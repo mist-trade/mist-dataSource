@@ -51,17 +51,29 @@ ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 SCHEMA_VERSION = 1
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-bridge-v1.0"
+BRIDGE_BUILD_ID = "mist-tdx-bridge-v1.1"
+
+
+def _resolve_script_path():
+    """Return the terminal script path when the host exposes file semantics."""
+    script_path = globals().get("__file__")
+    if not isinstance(script_path, str) or not script_path:
+        return None
+    return os.path.abspath(script_path)
+
+
+BRIDGE_SCRIPT_PATH = _resolve_script_path()
 
 
 def _compute_artifact_sha() -> str:
-    """Compute SHA256 of this script file for artifact identity."""
-    script_path = os.path.abspath(__file__)
+    """Compute SHA256 when the terminal exposes a file-backed script."""
+    if BRIDGE_SCRIPT_PATH is None:
+        return "unavailable"
     try:
-        with open(script_path, "rb") as f:
+        with open(BRIDGE_SCRIPT_PATH, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
     except Exception:
-        return "unknown"
+        return "unavailable"
 
 
 BRIDGE_ARTIFACT_SHA256 = _compute_artifact_sha()
@@ -216,7 +228,13 @@ class TqCenterWrapper:
         try:
             from tqcenter import tq  # type: ignore[import-not-found]
 
-            tq.initialize(__file__)
+            if BRIDGE_SCRIPT_PATH is None:
+                raise SystemExit(
+                    "[mist-bridge] FATAL: TDX did not expose a file-backed strategy path."
+                    " Register mist_tdx_realtime_bridge.py from PYPlugins/user instead of"
+                    " pasting it into a pathless execution context."
+                )
+            tq.initialize(BRIDGE_SCRIPT_PATH)
             self._tq = tq
             print("[mist-bridge] tqcenter initialized (real SDK)")
         except ImportError as exc:

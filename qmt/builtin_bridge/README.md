@@ -12,5 +12,10 @@ historical command gateway 的唯一 owner。
 4. 确认 `GET http://127.0.0.1:9002/qmt/bridge/health` 的 owner、generation、build 和
    artifact identity 与本次发布一致。
 
+大 QMT 策略编辑器可能不定义 Python `__file__`。这种运行方式下 bridge 仍须正常启动，
+并将运行时 `bridgeArtifactSha256` 报告为 `unavailable`；发布证据以操作员记录的 installed
+path 和 Windows `Get-FileHash -Algorithm SHA256` 结果为准，不把运行时 sentinel 当作文件
+摘要。
+
 Deploy、datasource manager 和 recovery workflow 不复制、注册、删除或升级 QMT
 terminal bridge。它们只管理 datasource/终端生命周期并验证现有 installed bridge。

@@ -20,7 +20,7 @@ owner。脚本目标语法为 Python 3.7+，只依赖标准库与官方 `tqcente
 
 脚本启动后：
 
-1. `tq.initialize(__file__)`。
+1. 解析 TQ 策略管理器提供的 installed script path，并用该路径调用 `tq.initialize(...)`。
 2. `POST /tdx/bridge/owner` 注册 owner。
 3. 每秒 `poll` desired revision。
 4. 用 `subscribe_hq` / `unsubscribe_hq` 收敛完整订阅集合。
@@ -53,6 +53,8 @@ Public `/health` 提供摘要；lease 和 evidence 细节只允许 loopback 访�
 
 - `tqcenter not available`：确认从 TQ 策略管理器启动，并检查 `numpy`、native DLL
   与 Python 环境。
+- `TDX did not expose a file-backed strategy path`：必须从 `PYPlugins/user` 注册实际文件，
+  不要把脚本粘贴到没有文件路径的临时执行上下文。
 - `OWNER_ACTIVE`：保持新实例重试，等待旧 owner stale/takeover；不要重复注册多个
   自动运行项。
 - `NOT_CONVERGED`：检查 backend desired set、revision 和 TDX subscription 结果。

@@ -68,6 +68,26 @@ def test_builtin_bridge_polling_uses_run_time_not_market_event_callbacks() -> No
     assert "subscribe_quote" not in source
 
 
+def test_builtin_bridge_loads_when_qmt_does_not_define_dunder_file() -> None:
+    source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+    namespace = {"__name__": "mist_qmt_realtime_bridge_embedded"}
+
+    class EmbeddedContext:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str]] = []
+
+        def run_time(self, name: str, interval: str, start_time: str) -> None:
+            self.calls.append((name, interval, start_time))
+
+    exec(compile(source, BRIDGE_SCRIPT.name, "exec"), namespace)
+    context = EmbeddedContext()
+    namespace["init"](context)
+
+    assert namespace["BRIDGE_ARTIFACT_SHA256"] == "unavailable"
+    assert context.calls[0][0:2] == ("mist_qmt_realtime_bridge_tick", "1nSecond")
+    assert namespace["STATE"].last_error == ""
+
+
 def test_builtin_bridge_run_time_starts_from_current_time_for_after_hours_smoke() -> None:
     source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
 

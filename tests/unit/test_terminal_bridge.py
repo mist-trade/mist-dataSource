@@ -54,6 +54,17 @@ class TestTqCenterWrapper:
                 raise AssertionError("missing tqcenter dependency must stop the bridge")
 
 
+def test_terminal_bridge_module_loads_without_dunder_file() -> None:
+    bridge_path = _BRIDGE_DIR / "mist_tdx_realtime_bridge.py"
+    source = bridge_path.read_text(encoding="utf-8")
+    namespace = {"__name__": "mist_tdx_realtime_bridge_embedded"}
+
+    exec(compile(source, bridge_path.name, "exec"), namespace)
+
+    assert namespace["BRIDGE_SCRIPT_PATH"] is None
+    assert namespace["BRIDGE_ARTIFACT_SHA256"] == "unavailable"
+
+
 class TestFormatCode:
     def test_prefix_to_suffix(self) -> None:
         assert _bridge_mod._format_code("SH600519") == "600519.SH"

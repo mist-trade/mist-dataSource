@@ -67,9 +67,22 @@ STATE.last_poll_at = ""
 STATE.lease_token = ""
 STATE.generation = 0
 
-BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v1.0"
-with open(__file__, "rb") as _bridge_file:
-    BRIDGE_ARTIFACT_SHA256 = hashlib.sha256(_bridge_file.read()).hexdigest()
+BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v1.1"
+
+
+def _compute_artifact_sha256() -> str:
+    """Hash a file-backed script without requiring QMT to define ``__file__``."""
+    script_path = globals().get("__file__")
+    if not isinstance(script_path, str) or not script_path:
+        return "unavailable"
+    try:
+        with open(os.path.abspath(script_path), "rb") as bridge_file:
+            return hashlib.sha256(bridge_file.read()).hexdigest()
+    except Exception:
+        return "unavailable"
+
+
+BRIDGE_ARTIFACT_SHA256 = _compute_artifact_sha256()
 STATE.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
