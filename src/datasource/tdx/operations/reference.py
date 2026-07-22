@@ -1,5 +1,6 @@
 from typing import Any
 
+from src.datasource.tdx.http_client import TdxHttpClient
 from src.datasource.tdx.native import (
     first_native_value,
     native_items,
@@ -7,6 +8,7 @@ from src.datasource.tdx.native import (
     native_sequence,
     unwrap_tdx_value,
 )
+from src.datasource.tdx.normalization import to_tdx_http_code
 from src.datasource.tdx.normalizers.reference import (
     normalize_convertible_bond_item,
     normalize_dividend_factor_item,
@@ -17,8 +19,6 @@ from src.datasource.tdx.normalizers.reference import (
     normalize_share_capital_item,
     normalize_tracking_etf_item,
 )
-from src.datasource.tdx_http_client import TdxHttpClient
-from src.datasource.tdx_normalization import to_tdx_http_code
 
 
 class TdxReferenceOperations:

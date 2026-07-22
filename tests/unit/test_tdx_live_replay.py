@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from src.datasource.tdx_provider import TdxDatasourceProvider
+from src.datasource.tdx.provider import TdxDatasourceProvider
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "tdx"
 

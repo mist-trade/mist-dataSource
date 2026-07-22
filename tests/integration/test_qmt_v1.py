@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 import qmt.main
-from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.bridge import QmtCommandGateway
 
 
 async def _wait_for_pending(gateway: QmtCommandGateway) -> None:

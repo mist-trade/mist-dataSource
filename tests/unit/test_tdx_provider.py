@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from src.core.config import settings
-from src.datasource.tdx_provider import TdxDatasourceProvider, TdxFormulaTimeoutError
+from src.datasource.tdx.provider import TdxDatasourceProvider, TdxFormulaTimeoutError
 
 REQUIRED_MARKET_DATA_FIELDS = ["Open", "High", "Low", "Close", "Volume", "Amount"]
 
@@ -1154,7 +1154,7 @@ async def test_formula_methods_default_to_configured_timeout(monkeypatch):
 
 
 def test_formula_operation_result_model_serializes_result_contract() -> None:
-    from src.datasource.tdx_models import TdxFormulaOperationResult
+    from src.datasource.tdx.models import TdxFormulaOperationResult
 
     result = TdxFormulaOperationResult(ok=True, message="OK", raw={"Result": "OK"})
 

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.datasource.qmt.command_gateway import (
+from src.datasource.qmt.bridge import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
 )

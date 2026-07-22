@@ -1,5 +1,5 @@
 #coding:gbk
-"""Full-QMT built-in Python runtime spike script.
+"""Full-QMT built-in Python runtime probe script.
 
 Run this manually inside the Windows full-QMT client before enabling live QMT
 provider support. It intentionally probes imports and runtime features that the
@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Mapping, cast
 if TYPE_CHECKING:
     from typing import Protocol
 
-    class SpikeContextInfo(Protocol):
-        """Subset used by this spike; attributes follow ThinkTrader ContextInfo docs."""
+    class RuntimeProbeContextInfo(Protocol):
+        """Subset used by this runtime probe; attributes follow ThinkTrader ContextInfo docs."""
 
         stockcode: str
         market: str
@@ -42,10 +42,10 @@ if TYPE_CHECKING:
             subscribe: bool,
         ) -> Any: ...
 else:
-    SpikeContextInfo = Any
+    RuntimeProbeContextInfo = Any
 
 
-class SpikeState:
+class RuntimeProbeState:
     output_path: str
     gateway_url: str
     results: Dict[str, Any]
@@ -56,20 +56,20 @@ class SpikeState:
 
 
 DEFAULT_DATASOURCE_ROOT = r"F:\quant\MistAPI\datasource"
-DEFAULT_SPIKE_OUTPUT_NAME = "mist_qmt_spike_output.json"
+DEFAULT_RUNTIME_PROBE_OUTPUT_NAME = "mist_qmt_runtime_probe_output.json"
 
 
 def _default_output_path() -> str:
-    configured_path = os.environ.get("MIST_QMT_SPIKE_OUTPUT_PATH", "").strip()
+    configured_path = os.environ.get("MIST_QMT_RUNTIME_PROBE_OUTPUT_PATH", "").strip()
     if configured_path:
         return configured_path
     datasource_root = os.environ.get("MIST_DATASOURCE_ROOT", DEFAULT_DATASOURCE_ROOT).strip()
     if not datasource_root:
         datasource_root = DEFAULT_DATASOURCE_ROOT
-    return os.path.join(datasource_root, "logs", "qmt", DEFAULT_SPIKE_OUTPUT_NAME)
+    return os.path.join(datasource_root, "logs", "qmt", DEFAULT_RUNTIME_PROBE_OUTPUT_NAME)
 
 
-STATE = SpikeState()
+STATE = RuntimeProbeState()
 STATE.output_path = _default_output_path()
 STATE.gateway_url = os.environ.get("QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge")
 STATE.results = {}
@@ -79,22 +79,22 @@ STATE.last_tick_at = ""
 STATE.run_time_schedule = {"ok": False, "error": "", "startTime": ""}
 
 
-def init(ContextInfo: SpikeContextInfo) -> None:
+def init(ContextInfo: RuntimeProbeContextInfo) -> None:
     start_time = time.strftime("%Y-%m-%d %H:%M:%S")
     STATE.run_time_schedule = {"ok": False, "error": "", "startTime": start_time}
     try:
-        ContextInfo.run_time("mist_qmt_spike_tick", "1nSecond", start_time)
+        ContextInfo.run_time("mist_qmt_runtime_probe_tick", "1nSecond", start_time)
         STATE.run_time_schedule["ok"] = True
     except Exception as exc:
         STATE.run_time_schedule["error"] = str(exc)
-    run_spike(ContextInfo, "init")
+    run_runtime_probe(ContextInfo, "init")
 
 
-def handlebar(ContextInfo: SpikeContextInfo) -> None:
+def handlebar(ContextInfo: RuntimeProbeContextInfo) -> None:
     _ = ContextInfo
 
 
-def mist_qmt_spike_tick(ContextInfo: SpikeContextInfo) -> None:
+def mist_qmt_runtime_probe_tick(ContextInfo: RuntimeProbeContextInfo) -> None:
     _record_run_time_tick()
     _write_results(STATE.results)
     if STATE.run_time_ticks <= 5 or STATE.run_time_ticks % 30 == 0:
@@ -102,7 +102,7 @@ def mist_qmt_spike_tick(ContextInfo: SpikeContextInfo) -> None:
     _ = ContextInfo
 
 
-def run_spike(ContextInfo: SpikeContextInfo, phase: str) -> None:
+def run_runtime_probe(ContextInfo: RuntimeProbeContextInfo, phase: str) -> None:
     results = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "phase": phase,
@@ -253,7 +253,7 @@ def _outside_trading_window_hint() -> bool:
     return not ((930 <= hhmm <= 1130) or (1300 <= hhmm <= 1500))
 
 
-def _probe_native_api(ContextInfo: SpikeContextInfo) -> Dict[str, Any]:
+def _probe_native_api(ContextInfo: RuntimeProbeContextInfo) -> Dict[str, Any]:
     results = {}  # type: Dict[str, Any]
     try:
         results["stock"] = {
@@ -308,7 +308,7 @@ def _write_results(results: Mapping[str, Any]) -> None:
         with open(STATE.output_path, "w") as output:
             output.write(json.dumps(results, sort_keys=True, indent=2))
     except Exception as exc:
-        print("failed to write spike output: " + str(exc))
+        print("failed to write runtime probe output: " + str(exc))
 
 
 def _noop() -> None:

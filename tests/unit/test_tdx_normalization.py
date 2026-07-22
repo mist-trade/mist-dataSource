@@ -1,7 +1,7 @@
 import pandas as pd
 
-from src.datasource.tdx_models import TdxBar, TdxBarQueryRequest, TdxSnapshot
-from src.datasource.tdx_normalization import (
+from src.datasource.tdx.models import TdxBar, TdxBarQueryRequest, TdxSnapshot
+from src.datasource.tdx.normalization import (
     native_value,
     normalize_native_key,
     normalize_number,

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import qmt.main
-from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.bridge import QmtCommandGateway
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 
@@ -14,7 +14,6 @@ BEIJING = ZoneInfo("Asia/Shanghai")
 @pytest.mark.asyncio
 async def test_qmt_bridge_owner_poll_and_result_flow(qmt_client):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
     command = gateway.enqueue("health", {})
 
@@ -55,7 +54,6 @@ async def test_qmt_bridge_owner_poll_and_result_flow(qmt_client):
 @pytest.mark.asyncio
 async def test_qmt_bridge_health_reports_gateway_state(qmt_client):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
     gateway.register_owner("bridge-health")
 
@@ -68,7 +66,6 @@ async def test_qmt_bridge_health_reports_gateway_state(qmt_client):
 @pytest.mark.asyncio
 async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
 
     owner_response = await qmt_client.post(
@@ -127,7 +124,6 @@ async def test_qmt_bridge_command_route_enqueues_and_exposes_result(qmt_client):
 @pytest.mark.asyncio
 async def test_qmt_bridge_command_route_rejects_realtime_command_outside_trading_session(qmt_client):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_bridge_now = lambda: datetime(2026, 7, 6, 20, 0, tzinfo=BEIJING)
 
@@ -160,7 +156,6 @@ async def test_qmt_bridge_command_route_allows_realtime_command_for_market_bound
     now: datetime,
 ):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_bridge_now = lambda: now
 
@@ -180,7 +175,6 @@ async def test_qmt_bridge_command_route_allows_realtime_command_for_market_bound
 @pytest.mark.asyncio
 async def test_qmt_bridge_command_route_rejects_hk_realtime_after_closing_auction(qmt_client):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_bridge_now = lambda: datetime(2026, 7, 6, 16, 11, tzinfo=BEIJING)
 
@@ -200,7 +194,6 @@ async def test_qmt_bridge_command_route_rejects_hk_realtime_after_closing_auctio
 @pytest.mark.asyncio
 async def test_qmt_bridge_command_route_allows_historical_command_outside_trading_session(qmt_client):
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_command_gateway = gateway
     qmt.main.app.state.qmt_bridge_now = lambda: datetime(2026, 7, 6, 20, 0, tzinfo=BEIJING)
 

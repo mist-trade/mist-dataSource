@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from qmt.routes.v1.dependencies import get_qmt_gateway, get_qmt_provider
 from src.datasource.contracts import (
     BEIJING_TZ,
     DatasourceError,
@@ -12,9 +13,9 @@ from src.datasource.contracts import (
     ResponseMeta,
     serialize_response_data,
 )
-from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.operations.market import QmtBridgeError
-from src.datasource.qmt_provider import QmtDatasourceProvider
+from src.datasource.qmt.provider import QmtDatasourceProvider
 
 router = APIRouter()
 
@@ -40,17 +41,11 @@ class QmtBarQueryRequest(QmtV1Model):
 
 
 def _get_provider(request: Request) -> QmtDatasourceProvider | None:
-    provider = getattr(request.app.state, "qmt_provider", None)
-    if isinstance(provider, QmtDatasourceProvider):
-        return provider
-    return None
+    return get_qmt_provider(request)
 
 
 def _get_gateway(request: Request) -> QmtCommandGateway | None:
-    gateway = getattr(request.app.state, "qmt_command_gateway", None)
-    if isinstance(gateway, QmtCommandGateway):
-        return gateway
-    return None
+    return get_qmt_gateway(request)
 
 
 def _request_id(request: Request) -> str:

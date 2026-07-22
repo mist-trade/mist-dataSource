@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tdx.builtin_bridge.mist_tdx_realtime_bridge import BridgeOwner
-from tdx.routes.realtime_bridge import OwnerRegisterRequest, PollRequest
+from tdx.routes.bridge import OwnerRegisterRequest, PollRequest
 
 
 def test_terminal_owner_registration_matches_route_model() -> None:

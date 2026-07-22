@@ -1,4 +1,4 @@
-from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.operations.market import QmtMarketOperations
 
 

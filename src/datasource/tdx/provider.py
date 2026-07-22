@@ -3,6 +3,8 @@ from typing import Any
 from src.core.config import settings
 from src.datasource.tdx.errors import TdxNativeError as TdxNativeError
 from src.datasource.tdx.errors import TdxSymbolNotFoundError as TdxSymbolNotFoundError
+from src.datasource.tdx.http_client import TdxHttpClient
+from src.datasource.tdx.models import TdxBar, TdxSnapshot
 from src.datasource.tdx.normalizers.formula import (
     TdxFormulaRequestLimitError as TdxFormulaRequestLimitError,
 )
@@ -14,8 +16,6 @@ from src.datasource.tdx.operations.formula import TdxFormulaOperations
 from src.datasource.tdx.operations.market import TdxMarketOperations
 from src.datasource.tdx.operations.reference import TdxReferenceOperations
 from src.datasource.tdx.operations.sector import TdxSectorOperations
-from src.datasource.tdx_http_client import TdxHttpClient
-from src.datasource.tdx_models import TdxBar, TdxSnapshot
 
 TDX_HEALTH_PROBE_SYMBOL = "600519.SH"
 

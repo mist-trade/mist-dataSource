@@ -53,6 +53,14 @@
       "OwnerRequest": {
         "additionalProperties": false,
         "properties": {
+          "bridgeArtifactSha256": {
+            "title": "Bridgeartifactsha256",
+            "type": "string"
+          },
+          "bridgeBuildId": {
+            "title": "Bridgebuildid",
+            "type": "string"
+          },
           "lastPollAt": {
             "anyOf": [
               {
@@ -81,7 +89,9 @@
           }
         },
         "required": [
-          "ownerId"
+          "ownerId",
+          "bridgeBuildId",
+          "bridgeArtifactSha256"
         ],
         "title": "OwnerRequest",
         "type": "object"
@@ -89,6 +99,14 @@
       "PollRequest": {
         "additionalProperties": false,
         "properties": {
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
           "limit": {
             "default": 1,
             "title": "Limit",
@@ -100,7 +118,9 @@
           }
         },
         "required": [
-          "ownerId"
+          "ownerId",
+          "leaseToken",
+          "generation"
         ],
         "title": "PollRequest",
         "type": "object"
@@ -183,6 +203,14 @@
             ],
             "title": "Error"
           },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
           "ok": {
             "title": "Ok",
             "type": "boolean"
@@ -203,6 +231,8 @@
         },
         "required": [
           "ownerId",
+          "leaseToken",
+          "generation",
           "commandId",
           "ok"
         ],

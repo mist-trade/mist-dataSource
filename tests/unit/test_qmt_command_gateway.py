@@ -1,6 +1,6 @@
 import pytest
 
-from src.datasource.qmt.command_gateway import (
+from src.datasource.qmt.bridge import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
     QmtCommandTimeoutError,

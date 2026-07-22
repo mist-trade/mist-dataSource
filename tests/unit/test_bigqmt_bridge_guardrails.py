@@ -2,8 +2,10 @@ import ast
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-BRIDGE_SCRIPT = PROJECT_ROOT / "qmt" / "builtin_bridge" / "mist_qmt_bridge.py"
-SPIKE_SCRIPT = PROJECT_ROOT / "qmt" / "builtin_bridge" / "mist_qmt_spike.py"
+BRIDGE_SCRIPT = PROJECT_ROOT / "qmt" / "builtin_bridge" / "mist_qmt_realtime_bridge.py"
+RUNTIME_PROBE_SCRIPT = (
+    PROJECT_ROOT / "tools" / "qmt_runtime_probe" / "mist_qmt_runtime_probe.py"
+)
 README = PROJECT_ROOT / "README.md"
 QMT_ALIGNMENT = PROJECT_ROOT / "docs" / "references" / "qmt-provider-alignment.md"
 QMT_CLIENT = PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py"
@@ -71,7 +73,7 @@ def test_builtin_bridge_run_time_starts_from_current_time_for_after_hours_smoke(
 
     assert '"2026-01-01 09:30:00"' not in source
     assert 'start_time = time.strftime("%Y-%m-%d %H:%M:%S")' in source
-    assert 'ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", start_time)' in source
+    assert 'ContextInfo.run_time("mist_qmt_realtime_bridge_tick", "1nSecond", start_time)' in source
 
 
 def test_builtin_bridge_prints_low_frequency_tick_heartbeat_for_qmt_ui() -> None:
@@ -79,7 +81,7 @@ def test_builtin_bridge_prints_low_frequency_tick_heartbeat_for_qmt_ui() -> None
 
     assert "tick_count" in source
     assert "STATE.tick_count += 1" in source
-    assert "mist_qmt_bridge tick" in source
+    assert "mist_qmt_realtime_bridge tick" in source
     assert "STATE.tick_count <= 5" in source
     assert "STATE.tick_count % 30 == 0" in source
 
@@ -87,10 +89,10 @@ def test_builtin_bridge_prints_low_frequency_tick_heartbeat_for_qmt_ui() -> None
 def test_builtin_bridge_logs_qmt_function_calls_for_qmt_ui() -> None:
     source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
 
-    assert "mist_qmt_bridge command" in source
-    assert "mist_qmt_bridge call_start" in source
-    assert "mist_qmt_bridge call_ok" in source
-    assert "mist_qmt_bridge call_error" in source
+    assert "mist_qmt_realtime_bridge command" in source
+    assert "mist_qmt_realtime_bridge call_start" in source
+    assert "mist_qmt_realtime_bridge call_ok" in source
+    assert "mist_qmt_realtime_bridge call_error" in source
     assert "_log_command(command)" in source
     assert '_log_call_start("get_market_data_ex"' in source
     assert '_log_call_start("get_full_tick"' in source
@@ -99,27 +101,27 @@ def test_builtin_bridge_logs_qmt_function_calls_for_qmt_ui() -> None:
 
 def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
     bridge_source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
-    spike_source = SPIKE_SCRIPT.read_text(encoding="utf-8")
+    probe_source = RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8")
 
     assert "http://127.0.0.1:9002/qmt/bridge" in bridge_source
-    assert "http://127.0.0.1:9002/qmt/bridge" in spike_source
-    assert 'STATE.gateway_url + "/health"' in spike_source
+    assert "http://127.0.0.1:9002/qmt/bridge" in probe_source
+    assert 'STATE.gateway_url + "/health"' in probe_source
     assert "127.0.0.1:9012" not in bridge_source
-    assert "127.0.0.1:9012" not in spike_source
+    assert "127.0.0.1:9012" not in probe_source
 
 
-def test_spike_script_is_the_only_qmt_builtin_script_allowed_to_probe_runtime_features() -> None:
+def test_runtime_probe_is_the_only_qmt_script_allowed_to_probe_runtime_features() -> None:
     bridge_imports = _imported_top_level_names(ast.parse(BRIDGE_SCRIPT.read_text(encoding="utf-8")))
-    spike_imports = _imported_top_level_names(ast.parse(SPIKE_SCRIPT.read_text(encoding="utf-8")))
+    probe_imports = _imported_top_level_names(ast.parse(RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8")))
 
-    assert {"threading", "multiprocessing", "subprocess"} <= spike_imports
+    assert {"threading", "multiprocessing", "subprocess"} <= probe_imports
     assert bridge_imports.isdisjoint({"threading", "multiprocessing", "subprocess"})
 
 
-def test_spike_script_records_run_time_without_websocket_probe() -> None:
-    source = SPIKE_SCRIPT.read_text(encoding="utf-8")
+def test_runtime_probe_records_run_time_without_websocket_probe() -> None:
+    source = RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8")
 
-    assert "mist_qmt_spike_tick" in source
+    assert "mist_qmt_runtime_probe_tick" in source
     assert ".run_time(" in source
     assert "tickCount" in source
     assert "websocket" not in source.lower()
@@ -136,7 +138,7 @@ def test_qmt_builtin_scripts_are_python36_compatible() -> None:
         " | ",
     )
     violations: list[str] = []
-    for path in (BRIDGE_SCRIPT, SPIKE_SCRIPT):
+    for path in (BRIDGE_SCRIPT, RUNTIME_PROBE_SCRIPT):
         source = path.read_text(encoding="utf-8")
         for token in forbidden_tokens:
             if token in source:
@@ -149,25 +151,29 @@ def test_ruff_keeps_qmt_builtin_scripts_python36_typing_compatible() -> None:
     source = PYPROJECT.read_text(encoding="utf-8")
 
     assert '"qmt/builtin_bridge/*.py"' in source
+    assert '"tools/qmt_runtime_probe/*.py"' in source
     assert "F401" in source
     assert "UP006" in source
     assert "UP035" in source
-    assert 'exclude = ["tests", "qmt/builtin_bridge", "tdx/builtin_bridge"]' in source
+    assert (
+        'exclude = ["tests", "qmt/builtin_bridge", "tdx/builtin_bridge", '
+        '"tools/qmt_runtime_probe"]' in source
+    )
 
 
-def test_spike_output_defaults_under_datasource_logs_not_c_temp() -> None:
-    source = SPIKE_SCRIPT.read_text(encoding="utf-8")
+def test_runtime_probe_output_defaults_under_datasource_logs_not_c_temp() -> None:
+    source = RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8")
     windows_env = ENV_WINDOWS_EXAMPLE.read_text(encoding="utf-8")
 
     assert "C:\\Temp" not in source
-    assert "MIST_QMT_SPIKE_OUTPUT_PATH" in source
+    assert "MIST_QMT_RUNTIME_PROBE_OUTPUT_PATH" in source
     assert "F:\\quant\\MistAPI\\datasource" in source
     assert "logs" in source
     assert "qmt" in source
-    assert "mist_qmt_spike_output.json" in source
+    assert "mist_qmt_runtime_probe_output.json" in source
     assert "os.makedirs" in source
     assert (
-        "MIST_QMT_SPIKE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_spike_output.json"
+        "MIST_QMT_RUNTIME_PROBE_OUTPUT_PATH=F:/quant/MistAPI/datasource/logs/qmt/mist_qmt_runtime_probe_output.json"
         in windows_env
     )
 
@@ -193,7 +199,7 @@ def test_qmt_account_and_trading_methods_are_not_exposed_by_market_datasource() 
         if not root.exists():
             continue
         for path in root.rglob("*.py"):
-            if path.name == "mist_qmt_spike.py":
+            if path.name == "mist_qmt_runtime_probe.py":
                 continue
             text = path.read_text(encoding="utf-8")
             for method_name in forbidden_method_names:

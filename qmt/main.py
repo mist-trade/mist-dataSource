@@ -16,12 +16,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from qmt.routes.bridge import router as bridge_router
 from qmt.routes.realtime import router as realtime_router
 from qmt.routes.v1 import router as v1_router
-from qmt.routes.ws import router as ws_router
 from src.core.config import settings
 from src.core.logging import setup_logging
-from src.datasource.qmt.command_gateway import QmtCommandGateway
-from src.datasource.qmt.realtime import QmtRealtimeCollector
-from src.datasource.qmt_provider import QmtDatasourceProvider
+from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.provider import QmtDatasourceProvider
+from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
 from src.ws.manager import ConnectionManager
 from src.ws.protocol import ws_error, ws_realtime_snapshot, ws_stream_started
 
@@ -128,11 +127,8 @@ def create_qmt_app(
     target.include_router(v1_router, tags=["V1"])
     target.include_router(bridge_router, prefix="/qmt/bridge", tags=["QMT Bridge"])
     if mode == "builtin":
-        target.include_router(ws_router, tags=["QMT Realtime WebSocket"])
         target.include_router(realtime_router, tags=["QMT Realtime"])
     return target
 
 
-qmt_command_gateway = QmtCommandGateway()
-qmt_provider: QmtDatasourceProvider | None = QmtDatasourceProvider()
-app = create_qmt_app(gateway=qmt_command_gateway, provider=qmt_provider)
+app = create_qmt_app()

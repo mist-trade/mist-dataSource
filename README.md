@@ -111,7 +111,7 @@ Windows smoke、部署和恢复统一从 `mist-deploy` 执行；本仓库不维�
 - TDX bridge 首次由操作员放入 `PYPlugins/user` 并注册自动运行；每次 bridge 版本变化
   仍由操作员手动覆盖 installed file，并让 TDX 重新加载。
 - QMT bridge 同样由操作员在大 QMT 内置 Python 环境中手动覆盖；datasource checkout
-  中的 `qmt/builtin_bridge/mist_qmt_bridge.py` 更新不代表终端已加载新版本。
+  中的 `qmt/builtin_bridge/mist_qmt_realtime_bridge.py` 更新不代表终端已加载新版本。
 - QMT 登录全自动，recovery 不执行登录点击；终端重启后只会加载操作员已覆盖的已注册
   bridge。
 

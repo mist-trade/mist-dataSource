@@ -21,14 +21,12 @@ async def tdx_client() -> AsyncGenerator[AsyncClient, None]:
 @pytest.fixture
 async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async HTTP client for testing QMT API."""
-    import qmt.main
-    from src.datasource.qmt.command_gateway import QmtCommandGateway
+    from src.datasource.qmt.bridge import QmtCommandGateway
 
-    previous_gateway = getattr(qmt.main, "qmt_command_gateway", None)
+    previous_gateway = qmt_app.state.qmt_command_gateway
     previous_bridge_now = getattr(qmt_app.state, "qmt_bridge_now", None)
     had_bridge_now = hasattr(qmt_app.state, "qmt_bridge_now")
     gateway = QmtCommandGateway()
-    qmt.main.qmt_command_gateway = gateway
     qmt_app.state.qmt_command_gateway = gateway
 
     try:
@@ -37,7 +35,6 @@ async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
         ) as client:
             yield client
     finally:
-        qmt.main.qmt_command_gateway = previous_gateway
         qmt_app.state.qmt_command_gateway = previous_gateway
         if had_bridge_now:
             qmt_app.state.qmt_bridge_now = previous_bridge_now

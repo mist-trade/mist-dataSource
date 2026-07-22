@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from src.datasource.tdx.realtime_gateway import TdxRealtimeGateway
+from src.datasource.tdx.realtime.runtime import TdxRealtimeGateway
 from src.ws.manager import ConnectionManager
-from tdx.routes.realtime_ws import router
+from tdx.routes.realtime import router
 
 
 def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:

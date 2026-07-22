@@ -5,7 +5,7 @@ from src.datasource.contracts import (
     ResponseMeta,
     serialize_response_data,
 )
-from src.datasource.tdx_models import TdxBarQueryRequest
+from src.datasource.tdx.models import TdxBarQueryRequest
 
 
 def test_success_envelope_has_stable_shape():

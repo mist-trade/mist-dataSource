@@ -1,8 +1,8 @@
 from typing import Any
 
+from src.datasource.tdx.http_client import TdxHttpClient
 from src.datasource.tdx.native import native_items
 from src.datasource.tdx.normalizers.sector import normalize_sector_item, normalize_sector_members
-from src.datasource.tdx_http_client import TdxHttpClient
 
 
 class TdxSectorOperations:

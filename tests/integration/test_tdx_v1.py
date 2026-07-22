@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 
-from src.datasource.tdx_http_client import TdxHttpError
-from src.datasource.tdx_models import TdxBar, TdxSnapshot
+from src.datasource.tdx.http_client import TdxHttpError
+from src.datasource.tdx.models import TdxBar, TdxSnapshot
 from tdx.main import app
 from tdx.routes.v1 import product as tdx_v1_routes
 
@@ -576,17 +576,16 @@ class RaisingCloseProvider:
 
 @pytest.fixture
 async def v1_client() -> AsyncClient:
-    import tdx.main
 
-    previous_provider = tdx.main.tdx_provider
+    previous_provider = app.state.tdx_provider
     previous_state_provider = getattr(app.state, "tdx_provider", None)
-    tdx.main.tdx_provider = FakeTdxProvider()
-    app.state.tdx_provider = tdx.main.tdx_provider
+    app.state.tdx_provider = FakeTdxProvider()
+    app.state.tdx_provider = app.state.tdx_provider
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
     finally:
-        tdx.main.tdx_provider = previous_provider
+        app.state.tdx_provider = previous_provider
         app.state.tdx_provider = previous_state_provider
 
 
@@ -721,7 +720,6 @@ async def test_bars_query_returns_normalized_envelope(v1_client: AsyncClient) ->
 
 @pytest.mark.asyncio
 async def test_bars_query_passes_fields_and_adjustment_options(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/bars/query",
@@ -738,7 +736,7 @@ async def test_bars_query_passes_fields_and_adjustment_options(v1_client: AsyncC
     )
 
     assert response.status_code == 200
-    assert tdx.main.tdx_provider.bar_queries == [
+    assert app.state.tdx_provider.bar_queries == [
         {
             "symbols": ["600519.SH"],
             "period": "1d",
@@ -769,7 +767,6 @@ async def test_snapshots_query_returns_normalized_envelope(v1_client: AsyncClien
 
 @pytest.mark.asyncio
 async def test_raw_call_proxies_method_and_params(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/raw/tdx/call",
@@ -783,12 +780,11 @@ async def test_raw_call_proxies_method_and_params(v1_client: AsyncClient) -> Non
         "method": "get_market_data",
         "params": {"stock_list": ["SH600519"]},
     }
-    assert tdx.main.tdx_provider.raw_calls == [("get_market_data", {"stock_list": ["SH600519"]})]
+    assert app.state.tdx_provider.raw_calls == [("get_market_data", {"stock_list": ["SH600519"]})]
 
 
 @pytest.mark.asyncio
 async def test_sectors_query_returns_symbols(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post("/v1/sectors/query", json={"sector": "通达信88"})
 
@@ -796,12 +792,11 @@ async def test_sectors_query_returns_symbols(v1_client: AsyncClient) -> None:
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["symbols"] == ["600519.SH", "000001.SZ"]
-    assert tdx.main.tdx_provider.sector_queries == ["通达信88"]
+    assert app.state.tdx_provider.sector_queries == ["通达信88"]
 
 
 @pytest.mark.asyncio
 async def test_sector_list_query_returns_normalized_sectors(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post("/v1/sectors/list/query", json={"listType": 1})
 
@@ -809,12 +804,11 @@ async def test_sector_list_query_returns_normalized_sectors(v1_client: AsyncClie
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["sectors"][0]["code"] == "880081.SH"
-    assert tdx.main.tdx_provider.sector_list_queries == [1]
+    assert app.state.tdx_provider.sector_list_queries == [1]
 
 
 @pytest.mark.asyncio
 async def test_calendar_query_returns_trading_dates(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/calendar/trading-dates/query",
@@ -825,12 +819,11 @@ async def test_calendar_query_returns_trading_dates(v1_client: AsyncClient) -> N
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["tradingDates"] == ["2026-06-25", "2026-06-26"]
-    assert tdx.main.tdx_provider.trading_date_queries == [("SH", None, None, 2)]
+    assert app.state.tdx_provider.trading_date_queries == [("SH", None, None, 2)]
 
 
 @pytest.mark.asyncio
 async def test_securities_query_returns_normalized_symbols(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post("/v1/securities/query", json={"market": "5"})
 
@@ -838,12 +831,11 @@ async def test_securities_query_returns_normalized_symbols(v1_client: AsyncClien
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["securities"][0]["symbol"] == "600519.SH"
-    assert tdx.main.tdx_provider.security_list_queries == ["5"]
+    assert app.state.tdx_provider.security_list_queries == ["5"]
 
 
 @pytest.mark.asyncio
 async def test_security_info_query_returns_normalized_metadata(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/securities/info/query",
@@ -854,12 +846,11 @@ async def test_security_info_query_returns_normalized_metadata(v1_client: AsyncC
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["securities"][0]["name"] == "贵州茅台"
-    assert tdx.main.tdx_provider.security_info_queries == [["600519.SH"]]
+    assert app.state.tdx_provider.security_info_queries == [["600519.SH"]]
 
 
 @pytest.mark.asyncio
 async def test_price_volume_query_returns_normalized_items(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/price-volume/query",
@@ -870,14 +861,13 @@ async def test_price_volume_query_returns_normalized_items(v1_client: AsyncClien
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["price"] == 1168.63
-    assert tdx.main.tdx_provider.price_volume_queries == [(["600519.SH"], ["price", "volume"])]
+    assert app.state.tdx_provider.price_volume_queries == [(["600519.SH"], ["price", "volume"])]
 
 
 @pytest.mark.asyncio
 async def test_reference_relations_query_returns_normalized_relations(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reference/relations/query",
@@ -888,12 +878,11 @@ async def test_reference_relations_query_returns_normalized_relations(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["relations"][0]["category"] == "industry"
-    assert tdx.main.tdx_provider.relation_queries == ["600519.SH"]
+    assert app.state.tdx_provider.relation_queries == ["600519.SH"]
 
 
 @pytest.mark.asyncio
 async def test_reference_ipo_query_returns_normalized_items(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reference/ipo/query",
@@ -904,12 +893,11 @@ async def test_reference_ipo_query_returns_normalized_items(v1_client: AsyncClie
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["subscribeCode"] == "371036"
-    assert tdx.main.tdx_provider.ipo_queries == [(2, 1)]
+    assert app.state.tdx_provider.ipo_queries == [(2, 1)]
 
 
 @pytest.mark.asyncio
 async def test_reference_share_capital_query_uses_date_list(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reference/share-capital/query",
@@ -920,12 +908,11 @@ async def test_reference_share_capital_query_uses_date_list(v1_client: AsyncClie
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["totalShareCapital"] == 182942480.0
-    assert tdx.main.tdx_provider.share_capital_queries == [("600519.SH", ["20250101"], 1)]
+    assert app.state.tdx_provider.share_capital_queries == [("600519.SH", ["20250101"], 1)]
 
 
 @pytest.mark.asyncio
 async def test_reference_share_capital_query_uses_date_range(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reference/share-capital/query",
@@ -934,7 +921,7 @@ async def test_reference_share_capital_query_uses_date_range(v1_client: AsyncCli
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
-    assert tdx.main.tdx_provider.share_capital_by_date_queries == [
+    assert app.state.tdx_provider.share_capital_by_date_queries == [
         ("600519.SH", "20250101", "20250601")
     ]
 
@@ -943,7 +930,6 @@ async def test_reference_share_capital_query_uses_date_range(v1_client: AsyncCli
 async def test_reference_dividend_factors_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reference/dividend-factors/query",
@@ -954,14 +940,13 @@ async def test_reference_dividend_factors_query_returns_normalized_items(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["bonus"] == 1.23
-    assert tdx.main.tdx_provider.dividend_factor_queries == [("600519.SH", "20250101", "20251231")]
+    assert app.state.tdx_provider.dividend_factor_queries == [("600519.SH", "20250101", "20251231")]
 
 
 @pytest.mark.asyncio
 async def test_instruments_convertible_bonds_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/instruments/convertible-bonds/query",
@@ -976,7 +961,7 @@ async def test_instruments_convertible_bonds_query_returns_normalized_items(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["bondCode"] == "123039.SZ"
-    assert tdx.main.tdx_provider.convertible_bond_queries == [
+    assert app.state.tdx_provider.convertible_bond_queries == [
         ("123039.SZ", ["KZZCode", "HSCode"], "get_kzz_info")
     ]
 
@@ -985,7 +970,6 @@ async def test_instruments_convertible_bonds_query_returns_normalized_items(
 async def test_instruments_tracking_etfs_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/instruments/tracking-etfs/query",
@@ -996,12 +980,11 @@ async def test_instruments_tracking_etfs_query_returns_normalized_items(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["indexSymbol"] == "950162.CSI"
-    assert tdx.main.tdx_provider.track_etf_queries == ["950162.CSI"]
+    assert app.state.tdx_provider.track_etf_queries == ["950162.CSI"]
 
 
 @pytest.mark.asyncio
 async def test_financial_data_query_returns_normalized_items(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/finance/financial-data/query",
@@ -1020,7 +1003,7 @@ async def test_financial_data_query_returns_normalized_items(v1_client: AsyncCli
     assert body["data"]["items"][0]["symbol"] == "600519.SH"
     assert body["data"]["items"][0]["field"] == "FN193"
     assert body["data"]["items"][0]["value"] == 162.47
-    assert tdx.main.tdx_provider.financial_data_queries == [
+    assert app.state.tdx_provider.financial_data_queries == [
         (["600519.SH"], ["FN193"], "20250101", "20251231", "tag_time")
     ]
 
@@ -1029,7 +1012,6 @@ async def test_financial_data_query_returns_normalized_items(v1_client: AsyncCli
 async def test_financial_data_by_date_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/finance/financial-data/by-date/query",
@@ -1041,7 +1023,7 @@ async def test_financial_data_by_date_query_returns_normalized_items(
     assert body["ok"] is True
     assert body["data"]["items"][0]["field"] == "FN194"
     assert body["data"]["items"][0]["value"] == 69.67
-    assert tdx.main.tdx_provider.financial_data_by_date_queries == [
+    assert app.state.tdx_provider.financial_data_by_date_queries == [
         (["600519.SH"], ["FN194"], 0, 0)
     ]
 
@@ -1050,7 +1032,6 @@ async def test_financial_data_by_date_query_returns_normalized_items(
 async def test_single_finance_data_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/finance/single-data/query",
@@ -1062,14 +1043,13 @@ async def test_single_finance_data_query_returns_normalized_items(
     assert body["ok"] is True
     assert body["data"]["items"][0]["field"] == "GO1"
     assert body["data"]["items"][0]["value"] == 107.41
-    assert tdx.main.tdx_provider.single_finance_value_queries == [(["688318.SH"], ["GO1"])]
+    assert app.state.tdx_provider.single_finance_value_queries == [(["688318.SH"], ["GO1"])]
 
 
 @pytest.mark.asyncio
 async def test_stock_trade_aggregate_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reports/stock-trade/query",
@@ -1086,7 +1066,7 @@ async def test_stock_trade_aggregate_query_returns_normalized_items(
     assert body["ok"] is True
     assert body["data"]["items"][0]["scope"] == "stock"
     assert body["data"]["items"][0]["values"] == [141405.89, 11113.0]
-    assert tdx.main.tdx_provider.stock_trade_aggregate_queries == [
+    assert app.state.tdx_provider.stock_trade_aggregate_queries == [
         (["688318.SH"], ["GP3"], "20250101", "20250102")
     ]
 
@@ -1095,7 +1075,6 @@ async def test_stock_trade_aggregate_query_returns_normalized_items(
 async def test_stock_trade_aggregate_by_date_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reports/stock-trade/by-date/query",
@@ -1104,7 +1083,7 @@ async def test_stock_trade_aggregate_by_date_query_returns_normalized_items(
 
     assert response.status_code == 200
     assert response.json()["data"]["items"][0]["values"] == [24154.0, 0.0]
-    assert tdx.main.tdx_provider.stock_trade_aggregate_by_date_queries == [
+    assert app.state.tdx_provider.stock_trade_aggregate_by_date_queries == [
         (["688318.SH"], ["GP1"], 0, 0)
     ]
 
@@ -1113,7 +1092,6 @@ async def test_stock_trade_aggregate_by_date_query_returns_normalized_items(
 async def test_sector_trade_aggregate_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reports/sector-trade/query",
@@ -1127,7 +1105,7 @@ async def test_sector_trade_aggregate_query_returns_normalized_items(
 
     assert response.status_code == 200
     assert response.json()["data"]["items"][0]["scope"] == "sector"
-    assert tdx.main.tdx_provider.sector_trade_aggregate_queries == [
+    assert app.state.tdx_provider.sector_trade_aggregate_queries == [
         (["880660.SH"], ["BK5"], "20250101", "20250102")
     ]
 
@@ -1136,7 +1114,6 @@ async def test_sector_trade_aggregate_query_returns_normalized_items(
 async def test_sector_trade_aggregate_by_date_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reports/sector-trade/by-date/query",
@@ -1145,7 +1122,7 @@ async def test_sector_trade_aggregate_by_date_query_returns_normalized_items(
 
     assert response.status_code == 200
     assert response.json()["data"]["items"][0]["values"] == [3.0, 31.0]
-    assert tdx.main.tdx_provider.sector_trade_aggregate_by_date_queries == [
+    assert app.state.tdx_provider.sector_trade_aggregate_by_date_queries == [
         (["880660.SH"], ["BK9"], 0, 0)
     ]
 
@@ -1154,7 +1131,6 @@ async def test_sector_trade_aggregate_by_date_query_returns_normalized_items(
 async def test_market_trade_aggregate_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reports/market-trade/query",
@@ -1163,7 +1139,7 @@ async def test_market_trade_aggregate_query_returns_normalized_items(
 
     assert response.status_code == 200
     assert response.json()["data"]["items"][0]["scope"] == "market"
-    assert tdx.main.tdx_provider.market_trade_aggregate_queries == [
+    assert app.state.tdx_provider.market_trade_aggregate_queries == [
         (["SC1"], "20250101", "20250102")
     ]
 
@@ -1172,7 +1148,6 @@ async def test_market_trade_aggregate_query_returns_normalized_items(
 async def test_market_trade_aggregate_by_date_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/reports/market-trade/by-date/query",
@@ -1181,7 +1156,7 @@ async def test_market_trade_aggregate_by_date_query_returns_normalized_items(
 
     assert response.status_code == 200
     assert response.json()["data"]["items"][0]["values"] == [0.0, 181415.13]
-    assert tdx.main.tdx_provider.market_trade_aggregate_by_date_queries == [(["SC10"], 0, 0)]
+    assert app.state.tdx_provider.market_trade_aggregate_by_date_queries == [(["SC10"], 0, 0)]
 
 
 @pytest.mark.asyncio
@@ -1206,7 +1181,6 @@ async def test_report_data_query_is_absent_from_openapi(v1_client: AsyncClient) 
 async def test_formula_format_data_query_returns_normalized_items(
     v1_client: AsyncClient,
 ) -> None:
-    import tdx.main
 
     payload = {"data": {"688318.SH": [{"Close": 144.4}]}}
     response = await v1_client.post("/v1/formulas/data/format/query", json=payload)
@@ -1215,12 +1189,11 @@ async def test_formula_format_data_query_returns_normalized_items(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["symbol"] == "688318.SH"
-    assert tdx.main.tdx_provider.formula_format_queries == [payload["data"]]
+    assert app.state.tdx_provider.formula_format_queries == [payload["data"]]
 
 
 @pytest.mark.asyncio
 async def test_formula_set_data_returns_result(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     payload = {
         "stockCode": "688318.SH",
@@ -1235,7 +1208,7 @@ async def test_formula_set_data_returns_result(v1_client: AsyncClient) -> None:
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["result"]["runId"] == "1"
-    assert tdx.main.tdx_provider.formula_set_data_queries == [
+    assert app.state.tdx_provider.formula_set_data_queries == [
         {
             "stockCode": "688318.SH",
             "stockPeriod": "1d",
@@ -1249,7 +1222,6 @@ async def test_formula_set_data_returns_result(v1_client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_formula_set_data_info_returns_result(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/formulas/data/set-info",
@@ -1260,12 +1232,11 @@ async def test_formula_set_data_info_returns_result(v1_client: AsyncClient) -> N
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["result"]["runId"] == "2"
-    assert tdx.main.tdx_provider.formula_set_data_info_queries[0]["stockCode"] == "688318.SH"
+    assert app.state.tdx_provider.formula_set_data_info_queries[0]["stockCode"] == "688318.SH"
 
 
 @pytest.mark.asyncio
 async def test_formula_get_data_returns_item(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post("/v1/formulas/data/query", json={})
 
@@ -1273,12 +1244,11 @@ async def test_formula_get_data_returns_item(v1_client: AsyncClient) -> None:
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["item"]["symbol"] == "688318.SH"
-    assert tdx.main.tdx_provider.formula_get_data_calls == 1
+    assert app.state.tdx_provider.formula_get_data_calls == 1
 
 
 @pytest.mark.asyncio
 async def test_formula_metadata_query_returns_items(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/formulas/metadata/query",
@@ -1289,12 +1259,11 @@ async def test_formula_metadata_query_returns_items(v1_client: AsyncClient) -> N
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["items"][0]["code"] == "MA"
-    assert tdx.main.tdx_provider.formula_get_all_queries == [0]
+    assert app.state.tdx_provider.formula_get_all_queries == [0]
 
 
 @pytest.mark.asyncio
 async def test_formula_metadata_info_query_returns_item(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/formulas/metadata/info/query",
@@ -1305,7 +1274,7 @@ async def test_formula_metadata_info_query_returns_item(v1_client: AsyncClient) 
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["item"]["params"][0]["name"] == "SHORT"
-    assert tdx.main.tdx_provider.formula_get_info_queries == [(0, "MACD")]
+    assert app.state.tdx_provider.formula_get_info_queries == [(0, "MACD")]
 
 
 @pytest.mark.asyncio
@@ -1323,7 +1292,6 @@ async def test_formula_execution_returns_result(
     kind: str,
     xsflag: int | None,
 ) -> None:
-    import tdx.main
 
     payload: dict[str, Any] = {
         "formulaName": "MACD",
@@ -1339,7 +1307,7 @@ async def test_formula_execution_returns_result(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["result"]["kind"] == kind
-    assert tdx.main.tdx_provider.formula_execution_queries[-1] == (
+    assert app.state.tdx_provider.formula_execution_queries[-1] == (
         kind,
         "MACD",
         "12,26,9",
@@ -1362,7 +1330,6 @@ async def test_formula_batch_execution_returns_result(
     path: str,
     kind: str,
 ) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         path,
@@ -1378,7 +1345,7 @@ async def test_formula_batch_execution_returns_result(
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["result"]["kind"] == kind
-    assert tdx.main.tdx_provider.formula_batch_execution_queries[-1] == (
+    assert app.state.tdx_provider.formula_batch_execution_queries[-1] == (
         kind,
         "UPN",
         ["688318.SH"],
@@ -1407,7 +1374,6 @@ async def test_formula_batch_execution_rejects_oversized_stock_list(
 
 @pytest.mark.asyncio
 async def test_formulas_call_returns_result(v1_client: AsyncClient) -> None:
-    import tdx.main
 
     response = await v1_client.post(
         "/v1/formulas/call",
@@ -1418,16 +1384,15 @@ async def test_formulas_call_returns_result(v1_client: AsyncClient) -> None:
     body = response.json()
     assert body["ok"] is True
     assert body["data"]["result"] == {"name": "MY_FORMULA", "value": 42}
-    assert tdx.main.tdx_provider.formula_calls == [
+    assert app.state.tdx_provider.formula_calls == [
         ("MY_FORMULA", {"symbol": "600519.SH"}, {"period": "1d"})
     ]
 
 
 @pytest.mark.asyncio
 async def test_provider_error_returns_failure_envelope(v1_client: AsyncClient) -> None:
-    import tdx.main
 
-    tdx.main.tdx_provider.fail_bars = True
+    app.state.tdx_provider.fail_bars = True
     response = await v1_client.post(
         "/v1/bars/query",
         json={"symbols": ["600519.SH"], "period": "1m", "count": 2},
@@ -1471,10 +1436,9 @@ async def test_public_experimental_health_route_does_not_exist(
 
 @pytest.mark.asyncio
 async def test_health_handles_non_dict_provider_health() -> None:
-    import tdx.main
 
-    previous_provider = tdx.main.tdx_provider
-    tdx.main.tdx_provider = NonDictHealthProvider()
+    previous_provider = app.state.tdx_provider
+    app.state.tdx_provider = NonDictHealthProvider()
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1483,15 +1447,14 @@ async def test_health_handles_non_dict_provider_health() -> None:
         assert response.status_code == 200
         assert response.json()["tdxHttpReachable"] is False
     finally:
-        tdx.main.tdx_provider = previous_provider
+        app.state.tdx_provider = previous_provider
 
 
 @pytest.mark.asyncio
 async def test_health_surfaces_provider_health_exceptions() -> None:
-    import tdx.main
 
-    previous_provider = tdx.main.tdx_provider
-    tdx.main.tdx_provider = RaisingHealthProvider()
+    previous_provider = app.state.tdx_provider
+    app.state.tdx_provider = RaisingHealthProvider()
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1502,69 +1465,50 @@ async def test_health_surfaces_provider_health_exceptions() -> None:
         assert body["tdxHttpReachable"] is False
         assert body["lastError"] == "tdx health failed"
     finally:
-        tdx.main.tdx_provider = previous_provider
+        app.state.tdx_provider = previous_provider
 
 
 @pytest.mark.asyncio
 async def test_lifespan_creates_and_closes_http_provider(monkeypatch) -> None:
     import tdx.main
 
-    previous_provider = tdx.main.tdx_provider
-    previous_owned_provider = tdx.main._tdx_provider_owned_by_main
-    monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", CloseAwareProvider)
-    tdx.main.tdx_provider = None
+    owned_provider = CloseAwareProvider()
+    monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
+    isolated = tdx.main.create_tdx_app(realtime_mode="off")
 
-    try:
-        async with tdx.main.lifespan(app):
-            assert isinstance(tdx.main.tdx_provider, CloseAwareProvider)
-        assert tdx.main.tdx_provider is None
-    finally:
-        tdx.main.tdx_provider = previous_provider
-        tdx.main._tdx_provider_owned_by_main = previous_owned_provider
+    async with isolated.router.lifespan_context(isolated):
+        assert isolated.state.tdx_provider is owned_provider
+    assert owned_provider.closed is True
 
 
 @pytest.mark.asyncio
 async def test_lifespan_closes_owned_provider_not_replacement(monkeypatch) -> None:
     import tdx.main
 
-    previous_provider = tdx.main.tdx_provider
-    previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     owned_provider = CloseAwareProvider()
     replacement_provider = CloseAwareProvider()
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
-    tdx.main.tdx_provider = None
+    isolated = tdx.main.create_tdx_app(realtime_mode="off")
 
-    try:
-        async with tdx.main.lifespan(app):
-            assert tdx.main.tdx_provider is owned_provider
-            tdx.main.tdx_provider = replacement_provider
+    async with isolated.router.lifespan_context(isolated):
+        assert isolated.state.tdx_provider is owned_provider
+        isolated.state.tdx_provider = replacement_provider
 
-        assert owned_provider.closed is True
-        assert replacement_provider.closed is False
-        assert tdx.main.tdx_provider is replacement_provider
-    finally:
-        tdx.main.tdx_provider = previous_provider
-        tdx.main._tdx_provider_owned_by_main = previous_owned_provider
+    assert owned_provider.closed is True
+    assert replacement_provider.closed is False
+    assert isolated.state.tdx_provider is replacement_provider
 
 
 @pytest.mark.asyncio
 async def test_lifespan_clears_owned_provider_when_close_raises(monkeypatch) -> None:
     import tdx.main
 
-    previous_provider = tdx.main.tdx_provider
-    previous_owned_provider = tdx.main._tdx_provider_owned_by_main
     owned_provider = RaisingCloseProvider()
     monkeypatch.setattr(tdx.main, "TdxDatasourceProvider", lambda: owned_provider)
-    tdx.main.tdx_provider = None
+    isolated = tdx.main.create_tdx_app(realtime_mode="off")
 
-    try:
-        with pytest.raises(RuntimeError, match="provider close failed"):
-            async with tdx.main.lifespan(app):
-                assert tdx.main.tdx_provider is owned_provider
+    with pytest.raises(RuntimeError, match="provider close failed"):
+        async with isolated.router.lifespan_context(isolated):
+            assert isolated.state.tdx_provider is owned_provider
 
-        assert owned_provider.close_attempted is True
-        assert tdx.main.tdx_provider is None
-        assert tdx.main._tdx_provider_owned_by_main is None
-    finally:
-        tdx.main.tdx_provider = previous_provider
-        tdx.main._tdx_provider_owned_by_main = previous_owned_provider
+    assert owned_provider.close_attempted is True

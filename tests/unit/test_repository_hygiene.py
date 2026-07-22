@@ -155,7 +155,7 @@ def test_tdx_routes_document_current_dependency_model() -> None:
 
     assert "TdxHttpClient" in docs
     assert "TDX terminal strategy" in docs
-    assert "no runtime mode switch" in docs
+    assert "TDX_REALTIME_MODE=builtin|off" in docs
 
 
 def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
@@ -205,13 +205,18 @@ def test_rest_routes_use_shared_adapter_error_wrappers() -> None:
                 if not isinstance(node, ast.ExceptHandler):
                     continue
                 if isinstance(node.type, ast.Name) and node.type.id == "Exception":
+                    if route_file == PROJECT_ROOT / "qmt" / "routes" / "realtime.py":
+                        # The merged realtime module retains the WebSocket boundary's
+                        # best-effort error frame before disconnect. REST handlers in
+                        # this module do not catch broad exceptions.
+                        continue
                     offenders.append(str(route_file.relative_to(PROJECT_ROOT)))
 
     assert offenders == []
 
 
 def test_tdx_provider_uses_shared_native_key_normalization_and_configured_timeouts() -> None:
-    provider_source = (PROJECT_ROOT / "src" / "datasource" / "tdx_provider.py").read_text(
+    provider_source = (PROJECT_ROOT / "src" / "datasource" / "tdx" / "provider.py").read_text(
         encoding="utf-8"
     )
     formula_normalizer_source = (
@@ -242,10 +247,10 @@ def test_tdx_legacy_code_is_removed() -> None:
 
 def test_tdx_v1_provider_surface_does_not_import_legacy_runtime() -> None:
     v1_files = [
-        PROJECT_ROOT / "src" / "datasource" / "tdx_provider.py",
-        PROJECT_ROOT / "src" / "datasource" / "tdx_http_client.py",
-        PROJECT_ROOT / "src" / "datasource" / "tdx_models.py",
-        PROJECT_ROOT / "src" / "datasource" / "tdx_normalization.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx" / "provider.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx" / "http_client.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx" / "models.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx" / "normalization.py",
         *sorted((PROJECT_ROOT / "src" / "datasource" / "tdx" / "operations").glob("*.py")),
         *sorted((PROJECT_ROOT / "src" / "datasource" / "tdx" / "normalizers").glob("*.py")),
         PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py",

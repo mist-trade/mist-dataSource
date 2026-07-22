@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from src.datasource.contracts import BEIJING_TZ, normalize_beijing_iso
-from src.datasource.tdx_models import TdxBar, TdxSnapshot
+from src.datasource.tdx.models import TdxBar, TdxSnapshot
 
 TDX_SNAPSHOT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     # Keep provider fields separate. In particular, Now/Last/Close and

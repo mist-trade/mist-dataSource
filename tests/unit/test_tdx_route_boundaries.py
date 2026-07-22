@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from tdx.main import app, mount_routes
+from tdx.main import app, create_tdx_app
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -35,8 +35,7 @@ def test_tdx_mounts_only_v1_and_builtin_realtime_surfaces() -> None:
 
 
 def test_tdx_off_keeps_product_apis_and_omits_realtime_surfaces() -> None:
-    off_app = FastAPI()
-    mount_routes(off_app, "off")
+    off_app = create_tdx_app(realtime_mode="off")
     paths = _paths(off_app)
 
     assert "/v1/bars/query" in paths
@@ -54,7 +53,7 @@ def test_tdx_legacy_routes_are_removed() -> None:
 
 def test_retired_tdx_config_and_websocket_models_stay_removed() -> None:
     assert not (PROJECT_ROOT / "tdx" / "config.py").exists()
-    models = (PROJECT_ROOT / "src" / "datasource" / "tdx_models.py").read_text()
+    models = (PROJECT_ROOT / "src" / "datasource" / "tdx" / "models.py").read_text()
     protocol = (PROJECT_ROOT / "src" / "ws" / "protocol.py").read_text()
     assert "class TdxWsMessage" not in models
     assert "def ws_quote" not in protocol

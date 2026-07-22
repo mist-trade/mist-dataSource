@@ -4,7 +4,7 @@ Loopback-only (127.0.0.1 / ::1). The terminal strategy script calls these to
 register ownership, poll desired subscription state, report reconcile results,
 and post native snapshots.
 
-Mounted unconditionally by the TDX datasource.
+Mounted only when ``TDX_REALTIME_MODE=builtin``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.datasource.tdx.realtime_gateway import (
+from src.datasource.tdx.realtime.runtime import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
     GatewayError,

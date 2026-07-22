@@ -14,8 +14,8 @@ from src.datasource.contracts import (
     ResponseMeta,
     serialize_response_data,
 )
-from src.datasource.tdx_http_client import TdxHttpError
-from src.datasource.tdx_models import (
+from src.datasource.tdx.http_client import TdxHttpError
+from src.datasource.tdx.models import (
     RawTdxCallRequest,
     TdxBarQueryRequest,
     TdxConvertibleBondInfoQueryRequest,
@@ -48,8 +48,8 @@ from src.datasource.tdx_models import (
     TdxTrackingEtfsQueryRequest,
     TdxTradingDatesQueryRequest,
 )
-from src.datasource.tdx_provider import TdxDatasourceProvider, TdxFormulaRequestLimitError
-from tdx.routes.dependencies import get_tdx_provider
+from src.datasource.tdx.provider import TdxDatasourceProvider, TdxFormulaRequestLimitError
+from tdx.routes.v1.dependencies import get_tdx_provider
 
 router = APIRouter()
 

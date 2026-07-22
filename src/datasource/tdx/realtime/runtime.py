@@ -29,10 +29,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.datasource.realtime_native_safety import validate_native_payload_safety
-from src.datasource.tdx.realtime_native_validator import (
+from src.datasource.tdx.normalization import dedupe_stable
+from src.datasource.tdx.realtime.contract import (
     validate_tdx_realtime_native_snapshot,
 )
-from src.datasource.tdx_normalization import dedupe_stable
 
 # Contract tuple accepted by this gateway build.
 ACCEPTED_PAYLOAD_TYPE = "mist.realtime.native_snapshot"

@@ -1,5 +1,5 @@
 #coding:gbk
-"""Stdlib-only full-QMT bridge script.
+"""Stdlib-only full-QMT realtime bridge script.
 
 Paste or import this script from the full QMT built-in Python strategy editor.
 It deliberately avoids third-party packages, threads, subprocesses, and local
@@ -67,7 +67,7 @@ STATE.last_poll_at = ""
 STATE.lease_token = ""
 STATE.generation = 0
 
-BRIDGE_BUILD_ID = "mist-qmt-bridge-v1.0"
+BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v1.0"
 with open(__file__, "rb") as _bridge_file:
     BRIDGE_ARTIFACT_SHA256 = hashlib.sha256(_bridge_file.read()).hexdigest()
 STATE.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -78,9 +78,9 @@ def init(ContextInfo: BridgeContextInfo) -> None:
     try:
         start_time = time.strftime("%Y-%m-%d %H:%M:%S")
         STATE.started_at = start_time
-        ContextInfo.run_time("mist_qmt_bridge_tick", "1nSecond", start_time)
+        ContextInfo.run_time("mist_qmt_realtime_bridge_tick", "1nSecond", start_time)
         print(
-            "mist_qmt_bridge scheduled ownerId="
+            "mist_qmt_realtime_bridge scheduled ownerId="
             + STATE.owner_id
             + " startTime="
             + start_time
@@ -89,10 +89,10 @@ def init(ContextInfo: BridgeContextInfo) -> None:
         )
     except Exception:
         STATE.last_error = traceback.format_exc()
-        print("mist_qmt_bridge schedule error " + STATE.last_error)
+        print("mist_qmt_realtime_bridge schedule error " + STATE.last_error)
 
 
-def mist_qmt_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
+def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
     """Poll one batch of commands and post results."""
     try:
         STATE.tick_count += 1
@@ -154,7 +154,7 @@ def _register_owner() -> Dict[str, Any]:
 def _log_tick(command_count: int) -> None:
     if STATE.tick_count <= 5 or STATE.tick_count % 30 == 0:
         print(
-            "mist_qmt_bridge tick ownerId="
+            "mist_qmt_realtime_bridge tick ownerId="
             + STATE.owner_id
             + " tickCount="
             + str(STATE.tick_count)
@@ -169,7 +169,7 @@ def _log_tick(command_count: int) -> None:
 
 def _log_command(command: Mapping[str, Any]) -> None:
     print(
-        "mist_qmt_bridge command commandId="
+        "mist_qmt_realtime_bridge command commandId="
         + str(command.get("commandId", ""))
         + " method="
         + str(command.get("method", ""))
@@ -180,7 +180,7 @@ def _log_command(command: Mapping[str, Any]) -> None:
 
 def _log_call_start(method: str, command: Mapping[str, Any], params: Mapping[str, Any]) -> None:
     print(
-        "mist_qmt_bridge call_start commandId="
+        "mist_qmt_realtime_bridge call_start commandId="
         + str(command.get("commandId", ""))
         + " method="
         + method
@@ -191,7 +191,7 @@ def _log_call_start(method: str, command: Mapping[str, Any], params: Mapping[str
 
 def _log_call_ok(method: str, command: Mapping[str, Any]) -> None:
     print(
-        "mist_qmt_bridge call_ok commandId="
+        "mist_qmt_realtime_bridge call_ok commandId="
         + str(command.get("commandId", ""))
         + " method="
         + method
@@ -200,7 +200,7 @@ def _log_call_ok(method: str, command: Mapping[str, Any]) -> None:
 
 def _log_call_error(method: str, command: Mapping[str, Any], error: Any) -> None:
     print(
-        "mist_qmt_bridge call_error commandId="
+        "mist_qmt_realtime_bridge call_error commandId="
         + str(command.get("commandId", ""))
         + " method="
         + method

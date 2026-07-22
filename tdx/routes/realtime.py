@@ -4,7 +4,7 @@ Uses a dedicated ``ConnectionManager`` instance. The Mist client connects here t
 ``realtime.native_snapshot`` frames plus formal ready/stream-started control
 events.
 
-Mounted unconditionally by the TDX datasource.
+Mounted only when ``TDX_REALTIME_MODE=builtin``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from src.datasource.tdx.realtime_gateway import (
+from src.datasource.tdx.realtime.runtime import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_PAYLOAD_TYPE,
     ACCEPTED_SCHEMA_VERSION,

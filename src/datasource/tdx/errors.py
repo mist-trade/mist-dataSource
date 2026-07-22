@@ -1,6 +1,6 @@
 from typing import Any
 
-from src.datasource.tdx_normalization import normalize_symbol
+from src.datasource.tdx.normalization import normalize_symbol
 
 
 class TdxNativeError(Exception):

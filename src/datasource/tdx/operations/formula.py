@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any
 
+from src.datasource.tdx.http_client import TdxHttpClient
 from src.datasource.tdx.native import native_items
 from src.datasource.tdx.normalizers.formula import (
     TdxFormulaTimeoutError,
@@ -16,7 +17,6 @@ from src.datasource.tdx.normalizers.formula import (
     normalize_formula_operation_result,
     payload_formula_timeout_ms,
 )
-from src.datasource.tdx_http_client import TdxHttpClient
 
 
 class TdxFormulaOperations:

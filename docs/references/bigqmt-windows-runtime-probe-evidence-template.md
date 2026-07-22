@@ -1,9 +1,9 @@
-# BigQMT Windows Spike 复验模板
+# BigQMT Windows runtime probe 复验模板
 
 该模板用于 QMT 版本、机器或内置 Python 环境变化后的重新取证，不代表当前仍未
-验证。2026-07-11 native history spike 与 2026-07-22 realtime HIL 已通过，正式证据
+验证。2026-07-11 native history probe 与 2026-07-22 realtime HIL 已通过，正式证据
 保存在 `mist` OpenSpec archive。复验时附加
-`qmt/builtin_bridge/mist_qmt_spike.py` 原始输出，并明确区分“本次重新采集”和历史
+`tools/qmt_runtime_probe/mist_qmt_runtime_probe.py` 原始输出，并明确区分“本次重新采集”和历史
 结论。
 
 ## Run Metadata
@@ -20,7 +20,7 @@
 - Datasource commit:
 - Operator:
 
-## Spike A: Library And Network Capability
+## Probe A: Library And Network Capability
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -35,7 +35,7 @@
 | Local port listen attempt | pending | |
 | Long request blocks strategy loop | pending | |
 
-## Spike B: Process And Execution Model
+## Probe B: Process And Execution Model
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -55,7 +55,7 @@
 | Exception recovery | pending | |
 | Repeated startup behavior | pending | |
 
-## Spike C: Native Historical Bars
+## Probe C: Native Historical Bars
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ Record sanitized samples for the methods planned for normalized provider work:
 - Bridge can use threads/processes/subprocesses: yes/no
 - Bridge ran as one built-in script with editor separate-process option off: yes/no
 - HTTP polling command loop can execute serial commands: yes/no
-- Preferred bridge transport after spike: HTTP polling/blocked
+- Preferred bridge transport after runtime probe: HTTP polling/blocked
 - Bridge can rely on `run_time` outside trading hours if a pump is needed: yes/no
 - Bridge must remain single-owner serial polling: yes/no
 - Native bridge historical-bars product path approved: yes/no

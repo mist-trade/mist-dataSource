@@ -19,7 +19,7 @@ datasource.
 - QMT native `marketData` is returned as column-oriented JSON shaped after
   `ContextInfo.get_market_data_ex(..., subscribe=False)`: `{field: {stime:
   value}}`.
-- QMT source code lives under `src/datasource/qmt_provider.py` and
+- QMT source code lives under `src/datasource/qmt/provider.py` and
   `src/datasource/qmt/*`; no shared TDX adapter layer exists.
 - Historical QMT bars map to `get_market_data_ex(..., subscribe=False)` and do
   not trigger quote subscription.

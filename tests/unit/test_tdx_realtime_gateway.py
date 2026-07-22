@@ -6,13 +6,11 @@ import asyncio
 
 import pytest
 
-from src.datasource.tdx.realtime_gateway import (
+from src.datasource.tdx.realtime.runtime import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
     GatewayError,
-)
-from src.datasource.tdx.realtime_gateway import (
-    TdxRealtimeGateway as ExperimentalTdxRealtimeGateway,
+    TdxRealtimeGateway,
 )
 
 CONTRACT_KWARGS = {
@@ -37,8 +35,8 @@ def _native_snapshot() -> dict[str, object]:
 
 
 @pytest.fixture()
-def gateway() -> ExperimentalTdxRealtimeGateway:
-    return ExperimentalTdxRealtimeGateway(max_subscriptions=100)
+def gateway() -> TdxRealtimeGateway:
+    return TdxRealtimeGateway(max_subscriptions=100)
 
 
 @pytest.fixture()
@@ -56,8 +54,8 @@ class TestOwnerRegistration:
             events.append((epoch, generation, owner_id, build_id))
 
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime_gateway.time.monotonic", lambda: clock)
-        callback_gateway = ExperimentalTdxRealtimeGateway(on_epoch_change=capture)
+        monkeypatch.setattr("src.datasource.tdx.realtime.runtime.time.monotonic", lambda: clock)
+        callback_gateway = TdxRealtimeGateway(on_epoch_change=capture)
         async_loop.run_until_complete(
             callback_gateway.register_owner(
                 owner_id="bridge-a",
@@ -84,7 +82,7 @@ class TestOwnerRegistration:
         )
 
     def test_register_returns_lease_and_epoch(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         result = async_loop.run_until_complete(
             gateway.register_owner(
@@ -99,7 +97,7 @@ class TestOwnerRegistration:
         assert result["acceptedContractTuple"]["payloadType"] == "mist.realtime.native_snapshot"
 
     def test_contract_mismatch_rejected(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         with pytest.raises(GatewayError) as exc_info:
             async_loop.run_until_complete(
@@ -114,7 +112,7 @@ class TestOwnerRegistration:
         assert exc_info.value.code == "TDX_BRIDGE_CONTRACT_MISMATCH"
 
     def test_new_generation_creates_new_epoch(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         r1 = async_loop.run_until_complete(
             gateway.register_owner(
@@ -135,7 +133,7 @@ class TestOwnerRegistration:
         assert r1["streamEpoch"] != r2["streamEpoch"]
 
     def test_fresh_owner_refuses_eviction_by_different_owner(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         """A single registration attempt cannot evict a fresh owner."""
         async_loop.run_until_complete(
@@ -159,10 +157,10 @@ class TestOwnerRegistration:
         assert exc_info.value.retry_after_ms == 1_000
 
     def test_continuous_new_owner_replaces_fresh_owner_after_grace(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop, monkeypatch
+        self, gateway: TdxRealtimeGateway, async_loop, monkeypatch
     ) -> None:
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime_gateway.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime.runtime.time.monotonic", lambda: clock)
         old = async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-old",
@@ -228,10 +226,10 @@ class TestOwnerRegistration:
         assert gateway.owner.lease_token == new["leaseToken"]
 
     def test_owner_lease_expires(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop, monkeypatch
+        self, gateway: TdxRealtimeGateway, async_loop, monkeypatch
     ) -> None:
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime_gateway.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime.runtime.time.monotonic", lambda: clock)
         result = async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-1",
@@ -254,7 +252,7 @@ class TestOwnerRegistration:
 
 class TestSubscriptionConvergence:
     def test_transport_identities_are_exact_and_stably_deduplicated(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -283,7 +281,7 @@ class TestSubscriptionConvergence:
         async_loop.run_until_complete(run())
 
     def test_converged_after_clean_reconcile(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -305,7 +303,7 @@ class TestSubscriptionConvergence:
         async_loop.run_until_complete(run())
 
     def test_not_converged_with_rejections(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -345,7 +343,7 @@ class TestSubscriptionConvergence:
         async_loop.run_until_complete(run())
 
     def test_permanent_reconcile_failure_has_no_backoff(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -374,7 +372,7 @@ class TestSubscriptionConvergence:
         async_loop.run_until_complete(run())
 
     def test_not_converged_when_active_differs_from_desired(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -394,7 +392,7 @@ class TestSubscriptionConvergence:
         async_loop.run_until_complete(run())
 
     def test_non_convergence_clears_observed_native(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         """After a converged set, a non-converged result must clear observedNative
         so stale symbols can no longer post snapshots."""
@@ -434,7 +432,7 @@ class TestSubscriptionConvergence:
         async_loop.run_until_complete(run())
 
     def test_stale_revision_result_ignored(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         """post_result for a stale desired_revision must not converge."""
 
@@ -458,7 +456,7 @@ class TestSubscriptionConvergence:
 
 class TestSnapshotAcceptance:
     def test_accepts_converged_symbol_with_monotonic_sequence(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -499,7 +497,7 @@ class TestSnapshotAcceptance:
         async_loop.run_until_complete(run())
 
     def test_rejects_duplicate_producer_sequence(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         """HTTP retry with same producer_sequence must NOT re-broadcast."""
 
@@ -539,7 +537,7 @@ class TestSnapshotAcceptance:
         async_loop.run_until_complete(run())
 
     def test_native_evidence_is_copied_and_cleared_on_desired_change(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -577,7 +575,7 @@ class TestSnapshotAcceptance:
         async_loop.run_until_complete(run())
 
     def test_native_evidence_is_cleared_on_owner_epoch_change(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -610,7 +608,7 @@ class TestSnapshotAcceptance:
         async_loop.run_until_complete(run())
 
     def test_rejects_non_rfc3339_captured_at(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         """Non-RFC3339 capturedAt must be rejected."""
 
@@ -650,7 +648,7 @@ class TestSnapshotAcceptance:
         async_loop.run_until_complete(run())
 
     def test_rejects_symbol_before_convergence(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(
@@ -672,7 +670,7 @@ class TestSnapshotAcceptance:
         async_loop.run_until_complete(run())
 
     def test_invalid_lease_rejected(
-        self, gateway: ExperimentalTdxRealtimeGateway, async_loop
+        self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
             await gateway.register_owner(

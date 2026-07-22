@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any, cast
 
-from src.datasource.qmt.command_gateway import QmtCommandGateway, QmtCommandResult
+from src.datasource.qmt.bridge import QmtCommandGateway, QmtCommandResult
 
 
 class QmtBridgeError(Exception):

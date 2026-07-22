@@ -6,7 +6,7 @@ from src.datasource.tdx.native import (
     native_sequence,
     unwrap_tdx_value,
 )
-from src.datasource.tdx_normalization import normalize_symbol
+from src.datasource.tdx.normalization import normalize_symbol
 
 
 def normalize_sector_item(item: Any) -> dict[str, Any]:

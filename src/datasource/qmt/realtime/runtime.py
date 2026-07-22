@@ -1,27 +1,27 @@
 import asyncio
 import contextlib
 import inspect
-import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime
 from typing import Any, cast
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
-from src.datasource.qmt.command_gateway import QmtCommandGateway
+from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.realtime.contract import (
+    BEIJING_TZ,
+    QMT_REALTIME_ACQUISITION_PROFILE,
+    QMT_REALTIME_MAX_SUBSCRIPTIONS,
+    QMT_REALTIME_PAYLOAD_TYPE,
+    QMT_REALTIME_SCHEMA_VERSION,
+    QMT_SYMBOL_PATTERN,
+    as_beijing,
+    is_realtime_trading_session,
+    is_valid_snapshot,
+)
 from src.datasource.realtime_native_safety import (
     NativePayloadSafetyError,
     validate_native_payload_safety,
 )
-
-BEIJING_TZ = ZoneInfo("Asia/Shanghai")
-CN_REALTIME_MARKETS = {"SH", "SZ", "BJ"}
-HK_REALTIME_MARKETS = {"HK"}
-QMT_REALTIME_PAYLOAD_TYPE = "mist.realtime.native_snapshot"
-QMT_REALTIME_SCHEMA_VERSION = 1
-QMT_REALTIME_ACQUISITION_PROFILE = "qmt.get_full_tick"
-QMT_REALTIME_MAX_SUBSCRIPTIONS = 5
-QMT_SYMBOL_PATTERN = re.compile(r"^(?:\d{6}\.(?:SH|SZ|BJ)|\d{5,6}\.HK)$")
 
 
 class QmtRealtimeCollector:
@@ -143,7 +143,7 @@ class QmtRealtimeCollector:
 
     async def collect_once(self) -> int:
         symbols = list(self.active_subscriptions)
-        now = _as_beijing(self._now())
+        now = as_beijing(self._now())
         bridge = self.gateway.health()
         await self._sync_owner_epoch(
             int(bridge["ownerGeneration"]),
@@ -228,7 +228,7 @@ class QmtRealtimeCollector:
             if symbol not in active:
                 continue
             snapshot = payload_map.get(symbol)
-            if not _valid_snapshot(snapshot, now):
+            if not is_valid_snapshot(snapshot, now):
                 self._set_error(
                     "QMT_REALTIME_INVALID_PAYLOAD",
                     f"Invalid QMT realtime payload for {symbol}",
@@ -332,71 +332,3 @@ class QmtRealtimeCollector:
     def _rotate_epoch(self) -> None:
         self.stream_epoch = str(uuid4())
         self.sequences.clear()
-
-
-def is_realtime_trading_session(now: datetime, symbols: list[str]) -> bool:
-    if now.weekday() >= 5:
-        return False
-    markets = _markets_from_symbols(symbols)
-    return any(_is_market_realtime_session(now, market) for market in markets)
-
-
-def _markets_from_symbols(symbols: list[str]) -> set[str]:
-    markets: set[str] = set()
-    for symbol in symbols:
-        suffix = str(symbol).upper().strip().rsplit(".", 1)[-1]
-        if suffix in CN_REALTIME_MARKETS:
-            markets.add("CN")
-        elif suffix in HK_REALTIME_MARKETS:
-            markets.add("HK")
-    return markets or {"UNKNOWN"}
-
-
-def _is_market_realtime_session(now: datetime, market: str) -> bool:
-    value = now.hour * 60 + now.minute
-    if market == "CN":
-        return _in_minutes(value, 9, 15, 11, 35) or _in_minutes(value, 13, 0, 15, 5)
-    if market == "HK":
-        return _in_minutes(value, 9, 0, 12, 5) or _in_minutes(value, 13, 0, 16, 10)
-    return _in_minutes(value, 9, 0, 16, 10)
-
-
-def _in_minutes(value: int, sh: int, sm: int, eh: int, em: int) -> bool:
-    return sh * 60 + sm <= value <= eh * 60 + em
-
-
-def _as_beijing(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=BEIJING_TZ)
-    return value.astimezone(BEIJING_TZ)
-
-
-def _valid_snapshot(value: Any, now: datetime) -> bool:
-    if not isinstance(value, dict):
-        return False
-    required = ("timetag", "lastPrice", "open", "high", "low", "lastClose", "volume", "amount")
-    if any(field not in value for field in required):
-        return False
-    snapshot = cast(dict[str, Any], value)
-    try:
-        timetag = _parse_qmt_timetag(snapshot["timetag"])
-        numbers = {field: float(snapshot[field]) for field in required if field != "timetag"}
-    except (TypeError, ValueError):
-        return False
-    return (
-        timetag.date() == now.date()
-        and numbers["lastPrice"] > 0
-        and numbers["volume"] >= 0
-        and numbers["amount"] >= 0
-        and all(number == number and abs(number) != float("inf") for number in numbers.values())
-    )
-
-
-def _parse_qmt_timetag(value: Any) -> datetime:
-    text = str(value).strip()
-    for format_string in ("%Y%m%d%H%M%S", "%Y%m%d %H:%M:%S"):
-        try:
-            return datetime.strptime(text, format_string)
-        except ValueError:
-            continue
-    raise ValueError(f"unsupported QMT timetag: {text}")

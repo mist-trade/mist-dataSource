@@ -29,7 +29,6 @@ class QMTSettings(BaseSettings):
     port: int = 9002
     bridge_gateway_url: str = "http://127.0.0.1:9002/qmt/bridge"
     realtime_mode: Literal["off", "builtin"] = "builtin"
-    bridge_spike_evidence_dir: str = ""
 
 
 class AppSettings(BaseSettings):

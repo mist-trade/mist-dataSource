@@ -9,7 +9,7 @@ from src.datasource.tdx.operations.formula import TdxFormulaOperations
 from src.datasource.tdx.operations.market import TdxMarketOperations
 from src.datasource.tdx.operations.reference import TdxReferenceOperations
 from src.datasource.tdx.operations.sector import TdxSectorOperations
-from src.datasource.tdx_provider import TdxDatasourceProvider
+from src.datasource.tdx.provider import TdxDatasourceProvider
 from tests.unit.test_tdx_provider import FakeTdxHttpClient
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

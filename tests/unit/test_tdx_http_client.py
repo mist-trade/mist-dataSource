@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 import pytest
 
-from src.datasource.tdx_http_client import TdxHttpClient, TdxHttpError
+from src.datasource.tdx.http_client import TdxHttpClient, TdxHttpError
 
 
 @pytest.mark.asyncio

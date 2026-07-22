@@ -3,8 +3,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.datasource.qmt.command_gateway import QmtCommandGateway
-from src.datasource.qmt.realtime import QmtRealtimeCollector
+from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 

@@ -1,6 +1,7 @@
 # TDX Datasource 依赖链路
 
-TDX 有两条互相独立的生产链路，no runtime mode switch。
+TDX 有两条互相独立的生产链路。`TDX_REALTIME_MODE=builtin|off` 只控制 realtime
+gateway 与 route；HTTP provider 始终保留。
 
 ## 非实时 HTTP provider
 
@@ -17,7 +18,7 @@ TDX 有两条互相独立的生产链路，no runtime mode switch。
 TDX terminal strategy (builtin script)
   -> /tdx/bridge/*
   -> typed realtime gateway
-  -> /ws/tdx-experimental/{client_id}
+  -> /ws/realtime/tdx/{client_id}
   -> Mist backend leader
 ```
 
@@ -32,6 +33,8 @@ TDX terminal strategy (builtin script)
 - dirty collector 与旧 subscription client
 - `/api/tdx/*`
 - `/ws/quote/{client_id}`
-- `TDX_REALTIME_MODE`
+- 旧 experimental realtime route 与 mode 名称
 
-产品 HTTP 调用使用 `/v1/*`，实时 consumer 使用 builtin realtime WebSocket。
+产品 HTTP 调用使用 `/v1/*`，实时 consumer 使用 builtin realtime WebSocket。当前
+datasource 实现位于 `src/datasource/tdx/provider.py` 与
+`src/datasource/tdx/realtime/{runtime.py,contract.py}`，和 QMT 的同职责结构对齐。

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.datasource.contracts import normalize_beijing_iso
-from src.datasource.tdx_normalization import (
+from src.datasource.tdx.normalization import (
     TDX_REALTIME_LOGICAL_ALIAS_GROUPS,
     extract_tdx_snapshot_native_fields,
     normalize_native_key,
