@@ -40,9 +40,10 @@ tq.initialize(__file__)
 The TDX terminal that supports TQ strategies must already be running and logged
 in before live datasource tests run.
 
-For this repository, `TDX_SDK_PATH` should point at the TDX `PYPlugins/user`
-directory that contains `tqcenter.py`; `TPythClient.dll` remains one directory
-above that path.
+For this repository, datasource does not read `TDX_SDK_PATH` or load
+`TPythClient.dll`. The operator installs `tqcenter.py` and the builtin bridge in
+the TDX terminal's `PYPlugins/user` environment; the WinSW datasource process
+uses only HTTP and WebSocket boundaries.
 
 ## Native HTTP JSON-RPC
 
@@ -394,48 +395,35 @@ before appliance smoke testing.
 
 Live mode is trading-time sensitive:
 
-1. Connect to `ws://127.0.0.1:9001/ws/quote/<client_id>`.
+1. Ensure the backend leader is connected to
+   `ws://127.0.0.1:9001/ws/tdx-experimental/<client_id>`.
 2. Expect a `ready` message.
-3. Send:
+3. The backend leader sends the complete desired set:
 
 ```json
 {
   "type": "sync_subscriptions",
-  "stocks": ["688318.SH"]
+    "symbols": ["688318.SH"]
 }
 ```
 
-4. Expect a `subscribed` response with accepted symbols.
-5. Optionally wait for a normalized `quote` event with a `snapshot` payload.
-6. Send `unsubscribe` before exit.
+4. Expect desired/converged revisions to match.
+5. Optionally wait for a typed `tdx.realtime.snapshot` frame.
+6. Remove the test symbol through the backend leader and resync the complete
+   desired set before exit.
 
-The `quote` event wait should be optional by default and mandatory only when the
+The snapshot wait should be optional by default and mandatory only when the
 runner passes a flag such as `--require-live-quote`, because live callback
 timing depends on market hours and TDX terminal state.
 
-## Suggested Script Names
+## Current Verification Owner
 
-Preferred implementation:
+The maintained Windows wrapper lives in `mist-deploy`:
 
 ```text
-scripts/smoke/test_tdx_live_datasource.py
-scripts/smoke/test-tdx-live-datasource.ps1
+scripts/run-tdx-runtime-smoke.ps1
+Run Windows TDX Runtime Smoke
 ```
 
-The PowerShell script should be a Windows-friendly wrapper around the Python
-script.
-
-Example commands:
-
-```powershell
-.\scripts\smoke\test-tdx-live-datasource.ps1 `
-  -BaseUrl http://127.0.0.1:9001 `
-  -Symbol 688318.SH `
-  -Period 1d `
-  -Count 2
-
-.\scripts\smoke\test-tdx-live-datasource.ps1 `
-  -BaseUrl http://127.0.0.1:9001 `
-  -Symbol 688318.SH `
-  -RequireLiveQuote
-```
+It derives the builtin WebSocket path, verifies bridge readiness and official
+HTTP reachability, and keeps subscription mutation backend-owned.

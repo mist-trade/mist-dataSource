@@ -1,94 +1,59 @@
-# TDX Realtime Bridge — Terminal Script Operations
+# TDX Builtin Realtime Bridge 运维
 
-This document describes how to install, start, stop, and roll back the
-`mist_tdx_realtime_bridge.py` strategy script inside the TDX terminal.
+`mist_tdx_realtime_bridge.py` 在 TDX 终端环境中运行，是 realtime native SDK 的唯一
+owner。脚本目标语法为 Python 3.7+，只依赖标准库与官方 `tqcenter`，没有 fake SDK、
+自建线程、子进程或监听端口。
 
-The script requires the target TDX terminal with its real `tqcenter.tq` SDK.
-It fails closed when that SDK is unavailable and contains no fake runtime path.
+## 首次安装
 
-## Prerequisites
+1. 将脚本放入 `TDX_INSTALL_DIR/PYPlugins/user/`。
+2. 在 TQ 策略管理器中注册脚本并启用自动运行。
+3. 记录安装文件 SHA-256。
+4. 确认 `mist-tdx-datasource` 已运行在 `http://127.0.0.1:9001`。
 
-- TDX terminal (internal/beta build) with `tqcenter` SDK
-- Python 3.7+ (bundled with TDX terminal)
-- `mist-datasource` service running on `http://127.0.0.1:9001`
-- Allowlist symbols configured via `TDX_EXPERIMENTAL_ALLOWLIST` on the Mist
-  backend (comma-separated, max 5, e.g. `600519.SH,000001.SZ`). Mist resolves
-  them against its security database and publishes the resulting desired set
-  to the datasource gateway.
+首次注册属于人工操作。后续 TDX 正常重启由终端自动启动已注册脚本；deploy 和
+recovery workflow 不复制、注册或删除策略。
 
-## Install
+## 运行链路
 
-1. Copy `mist_tdx_realtime_bridge.py` to the TDX terminal's
-   `PYPlugins/user/` directory:
-   ```
-   TDX_INSTALL_DIR/PYPlugins/user/mist_tdx_realtime_bridge.py
-   ```
+脚本启动后：
 
-2. Verify the artifact SHA matches what the gateway expects:
-   ```bash
-   sha256sum mist_tdx_realtime_bridge.py
-   ```
-   The SHA is reported to the gateway at registration and surfaced in
-   `/tdx/bridge/health`.
+1. `tq.initialize(__file__)`。
+2. `POST /tdx/bridge/owner` 注册 owner。
+3. 每秒 `poll` desired revision。
+4. 用 `subscribe_hq` / `unsubscribe_hq` 收敛完整订阅集合。
+5. 回调后调用 `get_market_snapshot` 并 POST native snapshot。
+6. owner 被 fencing 后退出或重新注册，不与新实例并行写入。
 
-3. Ensure the datasource is healthy before starting the script.
+## 健康检查
 
-## Start
-
-1. Open the TDX terminal.
-2. Open the **TQ Strategy Manager** (策略管理器).
-3. Load `mist_tdx_realtime_bridge.py` from `PYPlugins/user/`.
-4. Click **Start** (启动).
-
-The script will:
-- Initialize `tqcenter` (`tq.initialize(__file__)`)
-- Register with the datasource gateway (`POST /tdx/bridge/owner`)
-- Begin polling for desired subscription state
-- Subscribe via `subscribe_hq`, report convergence, fetch snapshots
-
-Verify the bridge is registered:
-```bash
-curl http://127.0.0.1:9001/tdx/bridge/health
+```powershell
+Invoke-RestMethod http://127.0.0.1:9001/tdx/bridge/health
 ```
-Look for `tdxExperimentalBridgeReady: true` and `bridgeBuildId`.
-Detailed experimental health is intentionally available only on this
-loopback-protected bridge route; there is no public `/health/experimental`.
 
-## Set Desired Symbols
+重点字段：
 
-The datasource's desired subscription set is controlled by the Mist backend on
-the dedicated realtime WebSocket. Bridge HTTP routes remain loopback-only and
-do not expose a separate desired-state mutation endpoint.
+- `tdxExperimentalBridgeReady=true`
+- `ownerId` 与 `ownerAgeSeconds`
+- `desiredRevision == convergedRevision`
+- `desiredSymbols == convergedSymbols`
+- `lastFailureCode` 为空
 
-## Stop
+Public `/health` 提供摘要；lease 和 evidence 细节只允许 loopback 访问。
 
-1. In the TQ Strategy Manager, select `mist_tdx_realtime_bridge.py`.
-2. Click **Stop** (停止).
+## 停止与卸载
 
-The script will exit cleanly. Without a replacement, the gateway owner becomes
-stale after 10 seconds (`OWNER_STALE_AFTER_SECONDS`). If TDX leaves an old
-external TPyth process alive while launching a new one, a continuously retrying
-new owner replaces it after the 5-second takeover grace. The replaced v0.2
-script exits when its lease is fenced.
+停止或卸载只能在 TQ 策略管理器中人工执行。停止后 owner 约 10 秒变 stale；新实例
+经过 bounded takeover grace 接管，旧实例收到 lease fencing 后退出。不要让 Action
+按 PID 强杀任意 Python 进程。
 
-## Uninstall
+## 常见问题
 
-1. Stop the script.
-2. Delete `mist_tdx_realtime_bridge.py` from `PYPlugins/user/`.
-3. In the TQ Strategy Manager, remove the strategy entry if it persists.
-
-## Troubleshooting
-
-- **`FATAL: tqcenter not available`**: Read the appended `Import error` first.
-  Missing dependencies such as `numpy` or a missing native DLL can fail while
-  importing `tqcenter`. Otherwise ensure the script is loaded via the TQ
-  Strategy Manager.
-- **`registration failed`**: The datasource is not running or another fresh
-  owner holds the lease. Check `/tdx/bridge/health`.
-- **`snapshot rejected: NOT_CONVERGED`**: The symbol is not in the converged
-  subscription set. Verify desired symbols and terminal SDK subscription.
-- **`lease lost, re-registering`**: The datasource gateway evicted the owner
-  after a datasource restart. The script auto-recovers.
-- **`previous owner is still active`**: Another bridge process owns the lease.
-  Keep the new process running; after the bounded takeover grace it becomes the
-  owner, and a v0.2 old process exits when fenced.
+- `tqcenter not available`：确认从 TQ 策略管理器启动，并检查 `numpy`、native DLL
+  与 Python 环境。
+- `OWNER_ACTIVE`：保持新实例重试，等待旧 owner stale/takeover；不要重复注册多个
+  自动运行项。
+- `NOT_CONVERGED`：检查 backend desired set、revision 和 TDX subscription 结果。
+- `lease lost`：通常发生于 datasource 重启，脚本会重新注册。
+- `native code is missing`：检查 symbol canonicalization；TDX native code 与
+  `600030.SH` 等 product code 不得混用。

@@ -1,29 +1,37 @@
-# TDX datasource dependency flow
+# TDX Datasource 依赖链路
 
-TDX has two independent production paths and no runtime mode switch.
+TDX 有两条互相独立的生产链路，no runtime mode switch。
 
-## HTTP provider
+## 非实时 HTTP provider
 
-`/v1/* -> TdxDatasourceProvider -> TdxHttpClient -> 127.0.0.1:17709`
+```text
+/v1/* -> TdxDatasourceProvider -> TdxHttpClient -> 127.0.0.1:17709
+```
 
-This path owns historical bars, snapshots requested over HTTP, reference,
-finance, sector, formula, and raw operator calls. It does not import `tqcenter`
-or subscribe to realtime quotes.
+该链路负责历史 bars、HTTP snapshot、reference、finance、sector、report、formula
+和 operator raw calls。它不 import `tqcenter`，也不订阅实时行情。
 
 ## Builtin realtime bridge
 
-`TDX terminal strategy -> /tdx/bridge/* -> realtime gateway -> /ws/tdx-experimental/{client_id} -> Mist backend`
+```text
+TDX terminal strategy (builtin script)
+  -> /tdx/bridge/*
+  -> typed realtime gateway
+  -> /ws/tdx-experimental/{client_id}
+  -> Mist backend leader
+```
 
-The manually registered terminal script is the single native SDK owner. It
-uses `subscribe_hq` and `get_market_snapshot`, polls desired state over loopback
-HTTP, and posts native snapshots back to datasource. Datasource validates each
-snapshot once and broadcasts the typed frame.
+终端脚本是唯一 native SDK owner，使用 `subscribe_hq` 和官方
+`get_market_snapshot`，每秒通过 loopback HTTP 获取完整 desired subscription set，
+并回传 native snapshot。Datasource 在 HTTP 边界验证一次，再广播稳定 frame；backend
+在 WebSocket 边界验证一次，不重复重建 native object。
 
-TDX realtime is always mounted. QMT retains its own independent
-`QMT_REALTIME_MODE` switch.
+## 已删除边界
 
-## Removed surfaces
+- datasource 进程内 `tqcenter` adapter
+- dirty collector 与旧 subscription client
+- `/api/tdx/*`
+- `/ws/quote/{client_id}`
+- `TDX_REALTIME_MODE`
 
-The datasource no longer contains the process-local adapter, dirty collector,
-legacy `/api/tdx/*` routes, or `/ws/quote/{client_id}`. Product callers use
-`/v1/*`; realtime consumers use the builtin bridge WebSocket.
+产品 HTTP 调用使用 `/v1/*`，实时 consumer 使用 builtin realtime WebSocket。

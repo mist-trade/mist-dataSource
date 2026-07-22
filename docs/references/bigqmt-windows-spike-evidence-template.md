@@ -1,8 +1,10 @@
-# BigQMT Windows Spike Evidence Template
+# BigQMT Windows Spike 复验模板
 
-Use this template before enabling the live QMT provider. Attach the raw output
-from `qmt/builtin_bridge/mist_qmt_spike.py` and keep the final conclusion
-explicit.
+该模板用于 QMT 版本、机器或内置 Python 环境变化后的重新取证，不代表当前仍未
+验证。2026-07-11 native history spike 与 2026-07-22 realtime HIL 已通过，正式证据
+保存在 `mist` OpenSpec archive。复验时附加
+`qmt/builtin_bridge/mist_qmt_spike.py` 原始输出，并明确区分“本次重新采集”和历史
+结论。
 
 ## Run Metadata
 
