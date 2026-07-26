@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from typing import Any
 
 from src.datasource.tdx.realtime.runtime import (
     ACCEPTED_ACQUISITION_PROFILE,
@@ -21,50 +20,51 @@ async def _register(gateway: TdxRealtimeGateway) -> None:
     )
 
 
-def test_get_subscriptions_returns_normalized_official_list() -> None:
+def test_get_subscriptions_returns_bridge_observed_native_list() -> None:
     async def run() -> None:
-        async def rpc(method: str, params: dict[str, Any]) -> Any:
-            assert method == "get_subscribe_hq_stock_list"
-            assert params == {}
-            return ["SH600519", "600519.SH", "000001.SZ"]
-
-        gateway = TdxRealtimeGateway(rpc_call=rpc)
+        gateway = TdxRealtimeGateway()
+        await _register(gateway)
+        owner = gateway.owner
+        assert owner is not None
+        await gateway.post_result(
+            lease_token=owner.lease_token,
+            stream_epoch=owner.stream_epoch,
+            desired_revision=0,
+            applied_revision=0,
+            active=["SH600519", "600519.SH", "000001.SZ"],
+            rejected=[],
+        )
         response_type, data = await gateway.execute_control("get_subscriptions")
         assert response_type == "subscriptions"
-        assert data == {"success": ["600519.SH", "000001.SZ"]}
+        assert data == {"success": ["000001.SZ", "600519.SH"]}
 
     asyncio.run(run())
 
 
-def test_unsubscribe_changes_desired_before_official_http_and_verifies_list() -> None:
+def test_unsubscribe_changes_desired_then_waits_for_bridge_native_result() -> None:
     async def run() -> None:
-        active = {"600519.SH"}
-        calls: list[str] = []
-        gateway: TdxRealtimeGateway
-
-        async def rpc(method: str, params: dict[str, Any]) -> Any:
-            calls.append(method)
-            assert "600519.SH" not in gateway.desired_symbols
-            if method == "get_subscribe_hq_stock_list":
-                return sorted(active)
-            assert method == "unsubscribe_hq"
-            assert params == {"stock_list": ["600519.SH"]}
-            active.discard("600519.SH")
-            return {"ErrorId": "unexpected-but-ignored"}
-
-        gateway = TdxRealtimeGateway(rpc_call=rpc)
+        gateway = TdxRealtimeGateway(control_timeout_seconds=0.5)
+        await _register(gateway)
         await gateway.sync_desired(["600519.SH"])
-        response_type, data = await gateway.execute_control(
+        task = asyncio.create_task(gateway.execute_control(
             "unsubscribe",
             symbol="SH600519",
+        ))
+        await asyncio.sleep(0)
+        owner = gateway.owner
+        assert owner is not None
+        revision = gateway._desired_revision
+        await gateway.post_result(
+            lease_token=owner.lease_token,
+            stream_epoch=owner.stream_epoch,
+            desired_revision=revision,
+            applied_revision=revision,
+            active=[],
+            rejected=[],
         )
+        response_type, data = await task
         assert response_type == "unsubscribed"
         assert data == {"success": None}
-        assert calls == [
-            "get_subscribe_hq_stock_list",
-            "unsubscribe_hq",
-            "get_subscribe_hq_stock_list",
-        ]
         assert gateway.desired_symbols == []
 
     asyncio.run(run())
@@ -72,13 +72,10 @@ def test_unsubscribe_changes_desired_before_official_http_and_verifies_list() ->
 
 def test_unsubscribe_failure_does_not_restore_old_desired() -> None:
     async def run() -> None:
-        async def rpc(method: str, _params: dict[str, Any]) -> Any:
-            if method == "get_subscribe_hq_stock_list":
-                return ["600519.SH"]
-            raise RuntimeError("provider cancellation failed")
-
-        gateway = TdxRealtimeGateway(rpc_call=rpc)
+        gateway = TdxRealtimeGateway(control_timeout_seconds=0.01)
+        await _register(gateway)
         await gateway.sync_desired(["600519.SH"])
+        gateway._last_reported_active = {"600519.SH"}
         _, data = await gateway.execute_control("unsubscribe", symbol="600519.SH")
         assert data == {
             "failure": {
@@ -118,28 +115,16 @@ def test_subscribe_waits_for_bridge_convergence() -> None:
 
 def test_sync_clears_extras_then_waits_for_exact_bridge_target() -> None:
     async def run() -> None:
-        active = {"000001.SZ"}
-
-        async def rpc(method: str, params: dict[str, Any]) -> Any:
-            if method == "get_subscribe_hq_stock_list":
-                return sorted(active)
-            assert method == "unsubscribe_hq"
-            active.difference_update(params["stock_list"])
-            return None
-
-        gateway = TdxRealtimeGateway(rpc_call=rpc, control_timeout_seconds=0.5)
+        gateway = TdxRealtimeGateway(control_timeout_seconds=0.5)
         await _register(gateway)
+        gateway._last_reported_active = {"000001.SZ"}
         task = asyncio.create_task(
             gateway.execute_control(
                 "sync_subscriptions",
                 symbols=["SH600519"],
             )
         )
-        for _ in range(20):
-            if gateway.desired_symbols == ["600519.SH"] and not active:
-                break
-            await asyncio.sleep(0)
-        active.add("600519.SH")
+        await asyncio.sleep(0)
         owner = gateway.owner
         assert owner is not None
         revision = gateway._desired_revision

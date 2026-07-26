@@ -53,6 +53,25 @@ class TestTqCenterWrapper:
             else:
                 raise AssertionError("missing tqcenter dependency must stop the bridge")
 
+    def test_subscription_list_errors_are_not_reported_as_empty(self) -> None:
+        class BrokenTq:
+            def get_subscribe_hq_stock_list(self):
+                raise RuntimeError("native list failed")
+
+        wrapper = _bridge_mod.TqCenterWrapper()
+        wrapper._tq = BrokenTq()
+        try:
+            wrapper.get_subscribe_hq_stock_list()
+        except RuntimeError as exc:
+            assert str(exc) == "native list failed"
+        else:
+            raise AssertionError("native list failure must remain observable")
+
+
+def test_terminal_bridge_separates_gateway_poll_from_native_keepalive() -> None:
+    assert 1.0 < _bridge_mod.POLL_INTERVAL_SECONDS < 10.0
+    assert _bridge_mod.NATIVE_KEEPALIVE_INTERVAL_SECONDS >= 30.0
+
 
 def test_terminal_bridge_module_loads_without_dunder_file() -> None:
     bridge_path = _BRIDGE_DIR / "mist_tdx_realtime_bridge.py"

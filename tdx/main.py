@@ -52,10 +52,7 @@ def create_tdx_app(
 
         app_gateway = app_gateway or TdxRealtimeGateway(
             max_subscriptions=settings.tdx.max_subscriptions,
-            rpc_call=app_provider.client.call,
         )
-        if app_gateway.rpc_call is None:
-            app_gateway.rpc_call = app_provider.client.call
 
     @asynccontextmanager
     async def lifespan(_target: FastAPI) -> AsyncGenerator[None]:

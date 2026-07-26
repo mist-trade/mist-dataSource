@@ -39,7 +39,8 @@ import urllib.request
 
 DATASOURCE_URL = os.environ.get("MIST_DATASOURCE_URL", "http://127.0.0.1:9001")
 BRIDGE_ENDPOINT = DATASOURCE_URL.rstrip("/") + "/tdx/bridge"
-POLL_INTERVAL_SECONDS = 1.0
+POLL_INTERVAL_SECONDS = 3.0
+NATIVE_KEEPALIVE_INTERVAL_SECONDS = 30.0
 HTTP_TIMEOUT_SECONDS = 2.0
 RETRY_BASE_SECONDS = 0.25
 RETRY_MAX_SECONDS = 5.0
@@ -51,7 +52,7 @@ ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 SCHEMA_VERSION = 2
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v2.0"
+BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v2.1"
 
 
 def _resolve_script_path():
@@ -159,6 +160,8 @@ class BridgeOwner:
         self._active_native: set[str] = set()
         self.registration_retry_seconds: float = POLL_INTERVAL_SECONDS
         self._last_registration_error_code: str | None = None
+        self.last_native_probe_monotonic: float = 0.0
+        self.last_attempted_revision: int = -1
 
     def registration_payload(self) -> dict:
         return {
@@ -203,6 +206,8 @@ class BridgeOwner:
         self.stream_epoch = resp.get("streamEpoch")
         self.applied_revision = -1
         self._active_native = set()
+        self.last_native_probe_monotonic = 0.0
+        self.last_attempted_revision = -1
         self.registration_retry_seconds = POLL_INTERVAL_SECONDS
         self._last_registration_error_code = None
         # Do NOT log lease token (even partial) — per golden contract.
@@ -255,13 +260,14 @@ class TqCenterWrapper:
             return None
 
     def get_subscribe_hq_stock_list(self) -> list[str]:
-        try:
-            result = self._tq.get_subscribe_hq_stock_list()
-            if isinstance(result, str):
-                return json.loads(result)
-            return result or []
-        except Exception:
+        result = self._tq.get_subscribe_hq_stock_list()
+        if isinstance(result, str):
+            result = json.loads(result)
+        if result is None:
             return []
+        if not isinstance(result, list) or not all(isinstance(item, str) for item in result):
+            raise TypeError("get_subscribe_hq_stock_list must return a list of strings")
+        return result
 
 
 # --- Main bridge loop -------------------------------------------------
@@ -338,6 +344,18 @@ def run_bridge() -> None:
             desired_symbols = poll_resp.get("desiredSymbols", [])
             to_unsubscribe = poll_resp.get("unsubscribe", [])
             to_subscribe = poll_resp.get("subscribe", [])
+            now_monotonic = time.monotonic()
+            revision_changed = desired_revision != owner.last_attempted_revision
+            native_keepalive_due = (
+                now_monotonic - owner.last_native_probe_monotonic
+                >= NATIVE_KEEPALIVE_INTERVAL_SECONDS
+            )
+            native_probe_due = bool(
+                to_unsubscribe
+                or to_subscribe
+                or revision_changed
+                or native_keepalive_due
+            )
 
             # 2. Reconcile: unsubscribe first, then subscribe (batched).
             if to_unsubscribe:
@@ -358,15 +376,20 @@ def run_bridge() -> None:
             # Report the FULL normalized native set — gateway checks convergence
             # via active_set == desired_set. If native has extras, gateway correctly
             # stays non-converged (not hidden by intersection).
-            native_list = tq_wrapper.get_subscribe_hq_stock_list()
-            native_set = {_format_code(s) for s in native_list}
+            if native_probe_due:
+                owner.last_attempted_revision = desired_revision
+                owner.last_native_probe_monotonic = time.monotonic()
+                native_list = tq_wrapper.get_subscribe_hq_stock_list()
+                native_set = {_format_code(s) for s in native_list}
+                owner._active_native = native_set
+            else:
+                native_set = set(owner._active_native)
             rejected = []
             for sym in desired_symbols:
                 if sym not in native_set:
                     rejected.append({"symbol": sym, "reason": "not in native subscription set"})
             # Report active = full normalized native set (NOT desired ∩ native).
             active_list = sorted(native_set)
-            owner._active_native = native_set
             result_resp = _post_json(
                 BRIDGE_ENDPOINT + "/result",
                 {

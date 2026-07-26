@@ -24,7 +24,6 @@ import datetime as dt
 import re
 import secrets
 import time
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -106,7 +105,6 @@ class TdxRealtimeGateway:
     # WS manager. Signature: async (stream_epoch, generation, owner_id,
     # bridge_build_id) -> None.
     on_epoch_change: Any = None
-    rpc_call: Any = None
     control_timeout_seconds: float = 10.0
     _owner: BridgeOwner | None = None
     _owner_generation_counter: int = 0
@@ -398,7 +396,7 @@ class TdxRealtimeGateway:
                     "retryAfterMs": RECONCILE_RETRY_BASE_MS,
                 }
             self._attempted_revision = desired_revision
-            self._last_applied_active = dedupe_stable(active)
+            self._last_applied_active = dedupe_normalized_symbols(active)
             self._last_reported_active = set(self._last_applied_active)
             self._last_rejected = rejected
             desired_set = set(self._desired_symbols)
@@ -565,24 +563,24 @@ class TdxRealtimeGateway:
             raise ValueError(f"unsupported TDX subscription operation: {operation}")
 
         if operation == "get_subscriptions":
-            try:
-                active = await self._official_subscriptions()
-                return self._record_control(
-                    operation,
-                    response_type,
-                    {"success": active},
-                )
-            except Exception:
-                return self._record_control(
-                    operation,
-                    response_type,
-                    {
-                        "failure": {
-                            "symbol": None,
-                            "reason": "TDX_SUBSCRIPTIONS_READ_FAILED",
-                        }
-                    },
-                )
+            async with self._lock:
+                if not self._is_owner_fresh():
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {
+                            "failure": {
+                                "symbol": None,
+                                "reason": "TDX_SUBSCRIPTIONS_READ_FAILED",
+                            }
+                        },
+                    )
+                active = sorted(self._last_reported_active)
+            return self._record_control(
+                operation,
+                response_type,
+                {"success": active},
+            )
 
         if self._mutation_lock.locked():
             return self._record_control(
@@ -620,18 +618,18 @@ class TdxRealtimeGateway:
             if operation == "unsubscribe":
                 assert symbol is not None
                 normalized = dedupe_normalized_symbols([symbol])[0]
-                await self.remove_desired([normalized])
-                before = await self._try_official_subscriptions()
-                if before is not None and normalized not in before:
+                revision = await self.remove_desired([normalized])
+                target = set(self.desired_symbols)
+                if await self._wait_for_target(target, revision):
                     return self._record_control(
                         operation,
                         response_type,
                         {"success": None},
                     )
-                with suppress(Exception):
-                    await self._call_rpc("unsubscribe_hq", {"stock_list": [normalized]})
-                after = await self._try_official_subscriptions()
-                if after is None:
+                async with self._lock:
+                    owner_fresh = self._is_owner_fresh()
+                    still_active = normalized in self._last_reported_active
+                if not owner_fresh:
                     return self._record_control(
                         operation,
                         response_type,
@@ -643,7 +641,7 @@ class TdxRealtimeGateway:
                             }
                         },
                     )
-                if normalized in after:
+                if still_active:
                     return self._record_control(
                         operation,
                         response_type,
@@ -664,8 +662,17 @@ class TdxRealtimeGateway:
             assert operation == "sync_subscriptions"
             target = dedupe_normalized_symbols(symbols or [])[: self.max_subscriptions]
             revision = await self.sync_desired(target)
-            current = await self._try_official_subscriptions()
-            if current is None:
+            target_set = set(target)
+            if await self._wait_for_target(target_set, revision):
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {"success": None},
+                )
+            async with self._lock:
+                owner_fresh = self._is_owner_fresh()
+                observed = set(self._last_reported_active)
+            if not owner_fresh:
                 return self._record_control(
                     operation,
                     response_type,
@@ -677,44 +684,20 @@ class TdxRealtimeGateway:
                         }
                     },
                 )
-            target_set = set(target)
-            for extra in sorted(set(current) - target_set):
-                with suppress(Exception):
-                    await self._call_rpc("unsubscribe_hq", {"stock_list": [extra]})
-                verified = await self._try_official_subscriptions()
-                if verified is None:
-                    return self._record_control(
-                        operation,
-                        response_type,
-                        {
-                            "failure": {
-                                "symbol": extra,
-                                "reason": "TDX_UNSUBSCRIBE_VERIFY_FAILED",
-                                "subscriptionState": "unknown",
-                            }
-                        },
-                    )
-                if extra in verified:
-                    return self._record_control(
-                        operation,
-                        response_type,
-                        {
-                            "failure": {
-                                "symbol": extra,
-                                "reason": "TDX_UNSUBSCRIBE_NOT_CONVERGED",
-                                "subscriptionState": "subscribed",
-                            }
-                        },
-                    )
-            if await self._wait_for_target(target_set, revision):
-                final = await self._try_official_subscriptions()
-                if final is not None and set(final) == target_set:
-                    return self._record_control(
-                        operation,
-                        response_type,
-                        {"success": None},
-                    )
-            missing = next((item for item in target if item not in self._last_reported_active), "")
+            extra = next(iter(sorted(observed - target_set)), None)
+            if extra is not None:
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {
+                        "failure": {
+                            "symbol": extra,
+                            "reason": "TDX_UNSUBSCRIBE_NOT_CONVERGED",
+                            "subscriptionState": "subscribed",
+                        }
+                    },
+                )
+            missing = next((item for item in target if item not in observed), "")
             return self._record_control(
                 operation,
                 response_type,
@@ -741,38 +724,6 @@ class TdxRealtimeGateway:
         key = (operation, result, reason)
         self._control_counts[key] = self._control_counts.get(key, 0) + 1
         return response_type, data
-
-    async def _call_rpc(self, method: str, params: dict[str, Any]) -> Any:
-        if self.rpc_call is None:
-            raise GatewayError(
-                "TDX_HTTP_NOT_CONFIGURED",
-                "official TDX HTTP RPC is not configured",
-                retryable=True,
-            )
-        return await self.rpc_call(method, params)
-
-    async def _official_subscriptions(self) -> list[str]:
-        value = await self._call_rpc("get_subscribe_hq_stock_list", {})
-        if not isinstance(value, list):
-            raise GatewayError(
-                "TDX_SUBSCRIPTIONS_INVALID",
-                "official TDX subscription list must be a list of strings",
-                retryable=False,
-            )
-        items = cast(list[Any], value)
-        if not all(isinstance(item, str) for item in items):
-            raise GatewayError(
-                "TDX_SUBSCRIPTIONS_INVALID",
-                "official TDX subscription list must be a list of strings",
-                retryable=False,
-            )
-        return dedupe_normalized_symbols(cast(list[str], items))
-
-    async def _try_official_subscriptions(self) -> list[str] | None:
-        try:
-            return await self._official_subscriptions()
-        except Exception:
-            return None
 
     async def _wait_for_target(self, target: set[str], revision: int) -> bool:
         deadline = time.monotonic() + self.control_timeout_seconds
