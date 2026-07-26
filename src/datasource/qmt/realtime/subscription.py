@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -140,6 +140,7 @@ class QmtSubscriptionJournal:
         rotate_bytes: int | str | None = None,
         archive_max_bytes: int | str | None = None,
         resolved_retention_days: int | str | None = None,
+        wall_clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.path = Path(
             path or os.environ.get("MIST_QMT_SUBSCRIPTION_JOURNAL_PATH") or DEFAULT_JOURNAL_PATH
@@ -182,13 +183,17 @@ class QmtSubscriptionJournal:
                 "at least twice the rotate threshold"
             )
         self._lock = threading.Lock()
+        self._wall_clock = wall_clock or (lambda: datetime.now(UTC))
         self._record_sequence = 0
         self._previous_hash = "0" * 64
         self._archive_index = 0
         self.healthy = True
         self.last_error: str | None = None
         self.last_rotation_at: str | None = None
+        self.last_compaction_at: str | None = None
+        self._checkpoint_sequence = 0
         self._recover_interrupted_rotation()
+        self._recover_interrupted_compaction()
         self._load_tail()
 
     def append(self, kind: str, detail: Mapping[str, Any]) -> dict[str, Any]:
@@ -237,11 +242,10 @@ class QmtSubscriptionJournal:
 
     def _ensure_capacity(self, next_bytes: int) -> None:
         active_bytes = self.path.stat().st_size if self.path.exists() else 0
-        total_bytes = sum(
-            item.stat().st_size
-            for item in self.path.parent.glob(self.path.name + "*")
-            if item.is_file()
-        )
+        total_bytes = self._total_bytes()
+        if total_bytes + next_bytes > self.archive_max_bytes:
+            self._compact_resolved_archives()
+            total_bytes = self._total_bytes()
         if total_bytes + next_bytes > self.archive_max_bytes:
             raise QmtSubscriptionJournalError(
                 "QMT subscription journal pinned evidence reached the byte limit"
@@ -255,17 +259,20 @@ class QmtSubscriptionJournal:
             raise QmtSubscriptionJournalError(
                 "QMT subscription journal has unresolved rotating state"
             )
-        os.replace(self.path, rotating)
+        _durable_replace(self.path, rotating)
+        first_sequence = _first_record_sequence(rotating)
         archive_name = (
             self.path.name
             + "."
+            + str(first_sequence)
+            + "-"
             + str(self._record_sequence)
             + "."
             + str(self._archive_index + 1)
             + ".jsonl"
         )
         archive = self.path.with_name(archive_name)
-        os.replace(rotating, archive)
+        _durable_replace(rotating, archive)
         archive_digest = _sha256_file(archive)
         _atomic_text_write(
             archive.with_suffix(archive.suffix + ".sha256"),
@@ -296,6 +303,226 @@ class QmtSubscriptionJournal:
         self._previous_hash = cast(str, anchor["hash"])
         self.last_rotation_at = datetime.now(UTC).isoformat()
 
+    def compact(self) -> bool:
+        """Compact a fully resolved archive prefix under the single-writer lock."""
+        with self._lock:
+            return self._compact_resolved_archives()
+
+    def _compact_resolved_archives(self) -> bool:
+        archives = self._archive_paths()
+        compactable = _resolved_archive_prefix(archives)
+        if not compactable:
+            return False
+        first_sequence = _first_record_sequence(compactable[0])
+        last_sequence, last_hash = _last_record_identity(compactable[-1])
+        checkpoint_path = self.path.with_name(
+            self.path.name
+            + ".compaction-checkpoint."
+            + str(first_sequence)
+            + "-"
+            + str(last_sequence)
+            + ".json"
+        )
+        source_entries = [
+            {
+                "name": archive.name,
+                "sha256": _sha256_file(archive),
+                "bytes": archive.stat().st_size,
+            }
+            for archive in compactable
+        ]
+        previous_checkpoint = self._latest_checkpoint()
+        checkpoint = {
+            "kind": "compaction_checkpoint",
+            "createdAt": self._wall_clock().isoformat(),
+            "firstSequence": first_sequence,
+            "lastSequence": last_sequence,
+            "lastRecordHash": last_hash,
+            "sourceArchives": source_entries,
+            "resolvedLifecycles": _resolved_lifecycle_summaries(compactable),
+            "previousCheckpointSha256": (
+                _sha256_file(previous_checkpoint) if previous_checkpoint else None
+            ),
+        }
+        marker_path = self._maintenance_marker_path()
+        marker = {
+            "operation": "compaction",
+            "phase": "prepared",
+            "checkpoint": checkpoint_path.name,
+            "sources": [item.name for item in compactable],
+        }
+        _atomic_json_write(marker_path, marker)
+        _atomic_json_write(checkpoint_path, checkpoint)
+        marker["phase"] = "checkpoint_published"
+        _atomic_json_write(marker_path, marker)
+        self._publish_catalog(checkpoint_path)
+        marker["phase"] = "manifest_published"
+        _atomic_json_write(marker_path, marker)
+        for archive in compactable:
+            archive.unlink()
+            sidecar = archive.with_suffix(archive.suffix + ".sha256")
+            if sidecar.exists():
+                sidecar.unlink()
+        _fsync_directory(self.path.parent)
+        marker["phase"] = "sources_retired"
+        _atomic_json_write(marker_path, marker)
+        marker_path.unlink()
+        _fsync_directory(self.path.parent)
+        self.last_compaction_at = self._wall_clock().isoformat()
+        self._fold_expired_checkpoints()
+        return True
+
+    def _recover_interrupted_compaction(self) -> None:
+        marker_path = self._maintenance_marker_path()
+        if not marker_path.exists():
+            return
+        try:
+            marker = cast(dict[str, Any], json.loads(marker_path.read_text(encoding="utf-8")))
+            checkpoint = self.path.with_name(str(marker["checkpoint"]))
+            sources = [self.path.with_name(str(name)) for name in marker.get("sources", [])]
+            phase = str(marker.get("phase", ""))
+            if phase == "prepared" and not checkpoint.exists():
+                marker_path.unlink()
+                _fsync_directory(self.path.parent)
+                return
+            if not checkpoint.exists():
+                raise QmtSubscriptionJournalError(
+                    "QMT journal compaction checkpoint is missing"
+                )
+            checkpoint_value = cast(
+                dict[str, Any], json.loads(checkpoint.read_text(encoding="utf-8"))
+            )
+            expected = {
+                str(item["name"]): str(item["sha256"])
+                for item in checkpoint_value.get("sourceArchives", [])
+            }
+            for source in sources:
+                if source.exists() and _sha256_file(source) != expected.get(source.name):
+                    raise QmtSubscriptionJournalError(
+                        "QMT journal compaction source checksum mismatch"
+                    )
+            self._publish_catalog(checkpoint)
+            for source in sources:
+                if source.exists():
+                    source.unlink()
+                sidecar = source.with_suffix(source.suffix + ".sha256")
+                if sidecar.exists():
+                    sidecar.unlink()
+            marker_path.unlink()
+            _fsync_directory(self.path.parent)
+        except Exception as exc:
+            if isinstance(exc, QmtSubscriptionJournalError):
+                raise
+            raise QmtSubscriptionJournalError(
+                "QMT journal compaction recovery failed: " + str(exc)
+            ) from exc
+
+    def _publish_catalog(self, checkpoint: Path) -> None:
+        checkpoint_value = cast(
+            dict[str, Any], json.loads(checkpoint.read_text(encoding="utf-8"))
+        )
+        _atomic_json_write(
+            self.path.with_name(self.path.name + ".catalog.json"),
+            {
+                "latestCheckpoint": checkpoint.name,
+                "latestCheckpointSha256": _sha256_file(checkpoint),
+                "lastSequence": checkpoint_value["lastSequence"],
+                "lastRecordHash": checkpoint_value["lastRecordHash"],
+            },
+        )
+
+    def _fold_expired_checkpoints(self) -> None:
+        checkpoints = self._checkpoint_paths()
+        if len(checkpoints) < 2:
+            return
+        cutoff = self._wall_clock() - timedelta(days=self.resolved_retention_days)
+        expired: list[Path] = []
+        for checkpoint in checkpoints[:-1]:
+            value = cast(dict[str, Any], json.loads(checkpoint.read_text(encoding="utf-8")))
+            created_at = datetime.fromisoformat(str(value["createdAt"]))
+            if created_at < cutoff:
+                expired.append(checkpoint)
+        if not expired:
+            return
+        checkpoint_digests = [_sha256_file(item) for item in expired]
+        previous_folds = sorted(
+            self.path.parent.glob(self.path.name + ".compaction-fold.*.json"),
+            key=_checkpoint_sort_key,
+        )
+        prior_sealed_digest = _sha256_file(previous_folds[-1]) if previous_folds else None
+        first = cast(
+            dict[str, Any], json.loads(expired[0].read_text(encoding="utf-8"))
+        )
+        last = cast(
+            dict[str, Any], json.loads(expired[-1].read_text(encoding="utf-8"))
+        )
+        fold_path = self.path.with_name(
+            self.path.name
+            + ".compaction-fold."
+            + str(first["firstSequence"])
+            + "-"
+            + str(last["lastSequence"])
+            + ".json"
+        )
+        root_payload = {
+            "priorSealedCheckpointDigest": prior_sealed_digest,
+            "retiredCheckpointDigests": checkpoint_digests,
+        }
+        sealed_root = hashlib.sha256(
+            json.dumps(root_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        resolved_count = sum(
+            len(
+                cast(
+                    dict[str, Any],
+                    json.loads(item.read_text(encoding="utf-8")),
+                ).get("resolvedLifecycles", [])
+            )
+            for item in expired
+        )
+        _atomic_json_write(
+            fold_path,
+            {
+                "kind": "resolved_lifecycle_fold",
+                "createdAt": self._wall_clock().isoformat(),
+                "firstSequence": first["firstSequence"],
+                "lastSequence": last["lastSequence"],
+                "lastRecordHash": last["lastRecordHash"],
+                "resolvedLifecycleCount": resolved_count,
+                "priorSealedCheckpointDigest": prior_sealed_digest,
+                "sealedRootSha256": sealed_root,
+            },
+        )
+        for checkpoint in expired:
+            checkpoint.unlink()
+        _fsync_directory(self.path.parent)
+
+    def _archive_paths(self) -> list[Path]:
+        return sorted(
+            self.path.parent.glob(self.path.name + ".*.*.jsonl"),
+            key=_archive_sort_key,
+        )
+
+    def _checkpoint_paths(self) -> list[Path]:
+        return sorted(
+            self.path.parent.glob(self.path.name + ".compaction-checkpoint.*.json"),
+            key=_checkpoint_sort_key,
+        )
+
+    def _latest_checkpoint(self) -> Path | None:
+        checkpoints = self._checkpoint_paths()
+        return checkpoints[-1] if checkpoints else None
+
+    def _maintenance_marker_path(self) -> Path:
+        return self.path.with_name(self.path.name + ".maintenance.json")
+
+    def _total_bytes(self) -> int:
+        return sum(
+            item.stat().st_size
+            for item in self.path.parent.glob(self.path.name + "*")
+            if item.is_file()
+        )
+
     def _recover_interrupted_rotation(self) -> None:
         rotating = self.path.with_name(self.path.name + ".rotating")
         temporary = self.path.with_name(self.path.name + ".tmp")
@@ -306,21 +533,27 @@ class QmtSubscriptionJournal:
                 raise QmtSubscriptionJournalError(
                     "ambiguous QMT subscription journal rotation state"
                 )
-            os.replace(rotating, self.path)
+            _durable_replace(rotating, self.path)
 
     def _load_tail(self) -> None:
-        archives = sorted(
-            self.path.parent.glob(self.path.name + ".*.*.jsonl"),
-            key=_archive_sort_key,
-        )
+        archives = self._archive_paths()
         paths = [*archives]
         if self.path.exists():
             paths.append(self.path)
         if not paths:
             return
         try:
-            expected_sequence = 1
-            previous_hash = "0" * 64
+            checkpoint = self._latest_checkpoint()
+            if checkpoint is None:
+                expected_sequence = 1
+                previous_hash = "0" * 64
+            else:
+                checkpoint_value = cast(
+                    dict[str, Any],
+                    json.loads(checkpoint.read_text(encoding="utf-8")),
+                )
+                expected_sequence = int(checkpoint_value["lastSequence"]) + 1
+                previous_hash = str(checkpoint_value["lastRecordHash"])
             for path in paths:
                 sidecar = path.with_suffix(path.suffix + ".sha256")
                 if path != self.path and sidecar.exists():
@@ -369,6 +602,8 @@ class QmtSubscriptionJournal:
             "archiveMaxBytes": self.archive_max_bytes,
             "resolvedRetentionDays": self.resolved_retention_days,
             "lastRotationAt": self.last_rotation_at,
+            "lastCompactionAt": self.last_compaction_at,
+            "checkpointCount": len(self._checkpoint_paths()),
         }
 
     @property
@@ -928,7 +1163,7 @@ def _atomic_json_write(path: Path, value: Mapping[str, Any]) -> None:
         json.dump(value, handle, sort_keys=True, separators=(",", ":"))
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    _durable_replace(temporary, path)
 
 
 def _atomic_text_write(path: Path, value: str) -> None:
@@ -937,12 +1172,222 @@ def _atomic_text_write(path: Path, value: str) -> None:
         handle.write(value)
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    _durable_replace(temporary, path)
 
 
 def _archive_sort_key(path: Path) -> tuple[int, int]:
+    match = re.search(r"\.(\d+)-(\d+)\.(\d+)\.jsonl$", path.name)
+    if match:
+        return int(match.group(1)), int(match.group(3))
     parts = path.name.rsplit(".", 3)
     try:
         return int(parts[-3]), int(parts[-2])
     except (ValueError, IndexError):
         return (0, 0)
+
+
+def _checkpoint_sort_key(path: Path) -> tuple[int, int]:
+    match = re.search(r"\.(\d+)-(\d+)\.json$", path.name)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return (0, 0)
+
+
+def _read_journal_records(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                records.append(cast(dict[str, Any], json.loads(line)))
+    return records
+
+
+def _first_record_sequence(path: Path) -> int:
+    records = _read_journal_records(path)
+    if not records:
+        raise QmtSubscriptionJournalError("QMT journal archive is empty")
+    return int(records[0]["sequence"])
+
+
+def _last_record_identity(path: Path) -> tuple[int, str]:
+    records = _read_journal_records(path)
+    if not records:
+        raise QmtSubscriptionJournalError("QMT journal archive is empty")
+    return int(records[-1]["sequence"]), str(records[-1]["hash"])
+
+
+def _resolved_archive_prefix(archives: Sequence[Path]) -> list[Path]:
+    """Return the longest contiguous archive prefix safe to replace.
+
+    The scanner is deliberately conservative: every native call must reach a
+    matching durable registry transition and every created handle must be
+    durably unsubscribed (or cleared by an operator context-rebuild
+    observation) at the selected archive boundary.
+    """
+    pending: dict[int, dict[str, Any]] = {}
+    awaiting_transition: dict[int, dict[str, Any]] = {}
+    open_handles: set[tuple[str, str | None, int]] = set()
+    compactable_count = 0
+    for archive_index, archive in enumerate(archives, start=1):
+        for record in _read_journal_records(archive):
+            kind = record.get("kind")
+            detail = record.get("detail")
+            if not isinstance(detail, dict):
+                continue
+            if kind == "native_intent":
+                sequence = detail.get("callSequence")
+                if type(sequence) is int:
+                    pending[sequence] = detail
+            elif kind == "native_result":
+                sequence = detail.get("callSequence")
+                intent = pending.pop(sequence, None) if type(sequence) is int else None
+                if (
+                    intent is not None
+                    and detail.get("failure") is None
+                    and detail.get("successPresent") is True
+                ):
+                    awaiting_transition[sequence] = intent
+            elif kind == "registry_transition":
+                transition = detail.get("transition")
+                sub_id = detail.get("subId")
+                symbol = detail.get("symbol")
+                if type(sub_id) is not int:
+                    continue
+                if transition == "single_subscribed":
+                    open_handles.add(("single", str(symbol), sub_id))
+                    _consume_transition(awaiting_transition, "subscribe_quote", sub_id)
+                elif transition == "whole_subscribed":
+                    open_handles.add(("whole", None, sub_id))
+                    _consume_transition(awaiting_transition, "subscribe_whole_quote", sub_id)
+                elif transition == "unsubscribed":
+                    bucket = str(detail.get("bucket"))
+                    normalized_symbol = str(symbol) if isinstance(symbol, str) else None
+                    open_handles.discard((bucket, normalized_symbol, sub_id))
+                    _consume_transition(awaiting_transition, "unsubscribe_quote", sub_id)
+            elif (
+                kind == "operator_observation"
+                and detail.get("observation") == "qmt_context_rebuilt"
+            ):
+                pending.clear()
+                awaiting_transition.clear()
+                open_handles.clear()
+        if not pending and not awaiting_transition and not open_handles:
+            compactable_count = archive_index
+    return list(archives[:compactable_count])
+
+
+def _resolved_lifecycle_summaries(archives: Sequence[Path]) -> list[dict[str, Any]]:
+    archive_digest_by_sequence: dict[int, str] = {}
+    records: list[dict[str, Any]] = []
+    for archive in archives:
+        digest = _sha256_file(archive)
+        for record in _read_journal_records(archive):
+            sequence = int(record.get("sequence", -1))
+            archive_digest_by_sequence[sequence] = digest
+            records.append(record)
+    opened: dict[tuple[str, str | None, int], dict[str, Any]] = {}
+    resolved: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("kind") != "registry_transition":
+            if (
+                record.get("kind") == "operator_observation"
+                and isinstance(record.get("detail"), dict)
+                and cast(dict[str, Any], record["detail"]).get("observation")
+                == "qmt_context_rebuilt"
+            ):
+                for _key, lifecycle in sorted(opened.items(), key=lambda item: repr(item[0])):
+                    resolved.append(
+                        {
+                            **lifecycle,
+                            "lastSequence": record["sequence"],
+                            "terminalRecordHash": record["hash"],
+                            "terminalArchiveSha256": archive_digest_by_sequence[
+                                int(record["sequence"])
+                            ],
+                            "terminal": "operator_context_rebuilt",
+                        }
+                    )
+                opened.clear()
+            continue
+        detail = record.get("detail")
+        if not isinstance(detail, dict):
+            continue
+        transition = detail.get("transition")
+        sub_id = detail.get("subId")
+        if type(sub_id) is not int:
+            continue
+        if transition == "single_subscribed":
+            key = ("single", str(detail.get("symbol")), sub_id)
+            opened[key] = {
+                "subId": sub_id,
+                "bucket": "single",
+                "symbol": str(detail.get("symbol")),
+                "firstSequence": record["sequence"],
+            }
+        elif transition == "whole_subscribed":
+            key = ("whole", None, sub_id)
+            opened[key] = {
+                "subId": sub_id,
+                "bucket": "whole",
+                "symbol": None,
+                "firstSequence": record["sequence"],
+            }
+        elif transition == "unsubscribed":
+            bucket = str(detail.get("bucket"))
+            symbol = detail.get("symbol") if isinstance(detail.get("symbol"), str) else None
+            lifecycle = opened.pop((bucket, symbol, sub_id), None)
+            if lifecycle is not None:
+                resolved.append(
+                    {
+                        **lifecycle,
+                        "lastSequence": record["sequence"],
+                        "terminalRecordHash": record["hash"],
+                        "terminalArchiveSha256": archive_digest_by_sequence[
+                            int(record["sequence"])
+                        ],
+                        "terminal": "unsubscribed",
+                    }
+                )
+    return resolved
+
+
+def _consume_transition(
+    awaiting_transition: dict[int, dict[str, Any]],
+    method: str,
+    sub_id: int,
+) -> None:
+    for sequence, intent in list(awaiting_transition.items()):
+        if intent.get("method") != method:
+            continue
+        if method == "unsubscribe_quote" and intent.get("subId") != sub_id:
+            continue
+        awaiting_transition.pop(sequence, None)
+        return
+
+
+def _durable_replace(source: Path, target: Path) -> None:
+    if os.name == "nt":
+        import ctypes
+
+        movefile_replace_existing = 0x1
+        movefile_write_through = 0x8
+        succeeded = ctypes.windll.kernel32.MoveFileExW(
+            str(source),
+            str(target),
+            movefile_replace_existing | movefile_write_through,
+        )
+        if not succeeded:
+            raise OSError(ctypes.get_last_error(), "MoveFileExW failed")
+    else:
+        os.replace(source, target)
+        _fsync_directory(target.parent)
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

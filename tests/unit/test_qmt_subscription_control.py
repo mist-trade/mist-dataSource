@@ -1,4 +1,6 @@
 import asyncio
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -490,6 +492,207 @@ def test_journal_rotation_is_reloadable_and_archive_tamper_fails_closed(
             archive_max_bytes=524_288,
             resolved_retention_days=90,
         )
+
+
+def test_journal_compacts_only_resolved_lifecycle_prefix_and_reloads(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "journal.jsonl"
+    journal = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    filler = {f"field{index}": "x" * 1000 for index in range(45)}
+    journal.append(
+        "native_intent",
+        {"callSequence": 1, "method": "subscribe_quote", "symbol": "300502.SZ"},
+    )
+    journal.append(
+        "native_result",
+        {
+            "callSequence": 1,
+            "method": "subscribe_quote",
+            "successPresent": True,
+            "success": 123,
+            "failure": None,
+        },
+    )
+    journal.append(
+        "registry_transition",
+        {"transition": "single_subscribed", "symbol": "300502.SZ", "subId": 123},
+    )
+    journal.append(
+        "native_intent",
+        {
+            "callSequence": 2,
+            "method": "unsubscribe_quote",
+            "symbol": "300502.SZ",
+            "subId": 123,
+        },
+    )
+    journal.append(
+        "native_result",
+        {
+            "callSequence": 2,
+            "method": "unsubscribe_quote",
+            "successPresent": True,
+            "success": 0,
+            "failure": None,
+        },
+    )
+    journal.append(
+        "registry_transition",
+        {
+            "transition": "unsubscribed",
+            "bucket": "single",
+            "symbol": "300502.SZ",
+            "subId": 123,
+        },
+    )
+    for index in range(6):
+        journal.append("resolved_evidence", {"index": index, **filler})
+
+    sequence_before = journal.record_sequence
+    assert journal.compact() is True
+    checkpoints = list(tmp_path.glob("journal.jsonl.compaction-checkpoint.*.json"))
+    assert checkpoints
+    checkpoint = json.loads(checkpoints[0].read_text(encoding="utf-8"))
+    assert checkpoint["resolvedLifecycles"] == [
+        {
+            "bucket": "single",
+            "firstSequence": 3,
+            "lastSequence": 6,
+            "subId": 123,
+            "symbol": "300502.SZ",
+            "terminal": "unsubscribed",
+            "terminalArchiveSha256": checkpoint["resolvedLifecycles"][0][
+                "terminalArchiveSha256"
+            ],
+            "terminalRecordHash": checkpoint["resolvedLifecycles"][0]["terminalRecordHash"],
+        }
+    ]
+    assert list(tmp_path.glob("journal.jsonl.*.*.jsonl")) == []
+
+    reloaded = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    assert reloaded.record_sequence == sequence_before
+    reloaded.append("after_compaction", {"ok": True})
+    assert reloaded.record_sequence == sequence_before + 1
+
+
+def test_journal_compaction_pins_unresolved_handle(tmp_path: Path) -> None:
+    path = tmp_path / "journal.jsonl"
+    journal = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    filler = {f"field{index}": "x" * 1000 for index in range(45)}
+    journal.append(
+        "native_intent",
+        {"callSequence": 1, "method": "subscribe_quote", "symbol": "300502.SZ"},
+    )
+    journal.append(
+        "native_result",
+        {
+            "callSequence": 1,
+            "method": "subscribe_quote",
+            "successPresent": True,
+            "success": 123,
+            "failure": None,
+        },
+    )
+    journal.append(
+        "registry_transition",
+        {"transition": "single_subscribed", "symbol": "300502.SZ", "subId": 123},
+    )
+    for index in range(5):
+        journal.append("unresolved_evidence", {"index": index, **filler})
+
+    archives_before = list(tmp_path.glob("journal.jsonl.*.*.jsonl"))
+    assert archives_before
+    assert journal.compact() is False
+    assert list(tmp_path.glob("journal.jsonl.*.*.jsonl")) == archives_before
+
+
+def test_journal_recovers_interrupted_compaction_after_checkpoint_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "journal.jsonl"
+    journal = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    filler = {f"field{index}": "x" * 1000 for index in range(45)}
+    for index in range(6):
+        journal.append("resolved_evidence", {"index": index, **filler})
+    archive = sorted(tmp_path.glob("journal.jsonl.*.*.jsonl"))[0]
+    original_unlink = Path.unlink
+    failed = False
+
+    def interrupted_unlink(target: Path, *args: Any, **kwargs: Any) -> None:
+        nonlocal failed
+        if target == archive and not failed:
+            failed = True
+            raise OSError("injected compaction interruption")
+        original_unlink(target, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", interrupted_unlink)
+    with pytest.raises(OSError, match="injected compaction interruption"):
+        journal.compact()
+    monkeypatch.undo()
+
+    recovered = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    assert recovered.healthy is True
+    assert not (tmp_path / "journal.jsonl.maintenance.json").exists()
+    assert not archive.exists()
+
+
+def test_journal_folds_expired_resolved_checkpoints_with_deterministic_clock(
+    tmp_path: Path,
+) -> None:
+    now = [datetime(2026, 1, 1, tzinfo=UTC)]
+    path = tmp_path / "journal.jsonl"
+    journal = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+        wall_clock=lambda: now[0],
+    )
+    filler = {f"field{index}": "x" * 1000 for index in range(45)}
+    for cycle in range(2):
+        for index in range(6):
+            journal.append(
+                "resolved_evidence",
+                {"cycle": cycle, "index": index, **filler},
+            )
+        assert journal.compact() is True
+        if cycle == 0:
+            now[0] += timedelta(days=91)
+
+    folds = list(tmp_path.glob("journal.jsonl.compaction-fold.*.json"))
+    assert len(folds) == 1
+    fold = json.loads(folds[0].read_text(encoding="utf-8"))
+    assert fold["kind"] == "resolved_lifecycle_fold"
+    assert len(fold["sealedRootSha256"]) == 64
+    assert "retiredCheckpointDigests" not in fold
+    assert len(list(tmp_path.glob("journal.jsonl.compaction-checkpoint.*.json"))) == 1
 
 
 @pytest.mark.asyncio

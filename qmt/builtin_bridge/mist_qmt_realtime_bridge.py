@@ -238,6 +238,7 @@ def _register_owner() -> Dict[str, Any]:
             "lastPollAt": STATE.last_poll_at,
             "bridgeBuildId": BRIDGE_BUILD_ID,
             "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+            "bridgeRuntimeFingerprint": _compute_runtime_fingerprint(),
         },
     )
     token = response.get("leaseToken")
@@ -511,6 +512,11 @@ def _execute_history_command(
                     "lastError": STATE.last_error,
                 },
             }
+        if method == "runtime_introspection":
+            return {
+                "ok": True,
+                "result": _runtime_introspection(ContextInfo),
+            }
         if method == "get_market_data_ex":
             _log_call_start("get_market_data_ex", command, params)
             data = ContextInfo.get_market_data_ex(
@@ -553,6 +559,58 @@ def _execute_history_command(
                 "details": {"method": method, "traceback": traceback.format_exc()},
             },
         }
+
+
+def _compute_runtime_fingerprint() -> str:
+    """Fingerprint selected loaded functions without requiring ``__file__``."""
+    digest = hashlib.sha256()
+    names = [
+        "init",
+        "mist_qmt_realtime_bridge_tick",
+        "_execute_subscription_command",
+        "_make_subscription_callback",
+        "_drain_snapshot_queue",
+        "_execute_history_command",
+    ]
+    for name in names:
+        function = globals().get(name)
+        code = getattr(function, "__code__", None)
+        digest.update(name.encode("utf-8"))
+        if code is None:
+            digest.update(b":missing")
+            continue
+        digest.update(code.co_code)
+        digest.update(repr(code.co_consts).encode("utf-8", "backslashreplace"))
+        digest.update(repr(code.co_names).encode("utf-8", "backslashreplace"))
+    return digest.hexdigest()
+
+
+def _runtime_introspection(ContextInfo: BridgeContextInfo) -> Dict[str, Any]:
+    """Return bounded, read-only runtime identity and native method metadata."""
+    methods = {}  # type: Dict[str, Any]
+    for name in [
+        "subscribe_quote",
+        "subscribe_whole_quote",
+        "unsubscribe_quote",
+        "get_market_data_ex",
+    ]:
+        candidate = getattr(ContextInfo, name, None)
+        doc = getattr(candidate, "__doc__", None)
+        methods[name] = {
+            "available": callable(candidate),
+            "type": type(candidate).__name__ if candidate is not None else "missing",
+            "doc": str(doc)[:BOUNDED_LOG_TEXT] if doc else None,
+        }
+    return {
+        "bridgeBuildId": BRIDGE_BUILD_ID,
+        "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+        "bridgeRuntimeFingerprint": _compute_runtime_fingerprint(),
+        "ownerId": STATE.owner_id,
+        "startedAt": STATE.started_at,
+        "pythonVersion": ".".join(str(item) for item in __import__("sys").version_info[:3]),
+        "contextType": type(ContextInfo).__name__,
+        "methods": methods,
+    }
 
 
 def _post_json(url: str, payload: Mapping[str, Any]) -> Dict[str, Any]:

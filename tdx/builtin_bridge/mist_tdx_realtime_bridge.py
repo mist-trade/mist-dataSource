@@ -162,6 +162,7 @@ class BridgeOwner:
         self._last_registration_error_code: str | None = None
         self.last_native_probe_monotonic: float = 0.0
         self.last_attempted_revision: int = -1
+        self.last_native_probe_revision: int = 0
 
     def registration_payload(self) -> dict:
         return {
@@ -208,6 +209,7 @@ class BridgeOwner:
         self._active_native = set()
         self.last_native_probe_monotonic = 0.0
         self.last_attempted_revision = -1
+        self.last_native_probe_revision = 0
         self.registration_retry_seconds = POLL_INTERVAL_SECONDS
         self._last_registration_error_code = None
         # Do NOT log lease token (even partial) — per golden contract.
@@ -341,6 +343,7 @@ def run_bridge() -> None:
                 time.sleep(_retry_delay_seconds(poll_resp, 1))
 
             desired_revision = poll_resp.get("desiredRevision", 0)
+            native_probe_revision = poll_resp.get("nativeProbeRevision", 0)
             desired_symbols = poll_resp.get("desiredSymbols", [])
             to_unsubscribe = poll_resp.get("unsubscribe", [])
             to_subscribe = poll_resp.get("subscribe", [])
@@ -355,6 +358,7 @@ def run_bridge() -> None:
                 or to_subscribe
                 or revision_changed
                 or native_keepalive_due
+                or native_probe_revision > owner.last_native_probe_revision
             )
 
             # 2. Reconcile: unsubscribe first, then subscribe (batched).
@@ -382,6 +386,7 @@ def run_bridge() -> None:
                 native_list = tq_wrapper.get_subscribe_hq_stock_list()
                 native_set = {_format_code(s) for s in native_list}
                 owner._active_native = native_set
+                owner.last_native_probe_revision = native_probe_revision
             else:
                 native_set = set(owner._active_native)
             rejected = []
@@ -396,6 +401,7 @@ def run_bridge() -> None:
                     **owner.request_identity(),
                     "desiredRevision": desired_revision,
                     "appliedRevision": desired_revision,
+                    "nativeProbeRevision": owner.last_native_probe_revision,
                     "active": active_list,
                     "rejected": rejected,
                 },

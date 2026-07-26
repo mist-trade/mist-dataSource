@@ -59,6 +59,7 @@ class ResultRequest(StrictRequestModel):
     streamEpoch: str  # Golden requires streamEpoch.
     desiredRevision: int
     appliedRevision: int
+    nativeProbeRevision: int = 0
     active: list[str] = Field(default_factory=lambda: list[str]())
     rejected: list[RejectedItem] = Field(default_factory=lambda: list[RejectedItem]())
 
@@ -161,6 +162,7 @@ async def post_result(body: ResultRequest, request: Request) -> dict[str, Any]:
             applied_revision=body.appliedRevision,
             active=body.active,
             rejected=[r.model_dump() for r in body.rejected],
+            native_probe_revision=body.nativeProbeRevision,
         )
     except GatewayError as exc:
         return {"error": _gateway_error(exc)}

@@ -23,6 +23,7 @@ class QmtBridgeOwner:
     generation: int
     bridge_build_id: str
     bridge_artifact_sha256: str
+    bridge_runtime_fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class QmtCommandGateway:
         *,
         bridge_build_id: str = "unknown",
         bridge_artifact_sha256: str = "unknown",
+        bridge_runtime_fingerprint: str = "unknown",
     ) -> QmtBridgeOwner:
         now = self._clock()
         previous = self._owner
@@ -101,6 +103,7 @@ class QmtCommandGateway:
             generation=generation,
             bridge_build_id=bridge_build_id,
             bridge_artifact_sha256=bridge_artifact_sha256,
+            bridge_runtime_fingerprint=bridge_runtime_fingerprint,
         )
         return self._owner
 
@@ -117,6 +120,7 @@ class QmtCommandGateway:
             generation=self._owner.generation,
             bridge_build_id=self._owner.bridge_build_id,
             bridge_artifact_sha256=self._owner.bridge_artifact_sha256,
+            bridge_runtime_fingerprint=self._owner.bridge_runtime_fingerprint,
         )
         return self._owner
 
@@ -255,6 +259,9 @@ class QmtCommandGateway:
             "ownerGeneration": self._owner.generation if self._owner else 0,
             "bridgeBuildId": self._owner.bridge_build_id if self._owner else None,
             "bridgeArtifactSha256": self._owner.bridge_artifact_sha256 if self._owner else None,
+            "bridgeRuntimeFingerprint": (
+                self._owner.bridge_runtime_fingerprint if self._owner else None
+            ),
             "ready": self._owner is not None and not owner_stale,
             "pendingCount": len(self._pending),
             "inFlightCount": len(self._in_flight),

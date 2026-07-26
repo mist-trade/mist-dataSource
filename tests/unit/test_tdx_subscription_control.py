@@ -22,10 +22,17 @@ async def _register(gateway: TdxRealtimeGateway) -> None:
 
 def test_get_subscriptions_returns_bridge_observed_native_list() -> None:
     async def run() -> None:
-        gateway = TdxRealtimeGateway()
+        gateway = TdxRealtimeGateway(control_timeout_seconds=0.5)
         await _register(gateway)
+        read_task = asyncio.create_task(gateway.execute_control("get_subscriptions"))
+        await asyncio.sleep(0)
         owner = gateway.owner
         assert owner is not None
+        poll = await gateway.poll(
+            lease_token=owner.lease_token,
+            stream_epoch=owner.stream_epoch,
+        )
+        assert poll["nativeProbeRevision"] == 1
         await gateway.post_result(
             lease_token=owner.lease_token,
             stream_epoch=owner.stream_epoch,
@@ -33,10 +40,30 @@ def test_get_subscriptions_returns_bridge_observed_native_list() -> None:
             applied_revision=0,
             active=["SH600519", "600519.SH", "000001.SZ"],
             rejected=[],
+            native_probe_revision=poll["nativeProbeRevision"],
         )
-        response_type, data = await gateway.execute_control("get_subscriptions")
+        response_type, data = await read_task
         assert response_type == "subscriptions"
         assert data == {"success": ["000001.SZ", "600519.SH"]}
+
+    asyncio.run(run())
+
+
+def test_get_subscriptions_rejects_cached_list_without_fresh_native_probe() -> None:
+    async def run() -> None:
+        gateway = TdxRealtimeGateway(control_timeout_seconds=0.01)
+        await _register(gateway)
+        gateway._last_reported_active = {"600519.SH"}
+
+        assert await gateway.execute_control("get_subscriptions") == (
+            "subscriptions",
+            {
+                "failure": {
+                    "symbol": None,
+                    "reason": "TDX_SUBSCRIPTIONS_READ_FAILED",
+                }
+            },
+        )
 
     asyncio.run(run())
 

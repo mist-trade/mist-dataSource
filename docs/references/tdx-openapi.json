@@ -182,6 +182,11 @@
             "title": "Leasetoken",
             "type": "string"
           },
+          "nativeProbeRevision": {
+            "default": 0,
+            "title": "Nativeproberevision",
+            "type": "integer"
+          },
           "rejected": {
             "items": {
               "$ref": "#/components/schemas/RejectedItem"

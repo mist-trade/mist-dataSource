@@ -121,6 +121,11 @@ class TdxRealtimeGateway:
     # This is SEPARATE from _observed_native_symbols (converged set): it persists
     # across desired-revision changes so unsubscribe can be computed correctly.
     _last_reported_active: set[str] = field(default_factory=lambda: set[str]())
+    # Datasource-private read barrier. A get_subscriptions request increments
+    # this revision and waits until the terminal reports a native list probe
+    # carrying the same (or a later) revision.
+    _native_probe_revision: int = 0
+    _completed_native_probe_revision: int = 0
     # Accumulated accepted/rejected native symbols from the last result.
     _last_applied_active: list[str] = field(default_factory=lambda: list[str]())
     _last_rejected: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
@@ -235,6 +240,7 @@ class TdxRealtimeGateway:
             self._converged_revision = -1
             self._observed_native_symbols = set()
             self._last_reported_active = set()
+            self._completed_native_probe_revision = 0
             self._reset_reconcile_retry_locked()
             self._native_evidence.clear()
             self._last_snapshot_monotonic = None
@@ -359,6 +365,7 @@ class TdxRealtimeGateway:
                 "desiredRevision": self._desired_revision,
                 "desiredSymbols": list(self._desired_symbols),
                 "streamEpoch": owner.stream_epoch,
+                "nativeProbeRevision": self._native_probe_revision,
                 # Reconcile instructions based on _last_reported_active (what the
                 # terminal actually has), NOT _observed_native_symbols (converged set
                 # which is cleared on desired change). This ensures unsubscribe is
@@ -381,6 +388,7 @@ class TdxRealtimeGateway:
         applied_revision: int,
         active: list[str],
         rejected: list[dict[str, Any]],
+        native_probe_revision: int = 0,
     ) -> dict[str, Any]:
         """Terminal reports reconcile outcome (four-state convergence)."""
         async with self._lock:
@@ -398,6 +406,14 @@ class TdxRealtimeGateway:
             self._attempted_revision = desired_revision
             self._last_applied_active = dedupe_normalized_symbols(active)
             self._last_reported_active = set(self._last_applied_active)
+            if (
+                type(native_probe_revision) is int
+                and 0 <= native_probe_revision <= self._native_probe_revision
+            ):
+                self._completed_native_probe_revision = max(
+                    self._completed_native_probe_revision,
+                    native_probe_revision,
+                )
             self._last_rejected = rejected
             desired_set = set(self._desired_symbols)
             active_set = set(self._last_applied_active)
@@ -575,6 +591,21 @@ class TdxRealtimeGateway:
                             }
                         },
                     )
+                self._native_probe_revision += 1
+                requested_probe_revision = self._native_probe_revision
+                self._convergence_changed.set()
+            if not await self._wait_for_native_probe(requested_probe_revision):
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {
+                        "failure": {
+                            "symbol": None,
+                            "reason": "TDX_SUBSCRIPTIONS_READ_FAILED",
+                        }
+                    },
+                )
+            async with self._lock:
                 active = sorted(self._last_reported_active)
             return self._record_control(
                 operation,
@@ -749,6 +780,26 @@ class TdxRealtimeGateway:
             except TimeoutError:
                 return False
 
+    async def _wait_for_native_probe(self, probe_revision: int) -> bool:
+        deadline = time.monotonic() + self.control_timeout_seconds
+        while True:
+            async with self._lock:
+                if not self._is_owner_fresh():
+                    return False
+                if self._completed_native_probe_revision >= probe_revision:
+                    return True
+                self._convergence_changed.clear()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                await asyncio.wait_for(
+                    self._convergence_changed.wait(),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                return False
+
     # --- health --------------------------------------------------------
 
     async def health(self) -> dict[str, Any]:
@@ -767,6 +818,8 @@ class TdxRealtimeGateway:
                 "desiredSymbols": len(self._desired_symbols),
                 "convergedSymbols": len(self._observed_native_symbols),
                 "attemptedRevision": self._attempted_revision,
+                "nativeProbeRevision": self._native_probe_revision,
+                "completedNativeProbeRevision": self._completed_native_probe_revision,
                 "reconcileRetryAttempt": self._reconcile_retry_attempt,
                 "reconcileRetryAfterMs": self._remaining_retry_ms_locked(),
                 "lastFailureCode": self._last_failure_code,

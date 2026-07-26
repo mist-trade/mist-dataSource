@@ -7,6 +7,7 @@
           "method": {
             "enum": [
               "health",
+              "runtime_introspection",
               "get_market_data_ex",
               "get_stock_list_in_sector"
             ],
@@ -58,6 +59,11 @@
           },
           "bridgeBuildId": {
             "title": "Bridgebuildid",
+            "type": "string"
+          },
+          "bridgeRuntimeFingerprint": {
+            "default": "unknown",
+            "title": "Bridgeruntimefingerprint",
             "type": "string"
           },
           "lastPollAt": {

@@ -33,6 +33,10 @@ class OwnerRequest(BridgeModel):
     last_poll_at: str | None = Field(default=None, alias="lastPollAt")
     bridge_build_id: str = Field(alias="bridgeBuildId")
     bridge_artifact_sha256: str = Field(alias="bridgeArtifactSha256")
+    bridge_runtime_fingerprint: str = Field(
+        default="unknown",
+        alias="bridgeRuntimeFingerprint",
+    )
 
 
 class PollRequest(BridgeModel):
@@ -53,7 +57,12 @@ class ResultRequest(BridgeModel):
 
 
 class CommandRequest(BridgeModel):
-    method: Literal["health", "get_market_data_ex", "get_stock_list_in_sector"]
+    method: Literal[
+        "health",
+        "runtime_introspection",
+        "get_market_data_ex",
+        "get_stock_list_in_sector",
+    ]
     params: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds")
 
@@ -161,6 +170,7 @@ async def register_owner(payload: OwnerRequest, request: Request) -> dict[str, A
             payload.owner_id,
             bridge_build_id=payload.bridge_build_id,
             bridge_artifact_sha256=payload.bridge_artifact_sha256,
+            bridge_runtime_fingerprint=payload.bridge_runtime_fingerprint,
         )
     except QmtBridgeOwnershipError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

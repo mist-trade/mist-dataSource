@@ -121,6 +121,35 @@ def test_builtin_bridge_logs_qmt_function_calls_for_qmt_ui() -> None:
     assert "mist_qmt_realtime_bridge control" in source
 
 
+def test_builtin_bridge_exposes_read_only_runtime_introspection() -> None:
+    source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
+    namespace = {"__name__": "mist_qmt_realtime_bridge_embedded"}
+    exec(compile(source, BRIDGE_SCRIPT.name, "exec"), namespace)
+
+    class EmbeddedContext:
+        def subscribe_quote(self):
+            return None
+
+        def subscribe_whole_quote(self):
+            return None
+
+        def unsubscribe_quote(self):
+            return None
+
+        def get_market_data_ex(self):
+            return None
+
+    result = namespace["_execute_history_command"](
+        EmbeddedContext(),
+        {"method": "runtime_introspection", "params": {}},
+    )
+
+    assert result["ok"] is True
+    assert result["result"]["bridgeBuildId"] == "mist-qmt-realtime-bridge-v2.0"
+    assert len(result["result"]["bridgeRuntimeFingerprint"]) == 64
+    assert result["result"]["methods"]["subscribe_quote"]["available"] is True
+
+
 def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
     bridge_source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
     probe_source = RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8")
