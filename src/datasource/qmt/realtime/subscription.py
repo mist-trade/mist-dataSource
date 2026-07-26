@@ -118,6 +118,10 @@ class QmtSubscriptionRegistry:
         }
 
     def owns(self, subscription_id: int, symbol: str) -> bool:
+        if ("whole", None, subscription_id) in self.retained_recovery:
+            return False
+        if ("single", symbol, subscription_id) in self.retained_recovery:
+            return False
         if self.whole is not None and self.whole.sub_id == subscription_id:
             return symbol in self.whole.symbols
         return self.singles.get(symbol) == subscription_id
@@ -722,8 +726,14 @@ class QmtSubscriptionController:
         method: NativeMethod,
         fields: dict[str, Any],
     ) -> tuple[QmtNativeReply, bool]:
+        command_symbol = fields.get("symbol")
+        if not isinstance(command_symbol, str):
+            command_symbol = None
         if self._slot is not None:
-            raise QmtSubscriptionControlError("QMT_SUBSCRIPTION_CONTROL_BUSY")
+            raise QmtSubscriptionControlError(
+                "QMT_SUBSCRIPTION_CONTROL_BUSY",
+                symbol=command_symbol,
+            )
         call_sequence = self._call_sequence + 1
         command = {"callSequence": call_sequence, "method": method, **fields}
         try:
@@ -732,7 +742,10 @@ class QmtSubscriptionController:
                 {"callSequence": call_sequence, "method": method, **fields},
             )
         except QmtSubscriptionJournalError as exc:
-            raise QmtSubscriptionControlError("QMT_JOURNAL_DURABILITY_FAILED") from exc
+            raise QmtSubscriptionControlError(
+                "QMT_JOURNAL_DURABILITY_FAILED",
+                symbol=command_symbol,
+            ) from exc
         self._call_sequence = call_sequence
         loop = asyncio.get_running_loop()
         slot = _NativeSlot(
@@ -747,7 +760,10 @@ class QmtSubscriptionController:
             try:
                 reply = await asyncio.wait_for(slot.future, timeout=self._timeout_seconds)
             except TimeoutError as exc:
-                raise QmtSubscriptionControlError("QMT_SUBSCRIPTION_CALL_TIMEOUT") from exc
+                raise QmtSubscriptionControlError(
+                    "QMT_SUBSCRIPTION_CALL_TIMEOUT",
+                    symbol=command_symbol,
+                ) from exc
             durable = True
             try:
                 self.journal.append(

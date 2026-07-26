@@ -49,6 +49,23 @@ async def _wait_for_slot(controller: QmtSubscriptionController) -> None:
     raise AssertionError("subscription native-call slot was not created")
 
 
+def _fail_journal_kind(
+    monkeypatch: pytest.MonkeyPatch,
+    journal: QmtSubscriptionJournal,
+    failed_kind: str,
+) -> None:
+    original_append = journal.append
+
+    def append(kind: str, detail: dict[str, Any]) -> dict[str, Any]:
+        if kind == failed_kind:
+            journal.healthy = False
+            journal.last_error = f"injected {failed_kind} durability failure"
+            raise QmtSubscriptionJournalError(journal.last_error)
+        return original_append(kind, detail)
+
+    monkeypatch.setattr(journal, "append", append)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sub_id", [0, -7, 23])
 async def test_single_subscribe_accepts_every_exact_integer_id(
@@ -231,6 +248,139 @@ async def test_late_result_cannot_complete_a_newer_slot(tmp_path: Path) -> None:
         QmtNativeReply(success_present=True, success=2, failure=None),
     )
     assert await second == ("subscribed", {"success": 2})
+
+
+@pytest.mark.asyncio
+async def test_intent_durability_failure_exposes_no_native_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller, _ = _controller(tmp_path)
+    _fail_journal_kind(monkeypatch, controller.journal, "native_intent")
+
+    assert await controller.execute("subscribe", symbol="300502.SZ") == (
+        "subscribed",
+        {
+            "failure": {
+                "symbol": "300502.SZ",
+                "reason": "QMT_JOURNAL_DURABILITY_FAILED",
+            }
+        },
+    )
+    assert controller.poll_command("owner", "token", 1) is None
+    assert controller.health()["callSequence"] == 0
+    assert controller.health()["inFlight"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_kind", ["native_result", "registry_transition"])
+async def test_subscribe_durability_failure_retains_id_and_blocks_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_kind: str,
+) -> None:
+    controller, published = _controller(tmp_path)
+    _fail_journal_kind(monkeypatch, controller.journal, failed_kind)
+
+    task = asyncio.create_task(controller.execute("subscribe", symbol="300502.SZ"))
+    await _wait_for_slot(controller)
+    command = controller.poll_command("owner", "token", 1)
+    assert command is not None
+    controller.post_result(
+        "owner",
+        "token",
+        1,
+        command["callSequence"],
+        QmtNativeReply(success_present=True, success=123, failure=None),
+    )
+
+    assert await task == (
+        "subscribed",
+        {
+            "failure": {
+                "symbol": "300502.SZ",
+                "reason": "QMT_JOURNAL_DURABILITY_FAILED",
+            }
+        },
+    )
+    assert controller.registry.public_value()["singles"] == {"300502.SZ": 123}
+    assert controller.registry.retained_recovery == {("single", "300502.SZ", 123)}
+    assert controller.health()["reconciliationRequired"] is True
+    assert controller.health()["retainedRecoveryCount"] == 1
+
+    snapshot = await controller.accept_snapshot(
+        "owner",
+        "token",
+        1,
+        123,
+        "2026-07-26T10:00:00+08:00",
+        {"300502.SZ": {"lastPrice": 10.5}},
+    )
+    assert snapshot == {
+        "accepted": [],
+        "rejected": [
+            {"symbol": "300502.SZ", "reason": "QMT_SNAPSHOT_NON_MEMBER"}
+        ],
+    }
+    assert published == []
+    assert await controller.execute("subscribe", symbol="600030.SH") == (
+        "subscribed",
+        {
+            "failure": {
+                "symbol": "600030.SH",
+                "reason": "QMT_JOURNAL_RECONCILIATION_REQUIRED",
+            }
+        },
+    )
+    assert controller.poll_command("owner", "token", 1) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_kind", ["native_result", "registry_transition"])
+async def test_confirmed_unsubscribe_durability_failure_retains_original_bucket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_kind: str,
+) -> None:
+    controller, _ = _controller(tmp_path)
+    controller.registry.singles["300502.SZ"] = 123
+    _fail_journal_kind(monkeypatch, controller.journal, failed_kind)
+
+    task = asyncio.create_task(controller.execute("unsubscribe", symbol="300502.SZ"))
+    await _wait_for_slot(controller)
+    command = controller.poll_command("owner", "token", 1)
+    assert command is not None
+    controller.post_result(
+        "owner",
+        "token",
+        1,
+        command["callSequence"],
+        QmtNativeReply(success_present=True, success=0, failure=None),
+    )
+
+    assert await task == (
+        "unsubscribed",
+        {
+            "failure": {
+                "symbol": "300502.SZ",
+                "reason": "QMT_JOURNAL_DURABILITY_FAILED",
+                "subscriptionState": "unknown",
+            }
+        },
+    )
+    assert controller.registry.public_value()["singles"] == {"300502.SZ": 123}
+    assert controller.registry.retained_recovery == {("single", "300502.SZ", 123)}
+    assert controller.health()["reconciliationRequired"] is True
+    assert await controller.execute("sync_subscriptions", symbols=["600030.SH"]) == (
+        "subscriptions_synced",
+        {
+            "failure": {
+                "symbol": None,
+                "reason": "QMT_JOURNAL_RECONCILIATION_REQUIRED",
+            }
+        },
+    )
+    assert controller.poll_command("owner", "token", 1) is None
 
 
 @pytest.mark.asyncio
