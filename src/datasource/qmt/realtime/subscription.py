@@ -61,9 +61,9 @@ class QmtSubscriptionControlError(Exception):
         subscription_state: SubscriptionState | None = None,
     ) -> None:
         super().__init__(reason)
-        self.reason = reason
-        self.symbol = symbol
-        self.subscription_state = subscription_state
+        self.reason: str = reason
+        self.symbol: str | None = symbol
+        self.subscription_state: SubscriptionState | None = subscription_state
 
 
 class QmtSubscriptionSequenceError(Exception):
@@ -819,7 +819,7 @@ def _exact_subscription_id(reply: QmtNativeReply, symbol: str | None) -> int:
             "QMT_INVALID_SUBSCRIPTION_ID",
             symbol=symbol,
         )
-    return cast(int, reply.success)
+    return reply.success
 
 
 def _generic_failure(symbol: str | None, reason: str) -> dict[str, Any]:
@@ -842,7 +842,7 @@ def _state_failure(
 
 def _positive_int(value: int | str, name: str) -> int:
     if type(value) is int:
-        parsed = cast(int, value)
+        parsed = value
     elif isinstance(value, str) and value.isdigit():
         parsed = int(value)
     else:
@@ -880,13 +880,15 @@ def _journal_safe(value: Any, *, depth: int = 0) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Mapping):
+        mapping = cast(Mapping[Any, Any], value)
         return {
             str(key)[:256]: _journal_safe(item, depth=depth + 1)
-            for key, item in list(value.items())[:256]
+            for key, item in list(mapping.items())[:256]
             if str(key) != "leaseToken"
         }
     if isinstance(value, (list, tuple)):
-        return [_journal_safe(item, depth=depth + 1) for item in value[:256]]
+        sequence = cast(Sequence[Any], value)
+        return [_journal_safe(item, depth=depth + 1) for item in sequence[:256]]
     return str(value)[:1024]
 
 

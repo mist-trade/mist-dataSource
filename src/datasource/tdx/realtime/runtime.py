@@ -753,13 +753,20 @@ class TdxRealtimeGateway:
 
     async def _official_subscriptions(self) -> list[str]:
         value = await self._call_rpc("get_subscribe_hq_stock_list", {})
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        if not isinstance(value, list):
             raise GatewayError(
                 "TDX_SUBSCRIPTIONS_INVALID",
                 "official TDX subscription list must be a list of strings",
                 retryable=False,
             )
-        return dedupe_normalized_symbols(value)
+        items = cast(list[Any], value)
+        if not all(isinstance(item, str) for item in items):
+            raise GatewayError(
+                "TDX_SUBSCRIPTIONS_INVALID",
+                "official TDX subscription list must be a list of strings",
+                retryable=False,
+            )
+        return dedupe_normalized_symbols(cast(list[str], items))
 
     async def _try_official_subscriptions(self) -> list[str] | None:
         try:
