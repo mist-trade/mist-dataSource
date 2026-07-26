@@ -120,6 +120,11 @@ class QmtCommandGateway:
         )
         return self._owner
 
+    def validate_owner(self, owner_id: str, lease_token: str, generation: int) -> None:
+        """Validate and heartbeat the current bridge lease without exposing its token."""
+        self._require_owner(owner_id, lease_token, generation)
+        self.heartbeat(owner_id, lease_token, generation)
+
     def enqueue(
         self,
         method: str,

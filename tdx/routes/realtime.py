@@ -12,16 +12,12 @@ from __future__ import annotations
 import json
 from contextlib import suppress
 from json import JSONDecodeError
-from typing import cast
+from typing import Any, cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from src.datasource.tdx.realtime.runtime import (
-    ACCEPTED_ACQUISITION_PROFILE,
-    ACCEPTED_PAYLOAD_TYPE,
-    ACCEPTED_SCHEMA_VERSION,
-)
-from src.ws.protocol import ws_error, ws_ready, ws_subscription_ack
+from src.datasource.tdx.realtime.runtime import ACCEPTED_SCHEMA_VERSION
+from src.ws.protocol import ws_error, ws_pong, ws_ready, ws_subscription_result
 
 router = APIRouter()
 
@@ -63,24 +59,15 @@ async def tdx_realtime(websocket: WebSocket, client_id: str) -> None:
         return
 
     # Send ready with contract tuple + current epoch (late-connect recovery).
-    owner = gateway.owner
     await manager.send_to_client(
         client_id,
         ws_ready(
             "tdx",
             {
                 "mode": "builtin",
-                "payloadType": ACCEPTED_PAYLOAD_TYPE,
                 "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-                "sequenceScope": "symbol",
                 "source": "tdx",
-                "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
-                "streamEpoch": owner.stream_epoch if owner else None,
-                "generation": owner.generation if owner else 0,
-                "sequence": 0,
-                "ownerId": owner.owner_id if owner else None,
-                "datasourceBuildId": "mist-datasource-realtime-v1",
-                "bridgeBuildId": owner.bridge_build_id if owner else None,
+                "quality": "latest-state",
             },
         ),
     )
@@ -94,35 +81,98 @@ async def tdx_realtime(websocket: WebSocket, client_id: str) -> None:
                 msg: object = json.loads(raw)
                 if isinstance(msg, dict):
                     msg_dict: dict[str, object] = msg  # type: ignore[assignment]
-                    if msg_dict.get("type") == "ping":
-                        from src.ws.protocol import ws_pong
-
-                        await manager.send_to_client(client_id, ws_pong("tdx"))
-                    elif msg_dict.get("type") == "sync_subscriptions":
-                        typed_symbols = _parse_symbols(msg_dict.get("symbols"))
-                        if typed_symbols is None:
-                            await manager.send_to_client(
-                                client_id,
-                                ws_error(
-                                    provider="tdx",
-                                    code="TDX_SUBSCRIPTIONS_INVALID",
-                                    message="symbols must be a list of strings",
-                                    retryable=False,
-                                ),
-                            )
+                    msg_type = msg_dict.get("type")
+                    if msg_type == "ping":
+                        if set(msg_dict) != {"type"}:
+                            await _send_invalid_fields(websocket, msg_dict, {"type"})
                             continue
-                        await gateway.sync_desired(typed_symbols)
+                        await manager.send_to_client(client_id, ws_pong("tdx"))
+                    elif msg_type in {
+                        "sync_subscriptions",
+                        "subscribe",
+                        "unsubscribe",
+                        "get_subscriptions",
+                    }:
+                        allowed = (
+                            {"type", "symbols"}
+                            if msg_type == "sync_subscriptions"
+                            else {"type", "symbol"}
+                            if msg_type in {"subscribe", "unsubscribe"}
+                            else {"type"}
+                        )
+                        if set(msg_dict) != allowed:
+                            await _send_invalid_fields(websocket, msg_dict, allowed)
+                            continue
+                        if msg_type == "sync_subscriptions":
+                            typed_symbols = _parse_symbols(msg_dict.get("symbols"))
+                            if typed_symbols is None:
+                                await _send_control_error(
+                                    manager,
+                                    client_id,
+                                    "TDX_SUBSCRIPTIONS_INVALID",
+                                    "symbols must be a list of strings",
+                                )
+                                continue
+                            response_type, data = await gateway.execute_control(
+                                msg_type,
+                                symbols=typed_symbols,
+                            )
+                        else:
+                            symbol = msg_dict.get("symbol")
+                            if msg_type != "get_subscriptions" and not isinstance(symbol, str):
+                                await _send_control_error(
+                                    manager,
+                                    client_id,
+                                    "TDX_SUBSCRIPTION_SYMBOL_INVALID",
+                                    "symbol must be a string",
+                                )
+                                continue
+                            response_type, data = await gateway.execute_control(
+                                cast(str, msg_type),
+                                symbol=cast(str | None, symbol),
+                            )
                         await manager.send_to_client(
                             client_id,
-                            ws_subscription_ack(
+                            ws_subscription_result(
                                 provider="tdx",
-                                msg_type="subscribed",
-                                accepted=typed_symbols,
-                                rejected=[],
-                                active=typed_symbols,
+                                msg_type=response_type,
+                                data=data,
                             ),
                         )
     except WebSocketDisconnect:
         pass
     finally:
         await manager.disconnect(client_id)
+
+
+async def _send_invalid_fields(
+    websocket: WebSocket,
+    message: dict[str, Any],
+    allowed: set[str],
+) -> None:
+    await websocket.send_text(
+        ws_error(
+            provider="tdx",
+            code="DATASOURCE_WS_UNKNOWN_FIELDS",
+            message="WebSocket message contains unknown fields",
+            retryable=False,
+            details={"fields": sorted(set(message) - allowed)},
+        ).to_json()
+    )
+
+
+async def _send_control_error(
+    manager: Any,
+    client_id: str,
+    code: str,
+    message: str,
+) -> None:
+    await manager.send_to_client(
+        client_id,
+        ws_error(
+            provider="tdx",
+            code=code,
+            message=message,
+            retryable=False,
+        ),
+    )

@@ -67,7 +67,6 @@ class SnapshotRequest(StrictRequestModel):
     leaseToken: str
     streamEpoch: str  # Golden requires streamEpoch.
     symbol: str
-    producerSequence: int
     capturedAt: str
     native: dict[str, Any]
 
@@ -176,7 +175,6 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
             lease_token=body.leaseToken,
             stream_epoch=body.streamEpoch,
             symbol=body.symbol,
-            producer_sequence=body.producerSequence,
             captured_at=body.capturedAt,
             native=body.native,
         )
@@ -184,14 +182,17 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
         ws_manager = getattr(request.app.state, "tdx_realtime_ws_manager", None)
         if ws_manager is not None and result.get("accepted"):
             await ws_manager.broadcast(ws_realtime_snapshot("tdx", result["frame"]))
-        return {"accepted": result["accepted"], "sequence": result["sequence"]}
+        return {}
     except GatewayError as exc:
-        return {"accepted": False, "error": _gateway_error(exc)}
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_gateway_error(exc),
+        ) from exc
     except Exception as exc:  # Native validation error etc.
-        return {
-            "accepted": False,
-            "error": {"code": "TDX_BRIDGE_DECODE_ERROR", "message": str(exc)},
-        }
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "TDX_BRIDGE_DECODE_ERROR", "message": str(exc)},
+        ) from exc
 
 
 @router.get("/tdx/bridge/health")

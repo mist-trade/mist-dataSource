@@ -10,6 +10,14 @@ def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:
     app = FastAPI()
     app.include_router(router)
     gateway = TdxRealtimeGateway()
+    async def execute(operation, *, symbol=None, symbols=None):
+        assert operation == "sync_subscriptions"
+        assert symbol is None
+        assert symbols == ["600030.SH"]
+        await gateway.sync_desired(symbols)
+        return "subscriptions_synced", {"success": None}
+
+    gateway.execute_control = execute
     app.state.tdx_realtime_gateway = gateway
     app.state.tdx_realtime_ws_manager = ConnectionManager()
 
@@ -22,13 +30,9 @@ def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:
             {"type": "sync_subscriptions", "symbols": ["600030.SH"]}
         )
         synced = websocket.receive_json()
-        assert synced["type"] == "subscribed"
+        assert synced["type"] == "subscriptions_synced"
         assert synced["provider"] == "tdx"
-        assert synced["data"] == {
-            "accepted": ["600030.SH"],
-            "rejected": [],
-            "active": ["600030.SH"],
-        }
+        assert synced["data"] == {"success": None}
 
         health = client.portal.call(gateway.health)
         assert health["desiredSymbols"] == 1

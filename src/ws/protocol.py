@@ -1,6 +1,6 @@
 """WebSocket message protocol definitions."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -16,15 +16,18 @@ class WSMessage(BaseModel):
         "sync_subscriptions",
         "subscribe",
         "unsubscribe",
+        "get_subscriptions",
+        "subscriptions_synced",
         "subscribed",
         "unsubscribed",
+        "subscriptions",
         "error",
         "realtime.native_snapshot",
         "realtime.stream_started",
     ]
     provider: str | None = None
     data: dict[str, Any]
-    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_json(self) -> str:
         """Convert message to JSON string."""
@@ -80,6 +83,21 @@ def ws_subscription_ack(
             "active": active,
         },
     )
+
+
+def ws_subscription_result(
+    *,
+    provider: str,
+    msg_type: Literal[
+        "subscriptions_synced",
+        "subscribed",
+        "unsubscribed",
+        "subscriptions",
+    ],
+    data: dict[str, Any],
+) -> WSMessage:
+    """Create an exact success-or-failure subscription control response."""
+    return WSMessage(type=msg_type, provider=provider, data=data)
 
 
 def ws_realtime_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:

@@ -3,9 +3,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BRIDGE_SCRIPT = PROJECT_ROOT / "qmt" / "builtin_bridge" / "mist_qmt_realtime_bridge.py"
-RUNTIME_PROBE_SCRIPT = (
-    PROJECT_ROOT / "tools" / "qmt_runtime_probe" / "mist_qmt_runtime_probe.py"
-)
+RUNTIME_PROBE_SCRIPT = PROJECT_ROOT / "tools" / "qmt_runtime_probe" / "mist_qmt_runtime_probe.py"
 README = PROJECT_ROOT / "README.md"
 QMT_ALIGNMENT = PROJECT_ROOT / "docs" / "references" / "qmt-provider-alignment.md"
 QMT_CLIENT = PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py"
@@ -60,12 +58,15 @@ def test_builtin_bridge_uses_only_verified_stdlib_imports() -> None:
     assert imported_names.isdisjoint(forbidden_imports)
 
 
-def test_builtin_bridge_polling_uses_run_time_not_market_event_callbacks() -> None:
+def test_builtin_bridge_uses_run_time_to_drain_native_subscription_callbacks() -> None:
     source = BRIDGE_SCRIPT.read_text(encoding="utf-8")
 
     assert ".run_time(" in source
     assert "def handlebar" not in source
-    assert "subscribe_quote" not in source
+    assert "subscribe_quote" in source
+    assert "subscribe_whole_quote" in source
+    assert "unsubscribe_quote" in source
+    assert "_drain_snapshot_queue()" in source
 
 
 def test_builtin_bridge_loads_when_qmt_does_not_define_dunder_file() -> None:
@@ -115,8 +116,9 @@ def test_builtin_bridge_logs_qmt_function_calls_for_qmt_ui() -> None:
     assert "mist_qmt_realtime_bridge call_error" in source
     assert "_log_command(command)" in source
     assert '_log_call_start("get_market_data_ex"' in source
-    assert '_log_call_start("get_full_tick"' in source
     assert '_log_call_start("get_stock_list_in_sector"' in source
+    assert "get_full_tick" not in source
+    assert "mist_qmt_realtime_bridge control" in source
 
 
 def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
@@ -132,7 +134,9 @@ def test_qmt_builtin_scripts_default_to_qmt_service_bridge_port() -> None:
 
 def test_runtime_probe_is_the_only_qmt_script_allowed_to_probe_runtime_features() -> None:
     bridge_imports = _imported_top_level_names(ast.parse(BRIDGE_SCRIPT.read_text(encoding="utf-8")))
-    probe_imports = _imported_top_level_names(ast.parse(RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8")))
+    probe_imports = _imported_top_level_names(
+        ast.parse(RUNTIME_PROBE_SCRIPT.read_text(encoding="utf-8"))
+    )
 
     assert {"threading", "multiprocessing", "subprocess"} <= probe_imports
     assert bridge_imports.isdisjoint({"threading", "multiprocessing", "subprocess"})

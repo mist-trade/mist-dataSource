@@ -15,11 +15,9 @@ def test_qmt_builtin_mounts_formal_realtime_websocket() -> None:
         assert ready["data"] == {
             **ready["data"],
             "mode": "builtin",
-            "payloadType": "mist.realtime.native_snapshot",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "source": "qmt",
-            "sequenceScope": "symbol",
-            "acquisitionProfile": "qmt.get_full_tick",
+            "quality": "latest-state",
         }
 
 

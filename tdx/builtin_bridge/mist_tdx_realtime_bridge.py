@@ -10,7 +10,7 @@ Design invariants (frozen in C0.1):
   SDK/HTTP calls in callback).
 - Worker/poll loop: reconcile subscriptions, fetch get_market_snapshot for
   dirty symbols, POST native projection to gateway.
-- producer_sequence for HTTP-retry idempotency.
+- Snapshot POST is attempted once; latest-state observations are never replayed.
 - Carries bridgeBuildId + bridgeArtifactSha256 in owner registration.
 
 Environment:
@@ -48,10 +48,10 @@ DIRTY_QUEUE_MAX = 200
 
 # Contract tuple (must match gateway ACCEPTED_* constants).
 ACQUISITION_PROFILE = "tdx.get_market_snapshot"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-bridge-v1.1"
+BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v2.0"
 
 
 def _resolve_script_path():
@@ -156,14 +156,9 @@ class BridgeOwner:
         self.stream_epoch: str | None = None
         self.owner_id: str = f"tdx-bridge-pid-{os.getpid()}"
         self.applied_revision: int = -1
-        self._producer_seq: int = 0
         self._active_native: set[str] = set()
         self.registration_retry_seconds: float = POLL_INTERVAL_SECONDS
         self._last_registration_error_code: str | None = None
-
-    def next_producer_sequence(self) -> int:
-        self._producer_seq += 1
-        return self._producer_seq
 
     def registration_payload(self) -> dict:
         return {
@@ -412,48 +407,16 @@ def run_bridge() -> None:
                     continue
                 captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
                 captured_at += _tz_offset_suffix()
-                # Use a fixed producerSequence for this snapshot; retry with SAME
-                # sequence/body so gateway dedup handles network failures.
-                producer_seq = owner.next_producer_sequence()
                 snapshot_body = {
                     **owner.request_identity(),
                     "symbol": code,
-                    "producerSequence": producer_seq,
                     "capturedAt": captured_at,
                     "native": native,
                 }
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        snap_resp = _post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)
-                        if snap_resp.get("accepted"):
-                            break  # Success.
-                        err = snap_resp.get("error", {})
-                        if err.get("code") == "TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE":
-                            break  # Gateway already has it (prior attempt succeeded).
-                        if _owner_was_replaced(err):
-                            print("[mist-bridge] replaced by a newer bridge instance; exiting")
-                            return
-                        if _requires_registration(err):
-                            print("[mist-bridge] snapshot fenced, re-registering...")
-                            while not owner.register():
-                                time.sleep(_retry_delay_seconds(err, attempt + 1))
-                            break
-                        if err.get("retryable") and attempt < max_retries - 1:
-                            time.sleep(_retry_delay_seconds(err, attempt + 1))
-                            continue
-                        print(f"[mist-bridge] snapshot rejected for {code}: {err}")
-                        break  # Non-retryable rejection.
-                    except urllib.error.URLError as e:
-                        if attempt < max_retries - 1:
-                            print(
-                                f"[mist-bridge] snapshot POST retry {attempt + 1}/{max_retries} for {code}: {e}"
-                            )
-                            time.sleep(_retry_delay_seconds(None, attempt + 1))
-                        else:
-                            print(
-                                f"[mist-bridge] snapshot POST failed for {code} after {max_retries} retries: {e}"
-                            )
+                try:
+                    _post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)
+                except urllib.error.URLError as e:
+                    print(f"[mist-bridge] snapshot POST dropped for {code}: {e}")
 
             time.sleep(POLL_INTERVAL_SECONDS)
 

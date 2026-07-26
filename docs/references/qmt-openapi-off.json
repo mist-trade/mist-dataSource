@@ -8,7 +8,6 @@
             "enum": [
               "health",
               "get_market_data_ex",
-              "get_full_tick",
               "get_stock_list_in_sector"
             ],
             "title": "Method",
@@ -237,6 +236,145 @@
           "ok"
         ],
         "title": "ResultRequest",
+        "type": "object"
+      },
+      "SubscriptionLeaseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ownerId",
+          "leaseToken",
+          "generation"
+        ],
+        "title": "SubscriptionLeaseRequest",
+        "type": "object"
+      },
+      "SubscriptionResultFailure": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "symbol",
+          "reason"
+        ],
+        "title": "SubscriptionResultFailure",
+        "type": "object"
+      },
+      "SubscriptionResultRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "callSequence": {
+            "exclusiveMinimum": 0.0,
+            "title": "Callsequence",
+            "type": "integer"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionResultFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          },
+          "success": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success"
+          }
+        },
+        "required": [
+          "ownerId",
+          "leaseToken",
+          "generation",
+          "callSequence"
+        ],
+        "title": "SubscriptionResultRequest",
+        "type": "object"
+      },
+      "SubscriptionSnapshotRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "capturedAt": {
+            "title": "Capturedat",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "native": {
+            "additionalProperties": true,
+            "title": "Native",
+            "type": "object"
+          },
+          "ownerId": {
+            "title": "Ownerid",
+            "type": "string"
+          },
+          "subscriptionId": {
+            "title": "Subscriptionid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ownerId",
+          "leaseToken",
+          "generation",
+          "subscriptionId",
+          "capturedAt",
+          "native"
+        ],
+        "title": "SubscriptionSnapshotRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -542,6 +680,135 @@
           }
         },
         "summary": "Post Result",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/subscriptions/poll": {
+      "post": {
+        "operationId": "poll_subscription_command_qmt_bridge_subscriptions_poll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionLeaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Poll Subscription Command Qmt Bridge Subscriptions Poll Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Poll Subscription Command",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/subscriptions/result": {
+      "post": {
+        "operationId": "post_subscription_result_qmt_bridge_subscriptions_result_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Subscription Result Qmt Bridge Subscriptions Result Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Subscription Result",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/subscriptions/snapshot": {
+      "post": {
+        "operationId": "post_subscription_snapshot_qmt_bridge_subscriptions_snapshot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Subscription Snapshot Qmt Bridge Subscriptions Snapshot Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Subscription Snapshot",
         "tags": [
           "QMT Bridge"
         ]

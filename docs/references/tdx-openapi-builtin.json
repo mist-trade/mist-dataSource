@@ -74,7 +74,7 @@
             "type": "string"
           },
           "schemaVersion": {
-            "default": 1,
+            "default": 2,
             "title": "Schemaversion",
             "type": "integer"
           }
@@ -233,10 +233,6 @@
             "title": "Native",
             "type": "object"
           },
-          "producerSequence": {
-            "title": "Producersequence",
-            "type": "integer"
-          },
           "streamEpoch": {
             "title": "Streamepoch",
             "type": "string"
@@ -250,7 +246,6 @@
           "leaseToken",
           "streamEpoch",
           "symbol",
-          "producerSequence",
           "capturedAt",
           "native"
         ],

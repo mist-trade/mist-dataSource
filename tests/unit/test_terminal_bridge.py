@@ -118,3 +118,12 @@ def test_terminal_bridge_threading_guardrail() -> None:
     assert "threading.Thread(" not in source
     assert "MIST_BRIDGE_USE_FAKE_TQ" not in source
     assert "class _FakeTq" not in source
+
+
+def test_snapshot_delivery_has_no_producer_identity_or_retry_loop() -> None:
+    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text()
+    assert "producerSequence" not in source
+    assert "producer_sequence" not in source
+    assert "next_producer_sequence" not in source
+    assert "max_retries" not in source
+    assert source.count('_post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)') == 1

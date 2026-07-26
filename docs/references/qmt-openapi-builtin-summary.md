@@ -68,6 +68,33 @@ Generated from the `qmt` FastAPI app in `builtin` mode.
 - Parameters: -
 - Responses: 200: object; 422: HTTPValidationError
 
+## POST /qmt/bridge/subscriptions/poll
+
+- Operation ID: `poll_subscription_command_qmt_bridge_subscriptions_poll_post`
+- Tags: QMT Bridge
+- Summary: Poll Subscription Command
+- Request Body: `SubscriptionLeaseRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /qmt/bridge/subscriptions/result
+
+- Operation ID: `post_subscription_result_qmt_bridge_subscriptions_result_post`
+- Tags: QMT Bridge
+- Summary: Post Subscription Result
+- Request Body: `SubscriptionResultRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
+## POST /qmt/bridge/subscriptions/snapshot
+
+- Operation ID: `post_subscription_snapshot_qmt_bridge_subscriptions_snapshot_post`
+- Tags: QMT Bridge
+- Summary: Post Subscription Snapshot
+- Request Body: `SubscriptionSnapshotRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
 ## GET /qmt/realtime/health
 
 - Operation ID: `realtime_health_qmt_realtime_health_get`
@@ -94,4 +121,8 @@ Generated from the `qmt` FastAPI app in `builtin` mode.
 - `PollRequest`
 - `QmtBarQueryRequest`
 - `ResultRequest`
+- `SubscriptionLeaseRequest`
+- `SubscriptionResultFailure`
+- `SubscriptionResultRequest`
+- `SubscriptionSnapshotRequest`
 - `ValidationError`

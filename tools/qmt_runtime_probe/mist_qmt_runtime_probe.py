@@ -1,4 +1,4 @@
-#coding:gbk
+# coding:gbk
 """Full-QMT built-in Python runtime probe script.
 
 Run this manually inside the Windows full-QMT client before enabling live QMT
@@ -7,6 +7,8 @@ production bridge is forbidden to use.
 """
 
 import importlib
+import inspect
+import io
 import json
 import multiprocessing
 import os
@@ -18,6 +20,7 @@ import threading
 import time
 import traceback
 import urllib.request
+from contextlib import redirect_stdout
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, cast
 
 if TYPE_CHECKING:
@@ -57,6 +60,13 @@ class RuntimeProbeState:
 
 DEFAULT_DATASOURCE_ROOT = r"F:\quant\MistAPI\datasource"
 DEFAULT_RUNTIME_PROBE_OUTPUT_NAME = "mist_qmt_runtime_probe_output.json"
+INTROSPECTION_TEXT_LIMIT = 8192
+SUBSCRIPTION_INTROSPECTION_METHODS = (
+    "subscribe_quote",
+    "subscribe_whole_quote",
+    "unsubscribe_quote",
+    "get_market_data_ex",
+)
 
 
 def _default_output_path() -> str:
@@ -114,6 +124,7 @@ def run_runtime_probe(ContextInfo: RuntimeProbeContextInfo, phase: str) -> None:
         "processModel": _probe_process_model(),
         "runTime": _run_time_result(),
         "nativeApi": _probe_native_api(ContextInfo),
+        "subscriptionApiIntrospection": _probe_subscription_api_introspection(ContextInfo),
     }
     STATE.results = results
     _write_results(results)
@@ -278,6 +289,123 @@ def _probe_native_api(ContextInfo: RuntimeProbeContextInfo) -> Dict[str, Any]:
             "traceback": traceback.format_exc(),
         }
     return results
+
+
+def _probe_subscription_api_introspection(
+    ContextInfo: RuntimeProbeContextInfo,
+) -> Dict[str, Any]:
+    directory_names = []  # type: List[str]
+    directory_error = ""
+    try:
+        directory_names = sorted(str(name) for name in dir(ContextInfo))
+    except Exception as exc:
+        directory_error = _error_text(exc)
+
+    candidate_aliases = [
+        name
+        for name in directory_names
+        if name.lower().startswith("subscribe")
+        and ("all" in name.lower() or "whole" in name.lower())
+    ]
+    method_names = []  # type: List[str]
+    for name in list(SUBSCRIPTION_INTROSPECTION_METHODS) + candidate_aliases:
+        if name not in method_names:
+            method_names.append(name)
+
+    methods = {}  # type: Dict[str, Any]
+    for name in method_names:
+        methods[name] = _introspect_attribute(ContextInfo, name, name in directory_names)
+
+    return {
+        "dir": {
+            "ok": not directory_error,
+            "names": directory_names,
+            "error": directory_error,
+        },
+        "requiredMethods": list(SUBSCRIPTION_INTROSPECTION_METHODS),
+        "candidateAliases": candidate_aliases,
+        "methods": methods,
+    }
+
+
+def _introspect_attribute(target: Any, name: str, listed_in_dir: bool) -> Dict[str, Any]:
+    try:
+        value = getattr(target, name)
+    except Exception as exc:
+        return {
+            "listedInDir": listed_in_dir,
+            "getattr": {
+                "ok": False,
+                "found": False,
+                "callable": False,
+                "type": "",
+                "error": _error_text(exc),
+            },
+            "__doc__": {"status": "unknown", "value": "", "error": "getattr failed"},
+            "help": {"status": "unknown", "value": "", "error": "getattr failed"},
+            "signature": {"status": "unknown", "value": "", "error": "getattr failed"},
+        }
+
+    result = {
+        "listedInDir": listed_in_dir,
+        "getattr": {
+            "ok": True,
+            "found": True,
+            "callable": callable(value),
+            "type": type(value).__name__,
+            "error": "",
+        },
+    }  # type: Dict[str, Any]
+    result["__doc__"] = _introspect_doc(value)
+    result["help"] = _introspect_help(value)
+    result["signature"] = _introspect_signature(value)
+    return result
+
+
+def _introspect_doc(value: Any) -> Dict[str, str]:
+    try:
+        doc = getattr(value, "__doc__", None)
+        if doc is None:
+            return {"status": "missing", "value": "", "error": ""}
+        return {"status": "known", "value": _bounded_text(doc), "error": ""}
+    except Exception as exc:
+        return {"status": "unknown", "value": "", "error": _error_text(exc)}
+
+
+def _introspect_help(value: Any) -> Dict[str, str]:
+    output = io.StringIO()
+    try:
+        with redirect_stdout(output):
+            help(value)
+        return {"status": "known", "value": _bounded_text(output.getvalue()), "error": ""}
+    except Exception as exc:
+        return {
+            "status": "unknown",
+            "value": _bounded_text(output.getvalue()),
+            "error": _error_text(exc),
+        }
+
+
+def _introspect_signature(value: Any) -> Dict[str, str]:
+    try:
+        return {
+            "status": "known",
+            "value": _bounded_text(inspect.signature(value)),
+            "error": "",
+        }
+    except Exception as exc:
+        return {"status": "unknown", "value": "", "error": _error_text(exc)}
+
+
+def _bounded_text(value: Any) -> str:
+    text = str(value)
+    if len(text) <= INTROSPECTION_TEXT_LIMIT:
+        return text
+    return text[:INTROSPECTION_TEXT_LIMIT] + "...[truncated]"
+
+
+def _error_text(exc: Exception) -> str:
+    return type(exc).__name__ + ": " + _bounded_text(exc)
 
 
 def _json_safe(value: Any) -> Any:

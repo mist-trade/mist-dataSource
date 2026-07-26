@@ -266,7 +266,7 @@ class TestSubscriptionConvergence:
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
             )
-            assert poll["desiredSymbols"] == ["SH600519", "600519.SH"]
+            assert poll["desiredSymbols"] == ["600519.SH"]
 
             result = await gateway.post_result(
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
@@ -276,7 +276,7 @@ class TestSubscriptionConvergence:
                 active=["600519.SH"],
                 rejected=[],
             )
-            assert result["converged"] is False
+            assert result["converged"] is True
 
         async_loop.run_until_complete(run())
 
@@ -424,7 +424,6 @@ class TestSubscriptionConvergence:
                     lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                     stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                     symbol="000001.SZ",
-                    producer_sequence=1,
                     captured_at="2026-07-16T14:30:01.000+08:00",
                     native={**_native_snapshot(), "Code": "000001.SZ"},
                 )
@@ -455,7 +454,7 @@ class TestSubscriptionConvergence:
 
 
 class TestSnapshotAcceptance:
-    def test_accepts_converged_symbol_with_monotonic_sequence(
+    def test_accepts_converged_symbol_as_schema_v2_map(
         self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
         async def run() -> None:
@@ -475,12 +474,15 @@ class TestSnapshotAcceptance:
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                 symbol="600519.SH",
-                producer_sequence=1,
                 captured_at="2026-07-16T14:30:01.000+08:00",
                 native=_native_snapshot(),
             )
             assert r1["accepted"] is True
-            assert r1["sequence"] == 1
+            assert r1["frame"] == {
+                "schemaVersion": 2,
+                "capturedAt": "2026-07-16T14:30:01.000+08:00",
+                "native": {"600519.SH": _native_snapshot()},
+            }
             health = await gateway.health()
             assert health["lastSnapshotAt"] is not None
             assert health["lastSnapshotAgeSeconds"] >= 0
@@ -488,19 +490,17 @@ class TestSnapshotAcceptance:
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                 symbol="600519.SH",
-                producer_sequence=2,
                 captured_at="2026-07-16T14:30:02.000+08:00",
                 native=_native_snapshot(),
             )
-            assert r2["sequence"] == 2
+            assert r2["accepted"] is True
+            assert "sequence" not in r2["frame"]
 
         async_loop.run_until_complete(run())
 
-    def test_rejects_duplicate_producer_sequence(
+    def test_repeated_latest_state_has_no_producer_dedup_contract(
         self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
-        """HTTP retry with same producer_sequence must NOT re-broadcast."""
-
         async def run() -> None:
             await gateway.register_owner(
                 owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
@@ -514,25 +514,22 @@ class TestSnapshotAcceptance:
                 active=["600519.SH"],
                 rejected=[],
             )
-            await gateway.post_snapshot(
+            first = await gateway.post_snapshot(
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                 symbol="600519.SH",
-                producer_sequence=7,
                 captured_at="2026-07-16T14:30:01.000+08:00",
                 native=_native_snapshot(),
             )
-            # Retry same producer_sequence=7 → must be rejected (not re-broadcast).
-            with pytest.raises(GatewayError) as exc_info:
-                await gateway.post_snapshot(
-                    lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
-                    stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
-                    symbol="600519.SH",
-                    producer_sequence=7,
-                    captured_at="2026-07-16T14:30:01.000+08:00",
-                    native=_native_snapshot(),
-                )
-            assert exc_info.value.code == "TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE"
+            second = await gateway.post_snapshot(
+                lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
+                stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
+                symbol="600519.SH",
+                captured_at="2026-07-16T14:30:01.000+08:00",
+                native=_native_snapshot(),
+            )
+            assert first["accepted"] is True
+            assert second["accepted"] is True
 
         async_loop.run_until_complete(run())
 
@@ -556,7 +553,6 @@ class TestSnapshotAcceptance:
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                 symbol="600519.SH",
-                producer_sequence=1,
                 captured_at="2026-07-16T14:30:01.000+08:00",
                 native=_native_snapshot(),
             )
@@ -594,7 +590,6 @@ class TestSnapshotAcceptance:
                 lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                 stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                 symbol="600519.SH",
-                producer_sequence=1,
                 captured_at="2026-07-16T14:30:01.000+08:00",
                 native=_native_snapshot(),
             )
@@ -639,7 +634,6 @@ class TestSnapshotAcceptance:
                         lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                         stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                         symbol="600519.SH",
-                        producer_sequence=1,
                         captured_at=captured_at,
                         native=_native_snapshot(),
                     )
@@ -661,7 +655,6 @@ class TestSnapshotAcceptance:
                     lease_token=gateway.owner.lease_token,  # type: ignore[union-attr]
                     stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                     symbol="600519.SH",
-                    producer_sequence=1,
                     captured_at="2026-07-16T14:30:01.000+08:00",
                     native=_native_snapshot(),
                 )
@@ -681,7 +674,6 @@ class TestSnapshotAcceptance:
                     lease_token="wrong-token",
                     stream_epoch=gateway.owner.stream_epoch,  # type: ignore[union-attr]
                     symbol="600519.SH",
-                    producer_sequence=1,
                     captured_at="2026-07-16T14:30:01.000+08:00",
                     native=_native_snapshot(),
                 )

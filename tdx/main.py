@@ -17,7 +17,6 @@ from src.core.logging import setup_logging
 from src.datasource.tdx.provider import TdxDatasourceProvider
 from src.datasource.tdx.realtime.runtime import TdxRealtimeGateway
 from src.ws.manager import ConnectionManager
-from src.ws.protocol import ws_stream_started
 from tdx.routes.bridge import router as bridge_router
 from tdx.routes.realtime import router as realtime_router
 from tdx.routes.v1 import router as v1_router
@@ -51,36 +50,12 @@ def create_tdx_app(
     if mode == "builtin":
         app_manager = app_manager or ConnectionManager()
 
-        async def broadcast_epoch_change(
-            stream_epoch: str,
-            generation: int,
-            owner_id: str,
-            bridge_build_id: str,
-        ) -> None:
-            assert app_manager is not None
-            await app_manager.broadcast(
-                ws_stream_started(
-                    "tdx",
-                    {
-                        "payloadType": "mist.realtime.native_snapshot",
-                        "schemaVersion": 1,
-                        "source": "tdx",
-                        "sequenceScope": "symbol",
-                        "acquisitionProfile": "tdx.get_market_snapshot",
-                        "streamEpoch": stream_epoch,
-                        "generation": generation,
-                        "sequence": 0,
-                        "mode": "builtin",
-                        "ownerId": owner_id,
-                        "bridgeBuildId": bridge_build_id,
-                    },
-                )
-            )
-
         app_gateway = app_gateway or TdxRealtimeGateway(
             max_subscriptions=settings.tdx.max_subscriptions,
-            on_epoch_change=broadcast_epoch_change,
+            rpc_call=app_provider.client.call,
         )
+        if app_gateway.rpc_call is None:
+            app_gateway.rpc_call = app_provider.client.call
 
     @asynccontextmanager
     async def lifespan(_target: FastAPI) -> AsyncGenerator[None]:
@@ -139,6 +114,7 @@ def create_tdx_app(
         return {
             "status": "ok",
             "instance": "tdx",
+            "realtimeMode": mode,
             "connections": connections,
             "wsConnected": connections > 0,
             **provider_health,

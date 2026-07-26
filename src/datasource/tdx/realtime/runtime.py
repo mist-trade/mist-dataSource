@@ -4,7 +4,6 @@ Control-plane authority for the builtin-bridge pathway. Owns:
 - single-owner lease (with opaque token + stale eviction)
 - four-state subscription convergence (desired / attempted / converged /
   observedNative) under a stable owner epoch
-- authoritative outbound sequence reservation (before any await publish)
 - native subscription reconciliation
 
 This is rewritten from scratch. The remote WIP branch
@@ -25,18 +24,19 @@ import datetime as dt
 import re
 import secrets
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from src.datasource.realtime_native_safety import validate_native_payload_safety
-from src.datasource.tdx.normalization import dedupe_stable
+from src.datasource.tdx.normalization import dedupe_normalized_symbols, dedupe_stable
 from src.datasource.tdx.realtime.contract import (
     validate_tdx_realtime_native_snapshot,
 )
 
 # Contract tuple accepted by this gateway build.
 ACCEPTED_PAYLOAD_TYPE = "mist.realtime.native_snapshot"
-ACCEPTED_SCHEMA_VERSION = 1
+ACCEPTED_SCHEMA_VERSION = 2
 ACCEPTED_ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 
 #: Owner stale after this many seconds without a poll/heartbeat.
@@ -97,14 +97,6 @@ class _OwnerTakeoverCandidate:
 
 
 @dataclass
-class _InstrumentState:
-    """Per-instrument sequence fence (data plane, consumed by Mist via wire)."""
-
-    last_outbound_sequence: int = 0
-    last_producer_sequence: int = 0
-
-
-@dataclass
 class TdxRealtimeGateway:
     """Control-plane gateway for the TDX builtin bridge."""
 
@@ -114,6 +106,8 @@ class TdxRealtimeGateway:
     # WS manager. Signature: async (stream_epoch, generation, owner_id,
     # bridge_build_id) -> None.
     on_epoch_change: Any = None
+    rpc_call: Any = None
+    control_timeout_seconds: float = 10.0
     _owner: BridgeOwner | None = None
     _owner_generation_counter: int = 0
     _takeover_candidate: _OwnerTakeoverCandidate | None = None
@@ -129,10 +123,6 @@ class TdxRealtimeGateway:
     # This is SEPARATE from _observed_native_symbols (converged set): it persists
     # across desired-revision changes so unsubscribe can be computed correctly.
     _last_reported_active: set[str] = field(default_factory=lambda: set[str]())
-    # Per-instrument outbound sequence fence.
-    _sequences: dict[str, _InstrumentState] = field(
-        default_factory=lambda: dict[str, _InstrumentState]()
-    )
     # Accumulated accepted/rejected native symbols from the last result.
     _last_applied_active: list[str] = field(default_factory=lambda: list[str]())
     _last_rejected: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
@@ -149,6 +139,11 @@ class TdxRealtimeGateway:
     )
     # Async lock for state transitions.
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _mutation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _convergence_changed: asyncio.Event = field(default_factory=asyncio.Event)
+    _control_counts: dict[tuple[str, str, str], int] = field(
+        default_factory=lambda: dict[tuple[str, str, str], int]()
+    )
     # Separate lock to serialize epoch-change broadcasts (prevents out-of-order
     # broadcast when concurrent same-owner registrations interleave).
     _broadcast_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -243,7 +238,6 @@ class TdxRealtimeGateway:
             self._observed_native_symbols = set()
             self._last_reported_active = set()
             self._reset_reconcile_retry_locked()
-            self._sequences.clear()
             self._native_evidence.clear()
             self._last_snapshot_monotonic = None
             self._last_snapshot_at = None
@@ -305,24 +299,22 @@ class TdxRealtimeGateway:
         Immediately invalidates convergence: a new revision means the old
         observedNative set is stale until the terminal reports a matching result.
         """
-        cleaned = dedupe_stable(symbols)[: self.max_subscriptions]
+        cleaned = dedupe_normalized_symbols(symbols)[: self.max_subscriptions]
         async with self._lock:
             if cleaned == self._desired_symbols:
                 return self._desired_revision
             self._desired_symbols = cleaned
             self._desired_revision += 1
             # Invalidate convergence: old observedNative is stale for the new revision.
-            # Do NOT clear _sequences — outbound sequence must be monotonic per
-            # epoch, not per revision. Clearing it would reset sequence to 0 and
-            # cause Mist to reject the next frame as duplicate/out-of-order.
             self._converged_revision = -1
             self._observed_native_symbols = set()
             self._native_evidence.clear()
             self._reset_reconcile_retry_locked()
+            self._convergence_changed.set()
             return self._desired_revision
 
     async def add_desired(self, symbols: list[str]) -> int:
-        cleaned = dedupe_stable(symbols)
+        cleaned = dedupe_normalized_symbols(symbols)
         async with self._lock:
             merged = dedupe_stable([*self._desired_symbols, *cleaned])[: self.max_subscriptions]
             if merged == self._desired_symbols:
@@ -333,10 +325,11 @@ class TdxRealtimeGateway:
             self._observed_native_symbols = set()
             self._native_evidence.clear()
             self._reset_reconcile_retry_locked()
+            self._convergence_changed.set()
             return self._desired_revision
 
     async def remove_desired(self, symbols: list[str]) -> int:
-        to_remove = set(dedupe_stable(symbols))
+        to_remove = set(dedupe_normalized_symbols(symbols))
         async with self._lock:
             merged = [s for s in self._desired_symbols if s not in to_remove]
             if merged == self._desired_symbols:
@@ -347,6 +340,7 @@ class TdxRealtimeGateway:
             self._observed_native_symbols = set()
             self._native_evidence.clear()
             self._reset_reconcile_retry_locked()
+            self._convergence_changed.set()
             return self._desired_revision
 
     # --- poll / result ------------------------------------------------
@@ -441,6 +435,7 @@ class TdxRealtimeGateway:
                 else:
                     retry_after_ms = 0
                     self._reconcile_retry_after_monotonic = None
+            self._convergence_changed.set()
             return {
                 "converged": converged,
                 "convergedRevision": self._converged_revision,
@@ -458,19 +453,10 @@ class TdxRealtimeGateway:
         lease_token: str,
         stream_epoch: str,
         symbol: str,
-        producer_sequence: int,
         captured_at: str,
         native: dict[str, Any],
     ) -> dict[str, Any]:
-        """Terminal posts a native snapshot. Gateway validates, decodes, assigns
-        authoritative outbound sequence, and returns the typed frame.
-
-        producer_sequence is used for HTTP-retry idempotency: a duplicate
-        (same producer_sequence for same symbol+epoch) is dropped, not re-broadcast.
-        Sequence reservation happens synchronously before any await publish.
-        Lease/epoch validation is inside the lock to prevent cross-generation
-        concurrent penetration.
-        """
+        """Accept one flat TDX native snapshot and wrap it in schema-v2."""
         # Validate captured_at is RFC3339 (reject non-conforming timestamps).
         self._validate_rfc3339(captured_at, field_name="capturedAt")
         # Strictly validate the native object before preserving it on the wire.
@@ -486,23 +472,8 @@ class TdxRealtimeGateway:
                     f"{symbol} not in converged subscription set",
                     retryable=False,
                 )
-            state = self._sequences.setdefault(symbol, _InstrumentState())
-            # Idempotency: reject duplicate producer_sequence (HTTP retry).
-            if producer_sequence <= state.last_producer_sequence:
-                raise GatewayError(
-                    "TDX_BRIDGE_DUPLICATE_PRODUCER_SEQUENCE",
-                    f"duplicate producer_sequence={producer_sequence} for {symbol}"
-                    f" (last={state.last_producer_sequence})",
-                    retryable=False,
-                )
-            state.last_producer_sequence = producer_sequence
-            # Authoritative outbound sequence (monotonic per instrument+epoch).
-            outbound_sequence = state.last_outbound_sequence + 1
-            state.last_outbound_sequence = outbound_sequence
             frame = self._build_wire_frame(
-                owner=owner,
                 symbol=symbol,
-                sequence=outbound_sequence,
                 captured_at=captured_at,
                 native=native,
             )
@@ -514,12 +485,11 @@ class TdxRealtimeGateway:
                 "bridgeBuildId": owner.bridge_build_id,
                 "generation": owner.generation,
                 "streamEpoch": owner.stream_epoch,
-                "producerSequence": producer_sequence,
                 "capturedAt": captured_at,
                 "native": copy.deepcopy(native),
                 "frame": copy.deepcopy(frame),
             }
-            return {"accepted": True, "sequence": outbound_sequence, "frame": frame}
+            return {"accepted": True, "frame": frame}
 
     async def read_native_evidence(self, symbol: str) -> dict[str, Any]:
         """Return the latest accepted native HIL evidence for one symbol.
@@ -566,24 +536,260 @@ class TdxRealtimeGateway:
     def _build_wire_frame(
         self,
         *,
-        owner: BridgeOwner,
         symbol: str,
-        sequence: int,
         captured_at: str,
         native: dict[str, Any],
     ) -> dict[str, Any]:
         return {
-            "payloadType": ACCEPTED_PAYLOAD_TYPE,
             "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-            "source": "tdx",
-            "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
-            "streamEpoch": owner.stream_epoch,
-            "sequence": sequence,
-            "sequenceScope": "symbol",
-            "symbol": symbol,
             "capturedAt": captured_at,
-            "native": copy.deepcopy(native),
+            "native": {symbol: copy.deepcopy(native)},
         }
+
+    # --- backend-facing subscription control -------------------------
+
+    async def execute_control(
+        self,
+        operation: str,
+        *,
+        symbol: str | None = None,
+        symbols: list[str] | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        response_type = {
+            "sync_subscriptions": "subscriptions_synced",
+            "subscribe": "subscribed",
+            "unsubscribe": "unsubscribed",
+            "get_subscriptions": "subscriptions",
+        }.get(operation)
+        if response_type is None:
+            raise ValueError(f"unsupported TDX subscription operation: {operation}")
+
+        if operation == "get_subscriptions":
+            try:
+                active = await self._official_subscriptions()
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {"success": active},
+                )
+            except Exception:
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {
+                        "failure": {
+                            "symbol": None,
+                            "reason": "TDX_SUBSCRIPTIONS_READ_FAILED",
+                        }
+                    },
+                )
+
+        if self._mutation_lock.locked():
+            return self._record_control(
+                operation,
+                response_type,
+                {
+                    "failure": {
+                        "symbol": symbol,
+                        "reason": "TDX_SUBSCRIPTION_CONTROL_BUSY",
+                    }
+                },
+            )
+        async with self._mutation_lock:
+            if operation == "subscribe":
+                assert symbol is not None
+                normalized = dedupe_normalized_symbols([symbol])[0]
+                revision = await self.add_desired([normalized])
+                if await self._wait_for_target({*self.desired_symbols}, revision):
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {"success": None},
+                    )
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {
+                        "failure": {
+                            "symbol": normalized,
+                            "reason": "TDX_SUBSCRIBE_NOT_CONVERGED",
+                        }
+                    },
+                )
+
+            if operation == "unsubscribe":
+                assert symbol is not None
+                normalized = dedupe_normalized_symbols([symbol])[0]
+                await self.remove_desired([normalized])
+                before = await self._try_official_subscriptions()
+                if before is not None and normalized not in before:
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {"success": None},
+                    )
+                with suppress(Exception):
+                    await self._call_rpc("unsubscribe_hq", {"stock_list": [normalized]})
+                after = await self._try_official_subscriptions()
+                if after is None:
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {
+                            "failure": {
+                                "symbol": normalized,
+                                "reason": "TDX_UNSUBSCRIBE_VERIFY_FAILED",
+                                "subscriptionState": "unknown",
+                            }
+                        },
+                    )
+                if normalized in after:
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {
+                            "failure": {
+                                "symbol": normalized,
+                                "reason": "TDX_UNSUBSCRIBE_NOT_CONVERGED",
+                                "subscriptionState": "subscribed",
+                            }
+                        },
+                    )
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {"success": None},
+                )
+
+            assert operation == "sync_subscriptions"
+            target = dedupe_normalized_symbols(symbols or [])[: self.max_subscriptions]
+            revision = await self.sync_desired(target)
+            current = await self._try_official_subscriptions()
+            if current is None:
+                return self._record_control(
+                    operation,
+                    response_type,
+                    {
+                        "failure": {
+                            "symbol": target[0] if target else "",
+                            "reason": "TDX_UNSUBSCRIBE_VERIFY_FAILED",
+                            "subscriptionState": "unknown",
+                        }
+                    },
+                )
+            target_set = set(target)
+            for extra in sorted(set(current) - target_set):
+                with suppress(Exception):
+                    await self._call_rpc("unsubscribe_hq", {"stock_list": [extra]})
+                verified = await self._try_official_subscriptions()
+                if verified is None:
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {
+                            "failure": {
+                                "symbol": extra,
+                                "reason": "TDX_UNSUBSCRIBE_VERIFY_FAILED",
+                                "subscriptionState": "unknown",
+                            }
+                        },
+                    )
+                if extra in verified:
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {
+                            "failure": {
+                                "symbol": extra,
+                                "reason": "TDX_UNSUBSCRIBE_NOT_CONVERGED",
+                                "subscriptionState": "subscribed",
+                            }
+                        },
+                    )
+            if await self._wait_for_target(target_set, revision):
+                final = await self._try_official_subscriptions()
+                if final is not None and set(final) == target_set:
+                    return self._record_control(
+                        operation,
+                        response_type,
+                        {"success": None},
+                    )
+            missing = next((item for item in target if item not in self._last_reported_active), "")
+            return self._record_control(
+                operation,
+                response_type,
+                {
+                    "failure": {
+                        "symbol": missing,
+                        "reason": "TDX_SUBSCRIBE_NOT_CONVERGED",
+                    }
+                },
+            )
+
+    def _record_control(
+        self,
+        operation: str,
+        response_type: str,
+        data: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        result = "success" if "success" in data else "failure"
+        reason = (
+            "none"
+            if result == "success"
+            else str(cast(dict[str, Any], data["failure"]).get("reason", "unknown"))
+        )
+        key = (operation, result, reason)
+        self._control_counts[key] = self._control_counts.get(key, 0) + 1
+        return response_type, data
+
+    async def _call_rpc(self, method: str, params: dict[str, Any]) -> Any:
+        if self.rpc_call is None:
+            raise GatewayError(
+                "TDX_HTTP_NOT_CONFIGURED",
+                "official TDX HTTP RPC is not configured",
+                retryable=True,
+            )
+        return await self.rpc_call(method, params)
+
+    async def _official_subscriptions(self) -> list[str]:
+        value = await self._call_rpc("get_subscribe_hq_stock_list", {})
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise GatewayError(
+                "TDX_SUBSCRIPTIONS_INVALID",
+                "official TDX subscription list must be a list of strings",
+                retryable=False,
+            )
+        return dedupe_normalized_symbols(value)
+
+    async def _try_official_subscriptions(self) -> list[str] | None:
+        try:
+            return await self._official_subscriptions()
+        except Exception:
+            return None
+
+    async def _wait_for_target(self, target: set[str], revision: int) -> bool:
+        deadline = time.monotonic() + self.control_timeout_seconds
+        while True:
+            async with self._lock:
+                if (
+                    self._desired_revision == revision
+                    and self._converged_revision == revision
+                    and self._observed_native_symbols == target
+                ):
+                    return True
+                if self._desired_revision != revision:
+                    return False
+                self._convergence_changed.clear()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                await asyncio.wait_for(
+                    self._convergence_changed.wait(),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                return False
 
     # --- health --------------------------------------------------------
 
@@ -598,7 +804,6 @@ class TdxRealtimeGateway:
                     round(time.monotonic() - owner.last_seen_monotonic, 3) if owner else None
                 ),
                 "bridgeBuildId": owner.bridge_build_id if owner else None,
-                "streamEpoch": owner.stream_epoch if owner else None,
                 "desiredRevision": self._desired_revision,
                 "convergedRevision": self._converged_revision,
                 "desiredSymbols": len(self._desired_symbols),
@@ -614,11 +819,17 @@ class TdxRealtimeGateway:
                     if self._last_snapshot_monotonic is not None
                     else None
                 ),
-                "acceptedContractTuple": {
-                    "payloadType": ACCEPTED_PAYLOAD_TYPE,
-                    "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-                    "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
-                },
+                "controlTotals": [
+                    {
+                        "operation": operation,
+                        "result": result,
+                        "reason": reason,
+                        "value": value,
+                    }
+                    for (operation, result, reason), value in sorted(
+                        self._control_counts.items()
+                    )
+                ],
             }
 
     def _reset_reconcile_retry_locked(self) -> None:

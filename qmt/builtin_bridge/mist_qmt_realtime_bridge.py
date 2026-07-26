@@ -1,26 +1,27 @@
-#coding:gbk
-"""Stdlib-only full-QMT realtime bridge script.
+# coding:gbk
+"""Stdlib-only full-QMT history and native-subscription bridge.
 
-Paste or import this script from the full QMT built-in Python strategy editor.
-It deliberately avoids third-party packages, threads, subprocesses, and local
-socket listeners. The external Mist datasource owns concurrency; this script
-polls one local command gateway and executes commands serially.
+The script runs inside embedded Python 3.6. History commands keep the existing
+poll/result transport. Realtime observations come only from native subscription
+callbacks and are drained by the scheduled QMT runtime function.
 """
 
+import datetime
 import hashlib
 import json
 import os
+import queue
 import time
 import traceback
 import urllib.error
 import urllib.request
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Tuple, cast
 
 if TYPE_CHECKING:
     from typing import Protocol
 
     class BridgeContextInfo(Protocol):
-        """Subset used by this bridge; attributes follow ThinkTrader ContextInfo docs."""
+        """Subset used by this bridge; names follow ThinkTrader ContextInfo docs."""
 
         def run_time(self, func_name: str, period: str, start_time: str) -> Any: ...
 
@@ -38,9 +39,21 @@ if TYPE_CHECKING:
             subscribe: bool,
         ) -> Any: ...
 
-        def get_full_tick(self, symbols: Any) -> Any: ...
-
         def get_stock_list_in_sector(self, sector: Any) -> Any: ...
+
+        def subscribe_quote(
+            self,
+            symbol: str,
+            *,
+            period: str,
+            dividend_type: str,
+            result_type: str,
+            callback: Any,
+        ) -> Any: ...
+
+        def subscribe_whole_quote(self, symbols: Any, *, callback: Any) -> Any: ...
+
+        def unsubscribe_quote(self, sub_id: int) -> Any: ...
 else:
     BridgeContextInfo = Any
 
@@ -48,26 +61,44 @@ else:
 class BridgeState:
     owner_id: str
     gateway_url: str
-    poll_interval_seconds: int
     tick_count: int
     last_error: str
     last_poll_at: str
     lease_token: str
     generation: int
     started_at: str
+    snapshot_queue: Any
+    pending_by_symbol: Dict[str, int]
+    pending_bytes: int
+    callback_holders: Dict[int, Dict[str, Any]]
 
+
+SNAPSHOT_QUEUE_MAX_ITEMS = 128
+SNAPSHOT_QUEUE_MAX_PER_SYMBOL = 16
+SNAPSHOT_QUEUE_MAX_BYTES = 4 * 1024 * 1024
+SNAPSHOT_ITEM_MAX_BYTES = 256 * 1024
+SNAPSHOT_ITEM_MAX_AGE_SECONDS = 5
+SNAPSHOT_MAX_DEPTH = 8
+SNAPSHOT_MAX_COLLECTION_ITEMS = 256
+SNAPSHOT_DRAIN_MAX_PER_TICK = 8
+BOUNDED_LOG_TEXT = 300
 
 STATE = BridgeState()
 STATE.owner_id = "bigqmt-" + str(os.getpid())
-STATE.gateway_url = os.environ.get("QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge")
-STATE.poll_interval_seconds = 1
+STATE.gateway_url = os.environ.get(
+    "QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge"
+)
 STATE.tick_count = 0
 STATE.last_error = ""
 STATE.last_poll_at = ""
 STATE.lease_token = ""
 STATE.generation = 0
+STATE.snapshot_queue = queue.Queue(maxsize=SNAPSHOT_QUEUE_MAX_ITEMS)
+STATE.pending_by_symbol = {}
+STATE.pending_bytes = 0
+STATE.callback_holders = {}
 
-BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v1.1"
+BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v2.0"
 
 
 def _compute_artifact_sha256() -> str:
@@ -92,60 +123,110 @@ def init(ContextInfo: BridgeContextInfo) -> None:
         start_time = time.strftime("%Y-%m-%d %H:%M:%S")
         STATE.started_at = start_time
         ContextInfo.run_time("mist_qmt_realtime_bridge_tick", "1nSecond", start_time)
-        print(
-            "mist_qmt_realtime_bridge scheduled ownerId="
-            + STATE.owner_id
-            + " startTime="
-            + start_time
-            + " gateway="
-            + STATE.gateway_url
+        _register_owner()
+        _log_control(
+            "build",
+            0,
+            "init",
+            {
+                "ownerId": STATE.owner_id,
+                "buildId": BRIDGE_BUILD_ID,
+                "artifactSha256": BRIDGE_ARTIFACT_SHA256,
+            },
         )
     except Exception:
         STATE.last_error = traceback.format_exc()
-        print("mist_qmt_realtime_bridge schedule error " + STATE.last_error)
+        print("mist_qmt_realtime_bridge schedule error " + STATE.last_error[:BOUNDED_LOG_TEXT])
 
 
 def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
-    """Poll one batch of commands and post results."""
+    """Poll history/control once and drain bounded callback observations."""
     try:
         STATE.tick_count += 1
         STATE.last_poll_at = time.strftime("%Y-%m-%d %H:%M:%S")
-        _register_owner()
-        poll_payload = _post_json(
-            STATE.gateway_url + "/poll",
+        if not STATE.lease_token:
+            _register_owner()
+        history_count = _poll_history(ContextInfo)
+        control_count = _poll_subscription_control(ContextInfo)
+        drained_count = _drain_snapshot_queue()
+        _log_tick(history_count, control_count, drained_count)
+    except Exception:
+        STATE.last_error = traceback.format_exc()
+        _log_tick(0, 0, 0)
+
+
+def _poll_history(ContextInfo: BridgeContextInfo) -> int:
+    poll_payload = _post_json(
+        STATE.gateway_url + "/poll",
+        {
+            "ownerId": STATE.owner_id,
+            "leaseToken": STATE.lease_token,
+            "generation": STATE.generation,
+            "limit": 1,
+        },
+    )
+    if _lease_rejected(poll_payload):
+        STATE.lease_token = ""
+        return 0
+    commands_value = poll_payload.get("commands", [])
+    commands = cast(List[Any], commands_value) if isinstance(commands_value, list) else []
+    count = 0
+    for command_value in commands:
+        if not isinstance(command_value, dict):
+            continue
+        command = cast(Dict[str, Any], command_value)
+        _log_command(command)
+        result = _execute_history_command(ContextInfo, command)
+        _post_json(
+            STATE.gateway_url + "/result",
             {
                 "ownerId": STATE.owner_id,
                 "leaseToken": STATE.lease_token,
                 "generation": STATE.generation,
-                "limit": 1,
+                "commandId": command.get("commandId"),
+                "ok": result.get("ok", False),
+                "result": result.get("result"),
+                "error": result.get("error"),
             },
         )
-        commands_value = poll_payload.get("commands", [])
-        commands = (
-            cast(List[Any], commands_value) if isinstance(commands_value, list) else []
-        )
-        _log_tick(len(commands))
-        for command_value in commands:
-            if not isinstance(command_value, dict):
-                continue
-            command = cast(Dict[str, Any], command_value)
-            _log_command(command)
-            result = _execute_command(ContextInfo, command)
-            _post_json(
-                STATE.gateway_url + "/result",
-                {
-                    "ownerId": STATE.owner_id,
-                    "leaseToken": STATE.lease_token,
-                    "generation": STATE.generation,
-                    "commandId": command.get("commandId"),
-                    "ok": result.get("ok", False),
-                    "result": result.get("result"),
-                    "error": result.get("error"),
-                },
-            )
-    except Exception:
-        STATE.last_error = traceback.format_exc()
-        _log_tick(0)
+        count += 1
+    return count
+
+
+def _poll_subscription_control(ContextInfo: BridgeContextInfo) -> int:
+    poll_payload = _post_json(
+        STATE.gateway_url + "/subscriptions/poll",
+        {
+            "ownerId": STATE.owner_id,
+            "leaseToken": STATE.lease_token,
+            "generation": STATE.generation,
+        },
+    )
+    if _lease_rejected(poll_payload):
+        STATE.lease_token = ""
+        return 0
+    command_value = poll_payload.get("command")
+    if command_value is None:
+        return 0
+    if not isinstance(command_value, dict):
+        _bounded_diagnostic("invalid_control_command", "command is not an object")
+        return 0
+    command = cast(Dict[str, Any], command_value)
+    result = _execute_subscription_command(ContextInfo, command)
+    payload = {
+        "ownerId": STATE.owner_id,
+        "leaseToken": STATE.lease_token,
+        "generation": STATE.generation,
+        "callSequence": command.get("callSequence"),
+    }  # type: Dict[str, Any]
+    if "success" in result:
+        payload["success"] = result.get("success")
+    else:
+        payload["failure"] = result.get("failure")
+    post_result = _post_json(STATE.gateway_url + "/subscriptions/result", payload)
+    if _lease_rejected(post_result):
+        STATE.lease_token = ""
+    return 1
 
 
 def _register_owner() -> Dict[str, Any]:
@@ -159,22 +240,358 @@ def _register_owner() -> Dict[str, Any]:
             "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
         },
     )
-    STATE.lease_token = str(response.get("leaseToken", ""))
-    STATE.generation = int(response.get("generation", 0))
+    token = response.get("leaseToken")
+    generation = response.get("generation")
+    if isinstance(token, str) and type(generation) is int and generation > 0:
+        STATE.lease_token = token
+        STATE.generation = generation
+        STATE.last_error = ""
     return response
 
 
-def _log_tick(command_count: int) -> None:
+def _execute_subscription_command(
+    ContextInfo: BridgeContextInfo,
+    command: Mapping[str, Any],
+) -> Dict[str, Any]:
+    sequence = command.get("callSequence")
+    method = command.get("method")
+    if type(sequence) is not int or sequence <= 0:
+        return _native_failure(None, "QMT_NATIVE_CALL_SEQUENCE_INVALID")
+    if not isinstance(method, str):
+        return _native_failure(None, "QMT_NATIVE_METHOD_INVALID")
+    expected_keys = {
+        "subscribe_quote": {"callSequence", "method", "symbol"},
+        "subscribe_whole_quote": {"callSequence", "method", "symbols"},
+        "unsubscribe_quote": {"callSequence", "method", "subId", "symbol"},
+    }
+    allowed = expected_keys.get(method)
+    if allowed is None or set(command) != allowed:
+        return _native_failure(_command_symbol(command), "QMT_NATIVE_COMMAND_INVALID")
+    _log_control("intent", sequence, method, {"symbol": _command_symbol(command)})
+    try:
+        native_method = getattr(ContextInfo, method, None)
+        if not callable(native_method):
+            return _native_failure(_command_symbol(command), "QMT_NATIVE_METHOD_MISSING")
+        if method == "subscribe_quote":
+            symbol = command.get("symbol")
+            if not isinstance(symbol, str):
+                return _native_failure(None, "QMT_NATIVE_COMMAND_INVALID")
+            holder = _new_callback_holder()
+            callback = _make_subscription_callback(holder)
+            raw_result = native_method(
+                symbol,
+                period="tick",
+                dividend_type="none",
+                result_type="dict",
+                callback=callback,
+            )
+            _activate_callback_holder(holder, raw_result)
+        elif method == "subscribe_whole_quote":
+            symbols = command.get("symbols")
+            if not isinstance(symbols, list) or not all(
+                isinstance(item, str) for item in symbols
+            ):
+                return _native_failure(None, "QMT_NATIVE_COMMAND_INVALID")
+            holder = _new_callback_holder()
+            callback = _make_subscription_callback(holder)
+            raw_result = native_method(list(symbols), callback=callback)
+            _activate_callback_holder(holder, raw_result)
+        else:
+            sub_id = command.get("subId")
+            if type(sub_id) is not int:
+                return _native_failure(_command_symbol(command), "QMT_NATIVE_COMMAND_INVALID")
+            raw_result = native_method(sub_id)
+        safe, copied = _safe_native_result(raw_result)
+        if not safe:
+            result = _native_failure(_command_symbol(command), "QMT_NATIVE_RESULT_UNSAFE")
+        else:
+            result = {"success": copied}
+        _log_control(
+            "result",
+            sequence,
+            method,
+            {
+                "ok": "success" in result,
+                "resultType": type(raw_result).__name__,
+                "result": copied if isinstance(copied, (int, float, str, bool)) else None,
+            },
+        )
+        return result
+    except Exception as exc:
+        _log_control(
+            "result",
+            sequence,
+            method,
+            {"ok": False, "error": str(exc)[:BOUNDED_LOG_TEXT]},
+        )
+        return _native_failure(_command_symbol(command), "QMT_NATIVE_CALL_FAILED")
+
+
+def _new_callback_holder() -> Dict[str, Any]:
+    return {"active": True, "subscriptionId": None}
+
+
+def _activate_callback_holder(holder: Dict[str, Any], raw_result: Any) -> None:
+    if type(raw_result) is int:
+        holder["subscriptionId"] = raw_result
+        STATE.callback_holders[raw_result] = holder
+
+
+def _make_subscription_callback(holder: Dict[str, Any]) -> Any:
+    def callback(native_value: Any) -> None:
+        try:
+            if not holder.get("active", False):
+                return
+            subscription_id = holder.get("subscriptionId")
+            if type(subscription_id) is not int:
+                return
+            _enqueue_callback_snapshot(subscription_id, native_value)
+        except Exception as exc:
+            _bounded_diagnostic("callback_error", str(exc))
+
+    return callback
+
+
+def _enqueue_callback_snapshot(subscription_id: int, native_value: Any) -> None:
+    if not isinstance(native_value, dict):
+        _bounded_diagnostic("callback_invalid", "native callback is not an object")
+        return
+    accepted = {}  # type: Dict[str, Any]
+    accepted_symbols = []  # type: List[str]
+    native_map = cast(Mapping[Any, Any], native_value)
+    for raw_symbol, raw_entry in list(native_map.items())[:SNAPSHOT_MAX_COLLECTION_ITEMS]:
+        symbol = str(raw_symbol).strip().upper()
+        if not symbol:
+            continue
+        try:
+            copied = _bounded_copy(raw_entry, 0)
+            encoded_entry = json.dumps(
+                {symbol: copied}, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+            if len(encoded_entry) > SNAPSHOT_ITEM_MAX_BYTES:
+                raise ValueError("callback entry exceeds byte limit")
+            accepted[symbol] = copied
+            accepted_symbols.append(symbol)
+        except Exception as exc:
+            _bounded_diagnostic("callback_entry_dropped", symbol + ": " + str(exc))
+    if not accepted:
+        return
+    encoded = json.dumps(accepted, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    item_bytes = len(encoded)
+    if item_bytes > SNAPSHOT_ITEM_MAX_BYTES:
+        _bounded_diagnostic("callback_dropped", "callback map exceeds byte limit")
+        return
+    for symbol in accepted_symbols:
+        if STATE.pending_by_symbol.get(symbol, 0) >= SNAPSHOT_QUEUE_MAX_PER_SYMBOL:
+            _bounded_diagnostic("callback_dropped", "per-symbol queue limit")
+            return
+    if STATE.pending_bytes + item_bytes > SNAPSHOT_QUEUE_MAX_BYTES:
+        _bounded_diagnostic("callback_dropped", "global byte limit")
+        return
+    item = {
+        "subscriptionId": subscription_id,
+        "capturedAt": datetime.datetime.now().astimezone().isoformat(),
+        "native": accepted,
+        "_queuedAt": time.time(),
+        "_bytes": item_bytes,
+        "_symbols": accepted_symbols,
+    }
+    try:
+        STATE.snapshot_queue.put_nowait(item)
+    except queue.Full:
+        _bounded_diagnostic("callback_dropped", "global item limit")
+        return
+    STATE.pending_bytes += item_bytes
+    for symbol in accepted_symbols:
+        STATE.pending_by_symbol[symbol] = STATE.pending_by_symbol.get(symbol, 0) + 1
+
+
+def _drain_snapshot_queue() -> int:
+    drained = 0
+    for _ in range(SNAPSHOT_DRAIN_MAX_PER_TICK):
+        try:
+            item = STATE.snapshot_queue.get_nowait()
+        except queue.Empty:
+            break
+        _release_queue_accounting(item)
+        if time.time() - float(item.get("_queuedAt", 0)) > SNAPSHOT_ITEM_MAX_AGE_SECONDS:
+            _bounded_diagnostic("snapshot_dropped", "snapshot exceeded age limit")
+            continue
+        payload = {
+            "ownerId": STATE.owner_id,
+            "leaseToken": STATE.lease_token,
+            "generation": STATE.generation,
+            "subscriptionId": item.get("subscriptionId"),
+            "capturedAt": item.get("capturedAt"),
+            "native": item.get("native"),
+        }
+        response = _post_json(STATE.gateway_url + "/subscriptions/snapshot", payload)
+        if _lease_rejected(response):
+            STATE.lease_token = ""
+        drained += 1
+    return drained
+
+
+def _release_queue_accounting(item: Mapping[str, Any]) -> None:
+    STATE.pending_bytes = max(0, STATE.pending_bytes - int(item.get("_bytes", 0)))
+    symbols = item.get("_symbols", [])
+    if not isinstance(symbols, list):
+        return
+    for symbol_value in symbols:
+        symbol = str(symbol_value)
+        remaining = max(0, STATE.pending_by_symbol.get(symbol, 0) - 1)
+        if remaining:
+            STATE.pending_by_symbol[symbol] = remaining
+        else:
+            STATE.pending_by_symbol.pop(symbol, None)
+
+
+def _bounded_copy(value: Any, depth: int) -> Any:
+    if depth > SNAPSHOT_MAX_DEPTH:
+        raise ValueError("native value exceeds depth limit")
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError("native value contains non-finite number")
+        return value
+    if isinstance(value, dict):
+        mapping = cast(Mapping[Any, Any], value)
+        if len(mapping) > SNAPSHOT_MAX_COLLECTION_ITEMS:
+            raise ValueError("native object exceeds item limit")
+        result = {}  # type: Dict[str, Any]
+        for key, item in mapping.items():
+            result[str(key)] = _bounded_copy(item, depth + 1)
+        return result
+    if isinstance(value, (list, tuple)):
+        sequence = cast(Any, value)
+        if len(sequence) > SNAPSHOT_MAX_COLLECTION_ITEMS:
+            raise ValueError("native list exceeds item limit")
+        return [_bounded_copy(item, depth + 1) for item in sequence]
+    raise ValueError("native value is not JSON-safe")
+
+
+def _safe_native_result(value: Any) -> Tuple[bool, Any]:
+    try:
+        copied = _bounded_copy(value, 0)
+        json.dumps(copied)
+        return True, copied
+    except Exception:
+        return False, None
+
+
+def _native_failure(symbol: Any, reason: str) -> Dict[str, Any]:
+    return {
+        "failure": {
+            "symbol": symbol if isinstance(symbol, str) else None,
+            "reason": reason,
+        }
+    }
+
+
+def _command_symbol(command: Mapping[str, Any]) -> Any:
+    return command.get("symbol") if isinstance(command.get("symbol"), str) else None
+
+
+def _execute_history_command(
+    ContextInfo: BridgeContextInfo,
+    command: Mapping[str, Any],
+) -> Dict[str, Any]:
+    method = str(command.get("method", ""))
+    params_value = command.get("params", {})
+    params = cast(Dict[str, Any], params_value) if isinstance(params_value, dict) else {}
+    try:
+        if method == "health":
+            return {
+                "ok": True,
+                "result": {
+                    "ownerId": STATE.owner_id,
+                    "startedAt": STATE.started_at,
+                    "lastPollAt": STATE.last_poll_at,
+                    "lastError": STATE.last_error,
+                },
+            }
+        if method == "get_market_data_ex":
+            _log_call_start("get_market_data_ex", command, params)
+            data = ContextInfo.get_market_data_ex(
+                params.get("fields", []),
+                params.get("stock_list", []),
+                period=params.get("period", "1d"),
+                start_time=params.get("start_time", ""),
+                end_time=params.get("end_time", ""),
+                count=params.get("count", -1),
+                dividend_type=params.get("dividend_type", "none"),
+                fill_data=params.get("fill_data", True),
+                subscribe=False,
+            )
+            _log_call_ok("get_market_data_ex", command)
+            return {"ok": True, "result": _history_json_safe(data)}
+        if method == "get_stock_list_in_sector":
+            _log_call_start("get_stock_list_in_sector", command, params)
+            data = ContextInfo.get_stock_list_in_sector(
+                params.get("sector", "\u6caa\u6df1A\u80a1")
+            )
+            _log_call_ok("get_stock_list_in_sector", command)
+            return {"ok": True, "result": _history_json_safe(data)}
+        return {
+            "ok": False,
+            "error": {
+                "code": "QMT_COMMAND_UNSUPPORTED",
+                "message": "Unsupported QMT bridge command: " + method,
+                "retryable": False,
+                "details": {"method": method},
+            },
+        }
+    except Exception as exc:
+        _log_call_error(method, command, exc)
+        return {
+            "ok": False,
+            "error": {
+                "code": "QMT_COMMAND_FAILED",
+                "message": str(exc),
+                "retryable": True,
+                "details": {"method": method, "traceback": traceback.format_exc()},
+            },
+        }
+
+
+def _post_json(url: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=2)
+        response_body = response.read().decode("utf-8")
+        if not response_body:
+            return {}
+        parsed = json.loads(response_body)
+        return cast(Dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+    except urllib.error.HTTPError as exc:
+        return {"_httpStatus": exc.code, "_error": str(exc)[:BOUNDED_LOG_TEXT]}
+    except urllib.error.URLError as exc:
+        return {"_httpStatus": 0, "_error": str(exc)[:BOUNDED_LOG_TEXT]}
+
+
+def _lease_rejected(response: Mapping[str, Any]) -> bool:
+    return response.get("_httpStatus") in (401, 403, 409)
+
+
+def _log_tick(history_count: int, control_count: int, drained_count: int) -> None:
     if STATE.tick_count <= 5 or STATE.tick_count % 30 == 0:
         print(
             "mist_qmt_realtime_bridge tick ownerId="
             + STATE.owner_id
             + " tickCount="
             + str(STATE.tick_count)
-            + " lastPollAt="
-            + STATE.last_poll_at
-            + " commandCount="
-            + str(command_count)
+            + " historyCommandCount="
+            + str(history_count)
+            + " controlCommandCount="
+            + str(control_count)
+            + " snapshotDrainCount="
+            + str(drained_count)
             + " lastError="
             + STATE.last_error[:200]
         )
@@ -191,7 +608,11 @@ def _log_command(command: Mapping[str, Any]) -> None:
     )
 
 
-def _log_call_start(method: str, command: Mapping[str, Any], params: Mapping[str, Any]) -> None:
+def _log_call_start(
+    method: str,
+    command: Mapping[str, Any],
+    params: Mapping[str, Any],
+) -> None:
     print(
         "mist_qmt_realtime_bridge call_start commandId="
         + str(command.get("commandId", ""))
@@ -218,113 +639,37 @@ def _log_call_error(method: str, command: Mapping[str, Any], error: Any) -> None
         + " method="
         + method
         + " error="
-        + str(error)[:300]
+        + str(error)[:BOUNDED_LOG_TEXT]
     )
 
 
-def _post_json(url: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json"},
+def _log_control(
+    event: str,
+    sequence: int,
+    method: str,
+    detail: Mapping[str, Any],
+) -> None:
+    record = {
+        "event": event,
+        "callSequence": sequence,
+        "method": method,
+        "detail": detail,
+        "buildId": BRIDGE_BUILD_ID,
+        "timestamp": datetime.datetime.now().astimezone().isoformat(),
+    }
+    print("mist_qmt_realtime_bridge control " + _short_json(record))
+
+
+def _bounded_diagnostic(event: str, reason: str) -> None:
+    print(
+        "mist_qmt_realtime_bridge "
+        + event[:80]
+        + " reason="
+        + str(reason)[:BOUNDED_LOG_TEXT]
     )
-    try:
-        response = urllib.request.urlopen(request, timeout=2)
-        response_body = response.read().decode("utf-8")
-        if not response_body:
-            return {}
-        parsed = json.loads(response_body)
-        if isinstance(parsed, dict):
-            return cast(Dict[str, Any], parsed)
-        return {
-            "ok": False,
-            "error": {
-                "code": "QMT_BRIDGE_GATEWAY_INVALID_RESPONSE",
-                "message": "Gateway response is not a JSON object",
-                "retryable": True,
-                "details": {"url": url},
-            },
-        }
-    except urllib.error.URLError as exc:
-        return {
-            "ok": False,
-            "error": {
-                "code": "QMT_BRIDGE_GATEWAY_UNAVAILABLE",
-                "message": str(exc),
-                "retryable": True,
-                "details": {"url": url},
-            },
-        }
 
 
-def _execute_command(ContextInfo: BridgeContextInfo, command: Mapping[str, Any]) -> Dict[str, Any]:
-    method = str(command.get("method", ""))
-    params_value = command.get("params", {})
-    params = {}  # type: Dict[str, Any]
-    if isinstance(params_value, dict):
-        params = cast(Dict[str, Any], params_value)
-    try:
-        if method == "health":
-            return {
-                "ok": True,
-                "result": {
-                    "ownerId": STATE.owner_id,
-                    "startedAt": STATE.started_at,
-                    "lastPollAt": STATE.last_poll_at,
-                    "lastError": STATE.last_error,
-                },
-            }
-        if method == "get_market_data_ex":
-            _log_call_start("get_market_data_ex", command, params)
-            data = ContextInfo.get_market_data_ex(
-                params.get("fields", []),
-                params.get("stock_list", []),
-                period=params.get("period", "1d"),
-                start_time=params.get("start_time", ""),
-                end_time=params.get("end_time", ""),
-                count=params.get("count", -1),
-                dividend_type=params.get("dividend_type", "none"),
-                fill_data=params.get("fill_data", True),
-                subscribe=False,
-            )
-            _log_call_ok("get_market_data_ex", command)
-            return {"ok": True, "result": _json_safe(data)}
-        if method == "get_full_tick":
-            _log_call_start("get_full_tick", command, params)
-            data = ContextInfo.get_full_tick(params.get("symbols", []))
-            _log_call_ok("get_full_tick", command)
-            return {"ok": True, "result": _json_safe(data)}
-        if method == "get_stock_list_in_sector":
-            _log_call_start("get_stock_list_in_sector", command, params)
-            data = ContextInfo.get_stock_list_in_sector(
-                params.get("sector", "\u6caa\u6df1A\u80a1")
-            )
-            _log_call_ok("get_stock_list_in_sector", command)
-            return {"ok": True, "result": _json_safe(data)}
-        return {
-            "ok": False,
-            "error": {
-                "code": "QMT_COMMAND_UNSUPPORTED",
-                "message": "Unsupported QMT bridge command: " + method,
-                "retryable": False,
-                "details": {"method": method},
-            },
-        }
-    except Exception as exc:
-        _log_call_error(method, command, exc)
-        return {
-            "ok": False,
-            "error": {
-                "code": "QMT_COMMAND_FAILED",
-                "message": str(exc),
-                "retryable": True,
-                "details": {"method": method, "traceback": traceback.format_exc()},
-            },
-        }
-
-
-def _json_safe(value: Any) -> Any:
+def _history_json_safe(value: Any) -> Any:
     to_dict = getattr(value, "to_dict", None)
     if callable(to_dict):
         return to_dict()
@@ -332,11 +677,11 @@ def _json_safe(value: Any) -> Any:
         result = {}  # type: Dict[str, Any]
         mapping = cast(Mapping[Any, Any], value)
         for key, item in mapping.items():
-            result[str(key)] = _json_safe(item)
+            result[str(key)] = _history_json_safe(item)
         return result
     if isinstance(value, (list, tuple)):
         sequence = cast(Any, value)
-        return [_json_safe(item) for item in sequence]
+        return [_history_json_safe(item) for item in sequence]
     try:
         json.dumps(value)
         return value
@@ -346,9 +691,9 @@ def _json_safe(value: Any) -> Any:
 
 def _short_json(value: Any) -> str:
     try:
-        text = json.dumps(_json_safe(value), sort_keys=True)
+        text = json.dumps(_history_json_safe(value), sort_keys=True)
     except Exception:
         text = str(value)
-    if len(text) > 300:
-        return text[:300] + "..."
+    if len(text) > BOUNDED_LOG_TEXT:
+        return text[:BOUNDED_LOG_TEXT] + "..."
     return text

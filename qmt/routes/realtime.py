@@ -15,8 +15,9 @@ from fastapi import (
 )
 
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
+from src.datasource.qmt.realtime.subscription import QmtSubscriptionController
 from src.ws.manager import ConnectionManager
-from src.ws.protocol import ws_error, ws_pong, ws_ready, ws_subscription_ack
+from src.ws.protocol import ws_error, ws_pong, ws_ready, ws_subscription_result
 
 router = APIRouter()
 
@@ -63,6 +64,10 @@ def _manager(websocket: WebSocket) -> ConnectionManager:
     return websocket.app.state.qmt_realtime_ws_manager
 
 
+def _subscription_controller(websocket: WebSocket) -> QmtSubscriptionController:
+    return websocket.app.state.qmt_subscription_controller
+
+
 def _is_leader(collector: QmtRealtimeCollector, client_id: str) -> bool:
     return collector.leader_client_id == client_id or collector.claim_leader(client_id)
 
@@ -81,6 +86,7 @@ def _symbols(message: dict[str, Any]) -> list[str] | None:
 async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
     manager = _manager(websocket)
     collector = _collector(websocket)
+    subscription_controller = _subscription_controller(websocket)
     if not await manager.connect_unique(websocket, client_id):
         await websocket.accept()
         await websocket.send_text(
@@ -101,7 +107,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
     ready_data.update(
         {
             "leaderClientId": collector.leader_client_id,
-            "active": list(collector.active_subscriptions),
+            "active": subscription_controller.registry.public_value(),
             "collectorReady": bridge["ready"],
             "generation": bridge["ownerGeneration"],
             "ownerId": bridge["ownerId"],
@@ -132,10 +138,22 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
                     continue
                 await websocket.send_text(ws_pong("qmt").to_json())
                 continue
-            if msg_type not in {"sync_subscriptions", "subscribe", "unsubscribe"}:
+            if msg_type not in {
+                "sync_subscriptions",
+                "subscribe",
+                "unsubscribe",
+                "get_subscriptions",
+            }:
                 continue
-            if set(message) - {"type", "symbols"}:
-                await _send_invalid_fields(websocket, message, {"type", "symbols"})
+            allowed = (
+                {"type", "symbols"}
+                if msg_type == "sync_subscriptions"
+                else {"type", "symbol"}
+                if msg_type in {"subscribe", "unsubscribe"}
+                else {"type"}
+            )
+            if set(message) != allowed:
+                await _send_invalid_fields(websocket, message, allowed)
                 continue
             if not _is_leader(collector, client_id):
                 await websocket.send_text(
@@ -148,43 +166,44 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
                     ).to_json()
                 )
                 continue
-            symbols = _symbols(message)
-            if symbols is None:
-                await websocket.send_text(
-                    ws_error(
-                        provider="qmt",
-                        code="DATASOURCE_WS_INVALID_SYMBOLS",
-                        message="WebSocket symbols must be a list of strings",
-                        retryable=False,
-                        details={"operation": msg_type},
-                    ).to_json()
-                )
-                continue
-
-            before = set(collector.active_subscriptions)
             if msg_type == "sync_subscriptions":
-                accepted, rejected = collector.partition_symbols(symbols)
-                active = collector.sync_subscriptions(accepted)
-            elif msg_type == "subscribe":
-                requested, rejected = collector.partition_symbols(
-                    [*collector.active_subscriptions, *symbols]
+                symbols = _symbols(message)
+                if symbols is None:
+                    await websocket.send_text(
+                        ws_error(
+                            provider="qmt",
+                            code="DATASOURCE_WS_INVALID_SYMBOLS",
+                            message="WebSocket symbols must be a list of strings",
+                            retryable=False,
+                            details={"operation": msg_type},
+                        ).to_json()
+                    )
+                    continue
+                response_type, data = await subscription_controller.execute(
+                    msg_type, symbols=symbols
                 )
-                active = collector.sync_subscriptions(requested)
-                accepted = [symbol for symbol in active if symbol not in before]
             else:
-                active = collector.unsubscribe(symbols)
-                accepted = [
-                    symbol.upper() for symbol in symbols if symbol.upper() in before
-                ]
-                rejected = []
-            response_type = "unsubscribed" if msg_type == "unsubscribe" else "subscribed"
+                symbol = message.get("symbol")
+                if msg_type != "get_subscriptions" and not isinstance(symbol, str):
+                    await websocket.send_text(
+                        ws_error(
+                            provider="qmt",
+                            code="DATASOURCE_WS_INVALID_SYMBOL",
+                            message="WebSocket symbol must be a string",
+                            retryable=False,
+                            details={"operation": msg_type},
+                        ).to_json()
+                    )
+                    continue
+                response_type, data = await subscription_controller.execute(
+                    msg_type,
+                    symbol=cast(str | None, symbol),
+                )
             await websocket.send_text(
-                ws_subscription_ack(
+                ws_subscription_result(
                     provider="qmt",
                     msg_type=response_type,
-                    accepted=accepted,
-                    rejected=rejected,
-                    active=active,
+                    data=data,
                 ).to_json()
             )
     except WebSocketDisconnect:

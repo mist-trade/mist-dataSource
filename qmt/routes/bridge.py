@@ -1,23 +1,22 @@
 """Full-QMT command bridge routes."""
 
-from datetime import datetime
-from typing import Any, Literal, cast
-from zoneinfo import ZoneInfo
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from src.datasource.qmt.bridge import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
 )
+from src.datasource.qmt.realtime.subscription import (
+    QmtNativeReply,
+    QmtSubscriptionControlError,
+    QmtSubscriptionController,
+    QmtSubscriptionSequenceError,
+)
 
 router = APIRouter()
-
-BEIJING_TZ = ZoneInfo("Asia/Shanghai")
-REALTIME_COMMAND_METHODS = {"get_full_tick"}
-CN_REALTIME_MARKETS = {"SH", "SZ", "BJ"}
-HK_REALTIME_MARKETS = {"HK"}
 
 
 class BridgeModel(BaseModel):
@@ -54,9 +53,44 @@ class ResultRequest(BridgeModel):
 
 
 class CommandRequest(BridgeModel):
-    method: Literal["health", "get_market_data_ex", "get_full_tick", "get_stock_list_in_sector"]
+    method: Literal["health", "get_market_data_ex", "get_stock_list_in_sector"]
     params: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds")
+
+
+PositiveStrictInt = Annotated[StrictInt, Field(gt=0)]
+
+
+class SubscriptionLeaseRequest(BridgeModel):
+    owner_id: str = Field(alias="ownerId")
+    lease_token: str = Field(alias="leaseToken")
+    generation: StrictInt
+
+
+class SubscriptionResultFailure(BridgeModel):
+    symbol: str | None
+    reason: str
+
+
+class SubscriptionResultRequest(SubscriptionLeaseRequest):
+    call_sequence: PositiveStrictInt = Field(alias="callSequence")
+    success: Any | None = None
+    failure: SubscriptionResultFailure | None = None
+
+    @model_validator(mode="after")
+    def validate_result_union(self) -> "SubscriptionResultRequest":
+        present = {name for name in ("success", "failure") if name in self.model_fields_set}
+        if len(present) != 1:
+            raise ValueError("exactly one of success or failure is required")
+        if "failure" in present and self.failure is None:
+            raise ValueError("failure must be an object")
+        return self
+
+
+class SubscriptionSnapshotRequest(SubscriptionLeaseRequest):
+    subscription_id: StrictInt = Field(alias="subscriptionId")
+    captured_at: str = Field(alias="capturedAt")
+    native: dict[str, Any]
 
 
 def _get_gateway_from_state(state: Any) -> QmtCommandGateway:
@@ -71,85 +105,22 @@ def get_gateway(request: Request) -> QmtCommandGateway:
     return _get_gateway_from_state(request.app.state)
 
 
-def _bridge_now(request: Request) -> datetime:
-    clock = getattr(request.app.state, "qmt_bridge_now", None)
-    now_value = datetime.now(BEIJING_TZ)
-    if callable(clock):
-        candidate = clock()
-        if isinstance(candidate, datetime):
-            now_value = candidate
-    if now_value.tzinfo is None:
-        return now_value.replace(tzinfo=BEIJING_TZ)
-    return now_value.astimezone(BEIJING_TZ)
+def get_subscription_controller(request: Request) -> QmtSubscriptionController:
+    controller = getattr(request.app.state, "qmt_subscription_controller", None)
+    if controller is None:
+        raise HTTPException(status_code=503, detail="QMT subscription control is disabled")
+    return cast(QmtSubscriptionController, controller)
 
 
-def _is_realtime_trading_session(now: datetime, symbols: list[str]) -> bool:
-    if now.weekday() >= 5:
-        return False
-    markets = _markets_from_symbols(symbols)
-    return any(_is_market_realtime_session(now, market) for market in markets)
-
-
-def _markets_from_symbols(symbols: list[str]) -> set[str]:
-    markets: set[str] = set()
-    for symbol in symbols:
-        text = str(symbol).upper().strip()
-        if "." not in text:
-            continue
-        suffix = text.rsplit(".", 1)[1]
-        if suffix in CN_REALTIME_MARKETS:
-            markets.add("CN")
-        elif suffix in HK_REALTIME_MARKETS:
-            markets.add("HK")
-    return markets or {"UNKNOWN"}
-
-
-def _is_market_realtime_session(now: datetime, market: str) -> bool:
-    minute_of_day = now.hour * 60 + now.minute
-    if market == "CN":
-        return _in_minutes(minute_of_day, 9, 15, 11, 35) or _in_minutes(
-            minute_of_day, 13, 0, 15, 5
-        )
-    if market == "HK":
-        return _in_minutes(minute_of_day, 9, 0, 12, 5) or _in_minutes(
-            minute_of_day, 13, 0, 16, 10
-        )
-    return _in_minutes(minute_of_day, 9, 0, 16, 10)
-
-
-def _in_minutes(
-    value: int,
-    start_hour: int,
-    start_minute: int,
-    end_hour: int,
-    end_minute: int,
-) -> bool:
-    start = start_hour * 60 + start_minute
-    end = end_hour * 60 + end_minute
-    return start <= value <= end
+def _require_loopback(request: Request) -> None:
+    client = request.client
+    if client is None or client.host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=403, detail="QMT subscription bridge is loopback-only")
 
 
 @router.post("/commands")
 async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
-    if payload.method in REALTIME_COMMAND_METHODS:
-        now = _bridge_now(request)
-        symbols = _symbols_from_params(payload.params)
-        if not _is_realtime_trading_session(now, symbols):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "QMT_REALTIME_OUTSIDE_TRADING_SESSION",
-                    "message": "QMT realtime bridge command is outside market trading session",
-                    "retryable": True,
-                    "details": {
-                        "method": payload.method,
-                        "markets": sorted(_markets_from_symbols(symbols)),
-                        "symbols": symbols,
-                        "beijingTime": now.isoformat(),
-                    },
-                },
-            )
     command = gateway.enqueue(
         payload.method,
         payload.params,
@@ -163,15 +134,10 @@ async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str
     }
 
 
-def _symbols_from_params(params: dict[str, Any]) -> list[str]:
-    value = params.get("symbols", [])
-    if isinstance(value, list):
-        return [str(item) for item in cast(list[Any], value)]
-    return []
-
-
 @router.get("/commands/{command_id}")
-async def get_command_result(command_id: str, request: Request, response: Response) -> dict[str, Any]:
+async def get_command_result(
+    command_id: str, request: Request, response: Response
+) -> dict[str, Any]:
     gateway = get_gateway(request)
     gateway.expire_timed_out()
     result = gateway.result_for(command_id)
@@ -252,6 +218,76 @@ async def post_result(payload: ResultRequest, request: Request) -> dict[str, Any
         "ok": result.ok,
         "completedAt": result.completed_at,
     }
+
+
+@router.post("/subscriptions/poll")
+async def poll_subscription_command(
+    payload: SubscriptionLeaseRequest,
+    request: Request,
+) -> dict[str, Any]:
+    _require_loopback(request)
+    controller = get_subscription_controller(request)
+    try:
+        command = controller.poll_command(
+            payload.owner_id,
+            payload.lease_token,
+            payload.generation,
+        )
+    except QmtBridgeOwnershipError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"command": command}
+
+
+@router.post("/subscriptions/result")
+async def post_subscription_result(
+    payload: SubscriptionResultRequest,
+    request: Request,
+) -> dict[str, Any]:
+    _require_loopback(request)
+    controller = get_subscription_controller(request)
+    failure = payload.failure
+    reply = QmtNativeReply(
+        success_present="success" in payload.model_fields_set,
+        success=payload.success,
+        failure=(
+            {"symbol": failure.symbol, "reason": failure.reason} if failure is not None else None
+        ),
+    )
+    try:
+        controller.post_result(
+            payload.owner_id,
+            payload.lease_token,
+            payload.generation,
+            payload.call_sequence,
+            reply,
+        )
+    except QmtBridgeOwnershipError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except QmtSubscriptionSequenceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"accepted": True}
+
+
+@router.post("/subscriptions/snapshot")
+async def post_subscription_snapshot(
+    payload: SubscriptionSnapshotRequest,
+    request: Request,
+) -> dict[str, Any]:
+    _require_loopback(request)
+    controller = get_subscription_controller(request)
+    try:
+        return await controller.accept_snapshot(
+            payload.owner_id,
+            payload.lease_token,
+            payload.generation,
+            payload.subscription_id,
+            payload.captured_at,
+            payload.native,
+        )
+    except QmtBridgeOwnershipError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except QmtSubscriptionControlError as exc:
+        raise HTTPException(status_code=422, detail=exc.reason) from exc
 
 
 @router.get("/health")

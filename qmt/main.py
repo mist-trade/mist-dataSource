@@ -21,6 +21,11 @@ from src.core.logging import setup_logging
 from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.provider import QmtDatasourceProvider
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
+from src.datasource.qmt.realtime.subscription import (
+    QmtSubscriptionController,
+    QmtSubscriptionJournal,
+    configured_qmt_unsubscribe_success_values,
+)
 from src.ws.manager import ConnectionManager
 from src.ws.protocol import ws_error, ws_realtime_snapshot, ws_stream_started
 
@@ -42,6 +47,8 @@ def create_qmt_app(
     gateway: QmtCommandGateway | None = None,
     provider: QmtDatasourceProvider | None = None,
     collector_now: Callable[[], datetime] | None = None,
+    subscription_journal: QmtSubscriptionJournal | None = None,
+    unsubscribe_success_values: frozenset[int] | None = None,
 ) -> FastAPI:
     """Build an isolated QMT app for the selected realtime mode."""
     mode = _validated_realtime_mode(realtime_mode or settings.qmt.realtime_mode)
@@ -49,16 +56,21 @@ def create_qmt_app(
     app_provider = provider or QmtDatasourceProvider()
     manager: ConnectionManager | None = None
     collector: QmtRealtimeCollector | None = None
+    subscription_controller: QmtSubscriptionController | None = None
 
     if mode == "builtin":
         manager = ConnectionManager()
 
         async def publish_snapshot(data: dict[str, Any]) -> None:
             assert manager is not None
+            if collector is not None:
+                collector.record_snapshot(str(data.get("capturedAt", "")))
             await manager.broadcast(ws_realtime_snapshot("qmt", data))
 
         async def publish_error(code: str, message: str) -> None:
             assert manager is not None
+            if collector is not None:
+                collector.record_error(code, message)
             await manager.broadcast(
                 ws_error(
                     provider="qmt",
@@ -79,6 +91,16 @@ def create_qmt_app(
             epoch_publisher=publish_epoch,
             error_publisher=publish_error,
             now=collector_now,
+        )
+        subscription_controller = QmtSubscriptionController(
+            journal=subscription_journal or QmtSubscriptionJournal(),
+            owner_validator=app_gateway.validate_owner,
+            publisher=publish_snapshot,
+            unsubscribe_success_values=(
+                unsubscribe_success_values
+                if unsubscribe_success_values is not None
+                else configured_qmt_unsubscribe_success_values()
+            ),
         )
 
     @asynccontextmanager
@@ -106,6 +128,8 @@ def create_qmt_app(
     if manager is not None and collector is not None:
         target.state.qmt_realtime_ws_manager = manager
         target.state.qmt_realtime_collector = collector
+    if subscription_controller is not None:
+        target.state.qmt_subscription_controller = subscription_controller
 
     target.add_middleware(
         CORSMiddleware,
@@ -121,7 +145,18 @@ def create_qmt_app(
         return {
             "status": "ok",
             "instance": "qmt",
+            "realtimeMode": mode,
             "bridge": current_gateway.health(),
+            "realtime": (
+                target.state.qmt_realtime_collector.health()
+                if hasattr(target.state, "qmt_realtime_collector")
+                else {"state": "off"}
+            ),
+            "subscriptions": (
+                target.state.qmt_subscription_controller.health()
+                if hasattr(target.state, "qmt_subscription_controller")
+                else {"ready": False}
+            ),
         }
 
     target.include_router(v1_router, tags=["V1"])
