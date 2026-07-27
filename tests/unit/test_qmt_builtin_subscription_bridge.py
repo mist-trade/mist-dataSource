@@ -78,6 +78,48 @@ def test_bridge_dispatches_three_exact_native_subscription_calls() -> None:
     assert context.calls[2] == ("unsubscribe_quote", (0,), {})
 
 
+def test_runtime_introspection_reads_active_subscription_inventory() -> None:
+    namespace = _bridge_namespace()
+
+    class Context:
+        def get_all_subscription(self) -> dict[str, Any]:
+            return {
+                "subscribe_quote": {
+                    "stock_code": "600519.SH",
+                    "period": "tick",
+                }
+            }
+
+    result = namespace["_runtime_introspection"](Context())
+
+    assert result["methods"]["get_all_subscription"]["available"] is True
+    assert result["activeSubscriptionObservation"] == {
+        "available": True,
+        "ok": True,
+        "result": {
+            "subscribe_quote": {
+                "stock_code": "600519.SH",
+                "period": "tick",
+            }
+        },
+        "error": None,
+    }
+
+
+def test_runtime_introspection_reports_missing_active_subscription_inventory() -> None:
+    namespace = _bridge_namespace()
+
+    result = namespace["_runtime_introspection"](object())
+
+    assert result["methods"]["get_all_subscription"]["available"] is False
+    assert result["activeSubscriptionObservation"] == {
+        "available": False,
+        "ok": False,
+        "result": None,
+        "error": None,
+    }
+
+
 def test_callback_only_enqueues_and_runtime_drain_posts_one_complete_map() -> None:
     namespace = _bridge_namespace()
     posted: list[tuple[str, dict[str, Any]]] = []

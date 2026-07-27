@@ -41,6 +41,8 @@ if TYPE_CHECKING:
 
         def get_stock_list_in_sector(self, sector: Any) -> Any: ...
 
+        def get_all_subscription(self) -> Any: ...
+
         def subscribe_quote(
             self,
             symbol: str,
@@ -592,6 +594,7 @@ def _runtime_introspection(ContextInfo: BridgeContextInfo) -> Dict[str, Any]:
         "subscribe_quote",
         "subscribe_whole_quote",
         "unsubscribe_quote",
+        "get_all_subscription",
         "get_market_data_ex",
     ]:
         candidate = getattr(ContextInfo, name, None)
@@ -601,6 +604,29 @@ def _runtime_introspection(ContextInfo: BridgeContextInfo) -> Dict[str, Any]:
             "type": type(candidate).__name__ if candidate is not None else "missing",
             "doc": str(doc)[:BOUNDED_LOG_TEXT] if doc else None,
         }
+    active_subscription_observation = {
+        "available": False,
+        "ok": False,
+        "result": None,
+        "error": None,
+    }  # type: Dict[str, Any]
+    active_subscription_method = getattr(ContextInfo, "get_all_subscription", None)
+    if callable(active_subscription_method):
+        active_subscription_observation["available"] = True
+        try:
+            raw_active_subscriptions = active_subscription_method()
+            safe, copied = _safe_native_result(
+                _history_json_safe(raw_active_subscriptions)
+            )
+            if safe:
+                active_subscription_observation["ok"] = True
+                active_subscription_observation["result"] = copied
+            else:
+                active_subscription_observation["error"] = (
+                    "QMT_ACTIVE_SUBSCRIPTIONS_UNSAFE"
+                )
+        except Exception as exc:
+            active_subscription_observation["error"] = str(exc)[:BOUNDED_LOG_TEXT]
     return {
         "bridgeBuildId": BRIDGE_BUILD_ID,
         "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
@@ -610,6 +636,7 @@ def _runtime_introspection(ContextInfo: BridgeContextInfo) -> Dict[str, Any]:
         "pythonVersion": ".".join(str(item) for item in __import__("sys").version_info[:3]),
         "contextType": type(ContextInfo).__name__,
         "methods": methods,
+        "activeSubscriptionObservation": active_subscription_observation,
     }
 
 
