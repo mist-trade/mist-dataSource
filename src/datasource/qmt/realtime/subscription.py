@@ -295,10 +295,7 @@ class QmtSubscriptionJournal:
             },
         )
         encoded = _encode_record(anchor)
-        with self.path.open("wb") as handle:
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
+        _atomic_bytes_write(self.path, encoded)
         self._record_sequence = cast(int, anchor["sequence"])
         self._previous_hash = cast(str, anchor["hash"])
         self.last_rotation_at = datetime.now(UTC).isoformat()
@@ -528,12 +525,47 @@ class QmtSubscriptionJournal:
         temporary = self.path.with_name(self.path.name + ".tmp")
         if temporary.exists():
             temporary.unlink()
+            _fsync_directory(self.path.parent)
         if rotating.exists():
             if self.path.exists():
                 raise QmtSubscriptionJournalError(
                     "ambiguous QMT subscription journal rotation state"
                 )
             _durable_replace(rotating, self.path)
+            return
+        if self.path.exists():
+            return
+
+        archives = self._archive_paths()
+        if not archives:
+            return
+        archive = archives[-1]
+        archive_digest = _sha256_file(archive)
+        sidecar = archive.with_suffix(archive.suffix + ".sha256")
+        _atomic_text_write(sidecar, archive_digest + "  " + archive.name + "\n")
+        last_sequence, last_hash = _last_record_identity(archive)
+        _atomic_json_write(
+            self.path.with_name(self.path.name + ".manifest.json"),
+            {
+                "archive": archive.name,
+                "sha256": archive_digest,
+                "lastRecordSequence": last_sequence,
+                "previousHash": last_hash,
+            },
+        )
+        self._record_sequence = last_sequence
+        self._previous_hash = last_hash
+        anchor = self._build_record(
+            "rotation_anchor",
+            {
+                "archive": archive.name,
+                "archiveSha256": archive_digest,
+                "lastRecordSequence": last_sequence,
+            },
+        )
+        _atomic_bytes_write(self.path, _encode_record(anchor))
+        self._record_sequence = 0
+        self._previous_hash = "0" * 64
 
     def _load_tail(self) -> None:
         archives = self._archive_paths()
@@ -1175,6 +1207,15 @@ def _atomic_text_write(path: Path, value: str) -> None:
     _durable_replace(temporary, path)
 
 
+def _atomic_bytes_write(path: Path, value: bytes) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("wb") as handle:
+        handle.write(value)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _durable_replace(temporary, path)
+
+
 def _archive_sort_key(path: Path) -> tuple[int, int]:
     match = re.search(r"\.(\d+)-(\d+)\.(\d+)\.jsonl$", path.name)
     if match:
@@ -1231,22 +1272,25 @@ def _resolved_archive_prefix(archives: Sequence[Path]) -> list[Path]:
     for archive_index, archive in enumerate(archives, start=1):
         for record in _read_journal_records(archive):
             kind = record.get("kind")
-            detail = record.get("detail")
-            if not isinstance(detail, dict):
+            detail_value = record.get("detail")
+            if not isinstance(detail_value, dict):
                 continue
+            detail = cast(dict[str, Any], detail_value)
             if kind == "native_intent":
                 sequence = detail.get("callSequence")
                 if type(sequence) is int:
                     pending[sequence] = detail
             elif kind == "native_result":
                 sequence = detail.get("callSequence")
-                intent = pending.pop(sequence, None) if type(sequence) is int else None
+                sequence_int = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else None
+                intent = pending.pop(sequence_int, None) if sequence_int is not None else None
                 if (
                     intent is not None
                     and detail.get("failure") is None
                     and detail.get("successPresent") is True
+                    and sequence_int is not None
                 ):
-                    awaiting_transition[sequence] = intent
+                    awaiting_transition[sequence_int] = intent
             elif kind == "registry_transition":
                 transition = detail.get("transition")
                 sub_id = detail.get("subId")
@@ -1309,9 +1353,10 @@ def _resolved_lifecycle_summaries(archives: Sequence[Path]) -> list[dict[str, An
                     )
                 opened.clear()
             continue
-        detail = record.get("detail")
-        if not isinstance(detail, dict):
+        detail_value = record.get("detail")
+        if not isinstance(detail_value, dict):
             continue
+        detail = cast(dict[str, Any], detail_value)
         transition = detail.get("transition")
         sub_id = detail.get("subId")
         if type(sub_id) is not int:

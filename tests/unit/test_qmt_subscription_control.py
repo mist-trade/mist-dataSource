@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from src.datasource.qmt.realtime import subscription as subscription_module
 from src.datasource.qmt.realtime.subscription import (
     QmtNativeReply,
     QmtSubscriptionControlError,
@@ -494,6 +495,83 @@ def test_journal_rotation_is_reloadable_and_archive_tamper_fails_closed(
         )
 
 
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "active_to_rotating",
+        "rotating_to_archive",
+        "manifest_published",
+        "anchor_published",
+    ],
+)
+def test_journal_recovers_each_interrupted_rotation_publish_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+) -> None:
+    path = tmp_path / "journal.jsonl"
+    journal = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    filler = {f"field{index}": "x" * 1000 for index in range(45)}
+    journal.append("before_rotation", {"index": 0, **filler})
+    journal.append("before_rotation", {"index": 1, **filler})
+
+    original_replace = subscription_module._durable_replace
+    original_json_write = subscription_module._atomic_json_write
+    original_bytes_write = subscription_module._atomic_bytes_write
+
+    def interrupted_replace(source: Path, target: Path) -> None:
+        original_replace(source, target)
+        if (
+            boundary == "active_to_rotating"
+            and target.name == "journal.jsonl.rotating"
+        ) or (
+            boundary == "rotating_to_archive"
+            and target.name.endswith(".jsonl")
+            and target.name != "journal.jsonl"
+        ):
+            raise OSError("injected rotation interruption")
+
+    def interrupted_json_write(path_value: Path, value: dict[str, Any]) -> None:
+        original_json_write(path_value, value)
+        if boundary == "manifest_published" and path_value.name.endswith(
+            ".manifest.json"
+        ):
+            raise OSError("injected rotation interruption")
+
+    def interrupted_bytes_write(path_value: Path, value: bytes) -> None:
+        original_bytes_write(path_value, value)
+        if boundary == "anchor_published" and path_value == path:
+            raise OSError("injected rotation interruption")
+
+    monkeypatch.setattr(subscription_module, "_durable_replace", interrupted_replace)
+    monkeypatch.setattr(subscription_module, "_atomic_json_write", interrupted_json_write)
+    monkeypatch.setattr(subscription_module, "_atomic_bytes_write", interrupted_bytes_write)
+    with pytest.raises(
+        QmtSubscriptionJournalError,
+        match="injected rotation interruption",
+    ):
+        journal.append("trigger_rotation", {"index": 2, **filler})
+    monkeypatch.undo()
+
+    recovered = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    assert recovered.healthy is True
+    sequence_before = recovered.record_sequence
+    recovered.append("after_recovery", {"boundary": boundary})
+    assert recovered.record_sequence == sequence_before + 1
+    assert not (tmp_path / "journal.jsonl.rotating").exists()
+    assert not (tmp_path / "journal.jsonl.tmp").exists()
+
+
 def test_journal_compacts_only_resolved_lifecycle_prefix_and_reloads(
     tmp_path: Path,
 ) -> None:
@@ -622,9 +700,20 @@ def test_journal_compaction_pins_unresolved_handle(tmp_path: Path) -> None:
     assert list(tmp_path.glob("journal.jsonl.*.*.jsonl")) == archives_before
 
 
-def test_journal_recovers_interrupted_compaction_after_checkpoint_publish(
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "prepared",
+        "checkpoint",
+        "checkpoint_published",
+        "catalog_published",
+        "source_retired",
+    ],
+)
+def test_journal_recovers_each_interrupted_compaction_publish_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
 ) -> None:
     path = tmp_path / "journal.jsonl"
     journal = QmtSubscriptionJournal(
@@ -637,16 +726,40 @@ def test_journal_recovers_interrupted_compaction_after_checkpoint_publish(
     for index in range(6):
         journal.append("resolved_evidence", {"index": index, **filler})
     archive = sorted(tmp_path.glob("journal.jsonl.*.*.jsonl"))[0]
+    original_json_write = subscription_module._atomic_json_write
     original_unlink = Path.unlink
     failed = False
 
-    def interrupted_unlink(target: Path, *args: Any, **kwargs: Any) -> None:
+    def interrupted_json_write(path_value: Path, value: dict[str, Any]) -> None:
         nonlocal failed
-        if target == archive and not failed:
+        original_json_write(path_value, value)
+        is_target = (
+            boundary == "prepared"
+            and path_value.name.endswith(".maintenance.json")
+            and value.get("phase") == "prepared"
+        ) or (
+            boundary == "checkpoint"
+            and ".compaction-checkpoint." in path_value.name
+        ) or (
+            boundary == "checkpoint_published"
+            and path_value.name.endswith(".maintenance.json")
+            and value.get("phase") == "checkpoint_published"
+        ) or (
+            boundary == "catalog_published"
+            and path_value.name.endswith(".catalog.json")
+        )
+        if is_target and not failed:
             failed = True
             raise OSError("injected compaction interruption")
-        original_unlink(target, *args, **kwargs)
 
+    def interrupted_unlink(target: Path, *args: Any, **kwargs: Any) -> None:
+        nonlocal failed
+        original_unlink(target, *args, **kwargs)
+        if boundary == "source_retired" and target == archive and not failed:
+            failed = True
+            raise OSError("injected compaction interruption")
+
+    monkeypatch.setattr(subscription_module, "_atomic_json_write", interrupted_json_write)
     monkeypatch.setattr(Path, "unlink", interrupted_unlink)
     with pytest.raises(OSError, match="injected compaction interruption"):
         journal.compact()
@@ -660,7 +773,7 @@ def test_journal_recovers_interrupted_compaction_after_checkpoint_publish(
     )
     assert recovered.healthy is True
     assert not (tmp_path / "journal.jsonl.maintenance.json").exists()
-    assert not archive.exists()
+    assert archive.exists() is (boundary == "prepared")
 
 
 def test_journal_folds_expired_resolved_checkpoints_with_deterministic_clock(
