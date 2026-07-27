@@ -9,7 +9,8 @@ owner。脚本目标语法为 Python 3.7+，只依赖标准库与官方 `tqcente
 1. 将脚本放入 `TDX_INSTALL_DIR/PYPlugins/user/`。
 2. 在 TQ 策略管理器中注册脚本并启用自动运行。
 3. 由操作员自行维护安装位置和文件版本。
-4. 确认 `mist-tdx-datasource` 已运行在 `http://127.0.0.1:9001`。
+4. 确认 Docker 中的 `tdx-datasource` 已运行，且宿主映射
+   `http://127.0.0.1:9001` 可访问。
 
 首次注册和后续版本覆盖都属于人工操作。每次 bridge 版本变化，操作员必须覆盖
 `PYPlugins/user` 中的 installed file，并让 TDX 重新加载；终端正常重启
