@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.local_bridge import is_trusted_local_bridge_peer
 from src.datasource.tdx.realtime.runtime import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
@@ -87,9 +88,9 @@ def _get_gateway(request: Request) -> TdxRealtimeGateway:
 
 
 def _require_loopback(request: Request) -> None:
-    """Reject non-loopback connections."""
+    """Reject peers outside native loopback or the explicit Docker host gateway."""
     client = request.client
-    if client is None or client.host not in ("127.0.0.1", "::1", "localhost"):
+    if client is None or not is_trusted_local_bridge_peer(client.host):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

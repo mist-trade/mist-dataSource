@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEV_ONLY_PACKAGES = {"pytest", "pytest-asyncio", "httpx", "ruff"}
+DEV_ONLY_PACKAGES = {"pytest", "pytest-asyncio", "ruff", "pyright"}
 
 
 def _dependency_name(requirement: str) -> str:

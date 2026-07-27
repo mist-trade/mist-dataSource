@@ -42,8 +42,8 @@ in before live datasource tests run.
 
 For this repository, datasource does not read `TDX_SDK_PATH` or load
 `TPythClient.dll`. The operator installs `tqcenter.py` and the builtin bridge in
-the TDX terminal's `PYPlugins/user` environment; the WinSW datasource process
-uses only HTTP and WebSocket boundaries.
+the TDX terminal's `PYPlugins/user` environment; the datasource container uses
+only HTTP and WebSocket boundaries.
 
 ## Native HTTP JSON-RPC
 

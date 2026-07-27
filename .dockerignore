@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.uv-cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+*.log
+.env
+.env.*
+docs
+tests
+tools
+scripts
+qmt/builtin_bridge
+tdx/builtin_bridge

@@ -1,8 +1,8 @@
 # Mist Datasource
 
-Mist Datasource 在 Windows Host 上把 TDX 与大 QMT 的本地能力暴露为两个独立的
-FastAPI 服务。它不是跨 provider 的统一数据模型，也不负责交易、账户、持仓、委托
-或成交。
+Mist Datasource 通过两个独立 FastAPI container，把 Windows TDX 与大 QMT
+terminal bridge 的本地能力暴露给 Mist。它不是跨 provider 的统一数据模型，也不
+负责交易、账户、持仓、委托或成交。
 
 ## 当前架构
 
@@ -32,7 +32,7 @@ TDX/QMT datasource WebSocket --------------> Mist backend leader
 
 | 运行位置 | 兼容目标 | 当前说明 |
 |---|---|---|
-| Datasource WinSW | Python 3.12 | FastAPI、Pydantic、HTTP client |
+| Datasource container | Python 3.12 | FastAPI、Pydantic、HTTP client |
 | TDX builtin bridge | Python 3.7+ 语法 | 当前实机使用 Python 3.12.10 + `tqcenter` |
 | QMT builtin bridge | Python 3.6 语法 | 只使用标准库 HTTP polling |
 
@@ -83,6 +83,22 @@ uv run uvicorn qmt.main:app --port 9002 --reload
 macOS 只能验证合成 fixture、ASGI、contract 和 guardrail，不得把 mock 结果写成
 Windows native HIL。
 
+## 生产镜像
+
+同一个不可变镜像分别启动两个进程：
+
+```bash
+docker build -t mist-datasource:test .
+docker run --rm mist-datasource:test \
+  uvicorn tdx.main:app --host 0.0.0.0 --port 9001
+docker run --rm mist-datasource:test \
+  uvicorn qmt.main:app --host 0.0.0.0 --port 9002
+```
+
+生产 Compose 使用非 root 用户、只读 root filesystem 和 loopback-only port
+publish。QMT journal 必须 bind mount 到
+`/var/lib/mist-datasource/qmt/subscription-journal.jsonl`。
+
 ## 验证
 
 ```bash
@@ -102,10 +118,11 @@ uv run python scripts/export_openapi.py --all
 Windows smoke、部署和恢复统一从 `mist-deploy` 执行；本仓库不维护第二套生产部署
 脚本。
 
-## Windows 生命周期
+## Windows 与容器生命周期
 
-- `mist-tdx-datasource` 与 `mist-qmt-datasource` 是两个独立 WinSW 服务。
-- Datasource restart 使用对应 `Manage Windows ... Datasource` workflow。
+- `tdx-datasource` 与 `qmt-datasource` 是两个独立 Compose service。
+- Datasource restart 使用对应 `Manage Windows ... Datasource` workflow，并且
+  只重启所选 source。
 - 桌面终端 restart 使用对应 `Recover Windows ... Runtime` workflow。
 - Deploy/runner 不复制、注册、删除或强杀终端 bridge。
 - TDX bridge 首次由操作员放入 `PYPlugins/user` 并注册自动运行；每次 bridge 版本变化
@@ -114,6 +131,7 @@ Windows smoke、部署和恢复统一从 `mist-deploy` 执行；本仓库不维�
   中的 `qmt/builtin_bridge/mist_qmt_realtime_bridge.py` 更新不代表终端已加载新版本。
 - QMT 登录全自动，recovery 不执行登录点击；终端重启后只会加载操作员已覆盖的已注册
   bridge。
+- WinSW datasource 部署已经删除；容器切换完成后的故障只允许 repair-forward。
 
 TDX bridge 运维见 [`tdx/builtin_bridge/README.md`](tdx/builtin_bridge/README.md)，QMT
 bridge 运维见 [`qmt/builtin_bridge/README.md`](qmt/builtin_bridge/README.md)。

@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal, cast
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
+from src.core.local_bridge import is_trusted_local_bridge_peer
 from src.datasource.qmt.bridge import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
@@ -123,7 +124,7 @@ def get_subscription_controller(request: Request) -> QmtSubscriptionController:
 
 def _require_loopback(request: Request) -> None:
     client = request.client
-    if client is None or client.host not in ("127.0.0.1", "::1", "localhost"):
+    if client is None or not is_trusted_local_bridge_peer(client.host):
         raise HTTPException(status_code=403, detail="QMT subscription bridge is loopback-only")
 
 
