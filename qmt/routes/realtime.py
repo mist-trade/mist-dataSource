@@ -14,6 +14,7 @@ from fastapi import (
     status,
 )
 
+from src.core.local_bridge import is_trusted_local_bridge_peer
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
 from src.datasource.qmt.realtime.subscription import QmtSubscriptionController
 from src.ws.manager import ConnectionManager
@@ -24,7 +25,7 @@ router = APIRouter()
 
 def _require_loopback(request: Request) -> None:
     client = request.client
-    if client is None or client.host not in ("127.0.0.1", "::1", "localhost"):
+    if client is None or not is_trusted_local_bridge_peer(client.host):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
