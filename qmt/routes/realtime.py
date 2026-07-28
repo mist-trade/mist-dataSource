@@ -109,9 +109,12 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
         {
             "leaderClientId": collector.leader_client_id,
             "active": subscription_controller.registry.public_value(),
-            "collectorReady": bridge["ready"],
-            "generation": bridge["ownerGeneration"],
-            "ownerId": bridge["ownerId"],
+            "bridge": {
+                "ready": bridge["ready"],
+                "ownerId": bridge["ownerId"],
+                "ownerGeneration": bridge["ownerGeneration"],
+                "bridgeBuildId": bridge["bridgeBuildId"],
+            },
         }
     )
     await websocket.send_text(ws_ready("qmt", ready_data).to_json())

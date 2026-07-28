@@ -1422,7 +1422,9 @@ async def test_health_includes_enriched_tdx_state(v1_client: AsyncClient) -> Non
     assert "connections" in body
     assert body["tdxHttpReachable"] is True
     assert body["wsConnected"] is False
-    assert body["tdxRealtimeBridgeReady"] is False
+    assert body["bridge"]["ready"] is False
+    assert body["bridge"]["ownerGeneration"] == 0
+    assert "tdxRealtimeBridgeReady" not in body
 
 
 @pytest.mark.asyncio

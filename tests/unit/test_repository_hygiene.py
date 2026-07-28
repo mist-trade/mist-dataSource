@@ -250,7 +250,7 @@ def test_tdx_v1_provider_surface_does_not_import_legacy_runtime() -> None:
         PROJECT_ROOT / "src" / "datasource" / "tdx" / "provider.py",
         PROJECT_ROOT / "src" / "datasource" / "tdx" / "http_client.py",
         PROJECT_ROOT / "src" / "datasource" / "tdx" / "models.py",
-        PROJECT_ROOT / "src" / "datasource" / "tdx" / "normalization.py",
+        PROJECT_ROOT / "src" / "datasource" / "tdx" / "market_normalization.py",
         *sorted((PROJECT_ROOT / "src" / "datasource" / "tdx" / "operations").glob("*.py")),
         *sorted((PROJECT_ROOT / "src" / "datasource" / "tdx" / "normalizers").glob("*.py")),
         PROJECT_ROOT / "tdx" / "routes" / "v1" / "product.py",

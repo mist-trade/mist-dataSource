@@ -58,7 +58,7 @@ async def tdx_realtime(websocket: WebSocket, client_id: str) -> None:
         await websocket.close(code=1008, reason="client_id already connected")
         return
 
-    # Send ready with contract tuple + current epoch (late-connect recovery).
+    bridge_health = await gateway.health()
     await manager.send_to_client(
         client_id,
         ws_ready(
@@ -68,6 +68,12 @@ async def tdx_realtime(websocket: WebSocket, client_id: str) -> None:
                 "schemaVersion": ACCEPTED_SCHEMA_VERSION,
                 "source": "tdx",
                 "quality": "latest-state",
+                "bridge": {
+                    "ready": bridge_health["ready"],
+                    "ownerId": bridge_health["ownerId"],
+                    "ownerGeneration": bridge_health["ownerGeneration"],
+                    "bridgeBuildId": bridge_health["bridgeBuildId"],
+                },
             },
         ),
     )

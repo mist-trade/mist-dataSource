@@ -1,7 +1,8 @@
+"""Tests for TDX market normalization boundaries."""
+
 import pandas as pd
 
-from src.datasource.tdx.models import TdxBar, TdxBarQueryRequest, TdxSnapshot
-from src.datasource.tdx.normalization import (
+from src.datasource.tdx.market_normalization import (
     native_value,
     normalize_native_key,
     normalize_number,
@@ -12,6 +13,7 @@ from src.datasource.tdx.normalization import (
     to_tdx_code,
     to_tdx_http_code,
 )
+from src.datasource.tdx.models import TdxBar, TdxBarQueryRequest, TdxSnapshot
 
 
 def test_normalize_symbol_accepts_tdx_prefix_and_market_suffix():

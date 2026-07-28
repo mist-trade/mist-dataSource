@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 from src.datasource.tdx.errors import TdxSymbolNotFoundError
-from src.datasource.tdx.normalization import (
+from src.datasource.tdx.market_normalization import (
     native_value,
     normalize_native_key,
     normalize_optional_number,

@@ -1,6 +1,7 @@
 from typing import Any
 
 from src.core.config import settings
+from src.datasource.tdx.market_normalization import normalize_symbol
 from src.datasource.tdx.models import TdxFormulaOperationResult
 from src.datasource.tdx.native import (
     as_sequence,
@@ -13,7 +14,6 @@ from src.datasource.tdx.native import (
     optional_int,
     unwrap_tdx_value,
 )
-from src.datasource.tdx.normalization import normalize_symbol
 
 
 class TdxFormulaRequestLimitError(Exception):

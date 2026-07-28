@@ -1,3 +1,5 @@
+"""QMT command bridge and owner lifecycle."""
+
 import secrets
 from collections import deque
 from collections.abc import Callable

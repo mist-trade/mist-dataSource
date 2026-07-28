@@ -1,5 +1,6 @@
 from typing import Any
 
+from src.datasource.tdx.market_normalization import normalize_symbol
 from src.datasource.tdx.native import (
     aggregate_event_parts,
     aggregate_events,
@@ -12,7 +13,6 @@ from src.datasource.tdx.native import (
     scalar_value,
     unwrap_tdx_value,
 )
-from src.datasource.tdx.normalization import normalize_symbol
 
 
 def normalize_financial_data_items(

@@ -25,7 +25,15 @@ def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:
         TestClient(app) as client,
         client.websocket_connect("/ws/realtime/tdx/backend-test") as websocket,
     ):
-        assert websocket.receive_json()["type"] == "realtime.ready"
+        ready = websocket.receive_json()
+        assert ready["type"] == "realtime.ready"
+        assert ready["data"]["bridge"] == {
+            "ready": False,
+            "ownerId": None,
+            "ownerGeneration": 0,
+            "bridgeBuildId": None,
+        }
+        assert "tdxRealtimeBridgeReady" not in ready["data"]
         websocket.send_json(
             {"type": "sync_subscriptions", "symbols": ["600030.SH"]}
         )

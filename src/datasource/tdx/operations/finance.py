@@ -1,7 +1,7 @@
 from typing import Any
 
 from src.datasource.tdx.http_client import TdxHttpClient
-from src.datasource.tdx.normalization import to_tdx_http_code
+from src.datasource.tdx.market_normalization import to_tdx_http_code
 from src.datasource.tdx.normalizers.finance import (
     normalize_financial_data_items,
     normalize_single_finance_value_items,

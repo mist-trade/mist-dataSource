@@ -39,7 +39,8 @@ Invoke-RestMethod http://127.0.0.1:9001/tdx/bridge/health
 
 重点字段：
 
-- `tdxRealtimeBridgeReady=true`
+- 根 `/health` 的 `bridge.ready=true`
+- `/tdx/bridge/health` 的顶层 `ready=true`
 - `ownerId` 与 `ownerAgeSeconds`
 - `desiredRevision == convergedRevision`
 - `desiredSymbols == convergedSymbols`

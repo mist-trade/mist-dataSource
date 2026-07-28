@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from src.datasource.realtime_native_safety import validate_native_payload_safety
-from src.datasource.tdx.normalization import dedupe_normalized_symbols, dedupe_stable
+from src.datasource.tdx.market_normalization import dedupe_normalized_symbols, dedupe_stable
 from src.datasource.tdx.realtime.contract import (
     validate_tdx_realtime_native_snapshot,
 )
@@ -807,8 +807,9 @@ class TdxRealtimeGateway:
             owner = self._owner
             ready = owner is not None and self._is_owner_fresh()
             return {
-                "tdxRealtimeBridgeReady": ready,
+                "ready": ready,
                 "ownerId": owner.owner_id if owner else None,
+                "ownerGeneration": owner.generation if owner else 0,
                 "ownerAgeSeconds": (
                     round(time.monotonic() - owner.last_seen_monotonic, 3) if owner else None
                 ),

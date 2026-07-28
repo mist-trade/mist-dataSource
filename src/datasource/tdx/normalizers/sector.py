@@ -1,12 +1,12 @@
 from typing import Any
 
+from src.datasource.tdx.market_normalization import normalize_symbol
 from src.datasource.tdx.native import (
     first_native_value,
     native_mapping,
     native_sequence,
     unwrap_tdx_value,
 )
-from src.datasource.tdx.normalization import normalize_symbol
 
 
 def normalize_sector_item(item: Any) -> dict[str, Any]:

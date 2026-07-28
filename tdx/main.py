@@ -105,7 +105,12 @@ def create_tdx_app(
         bridge_health = (
             await current_gateway.health()
             if current_gateway is not None
-            else {"tdxRealtimeBridgeReady": False}
+            else {
+                "ready": False,
+                "ownerId": None,
+                "ownerGeneration": 0,
+                "bridgeBuildId": None,
+            }
         )
         connections = current_manager.connection_count if current_manager else 0
         return {
@@ -115,7 +120,7 @@ def create_tdx_app(
             "connections": connections,
             "wsConnected": connections > 0,
             **provider_health,
-            **bridge_health,
+            "bridge": bridge_health,
         }
 
     target.include_router(v1_router, tags=["V1"])

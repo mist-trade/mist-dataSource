@@ -23,6 +23,25 @@ def test_qmt_builtin_mounts_formal_realtime_websocket() -> None:
             "source": "qmt",
             "quality": "latest-state",
         }
+        assert ready["data"]["bridge"] == {
+            "ready": False,
+            "ownerId": None,
+            "ownerGeneration": 0,
+            "bridgeBuildId": None,
+        }
+        assert "collectorReady" not in ready["data"]
+        assert "generation" not in ready["data"]
+        assert "ownerId" not in ready["data"]
+
+
+def test_qmt_root_health_uses_common_bridge_path() -> None:
+    app = create_qmt_app(realtime_mode="builtin")
+    with TestClient(app) as client:
+        body = client.get("/health").json()
+
+    assert body["bridge"]["ready"] is False
+    assert body["bridge"]["ownerGeneration"] == 0
+    assert "collectorReady" not in body
 
 
 def test_qmt_off_does_not_mount_realtime_routes() -> None:

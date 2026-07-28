@@ -3,18 +3,18 @@ from typing import Any
 
 from src.datasource.tdx.errors import TdxNativeError
 from src.datasource.tdx.http_client import TdxHttpClient
+from src.datasource.tdx.market_normalization import (
+    normalize_symbol,
+    normalize_tdx_bar_rows,
+    normalize_tdx_snapshot,
+    to_tdx_http_code,
+)
 from src.datasource.tdx.models import TdxBar, TdxSnapshot
 from src.datasource.tdx.native import (
     first_native_value,
     native_item_for_symbol,
     native_mapping,
     optional_float,
-)
-from src.datasource.tdx.normalization import (
-    normalize_symbol,
-    normalize_tdx_bar_rows,
-    normalize_tdx_snapshot,
-    to_tdx_http_code,
 )
 
 TDX_MARKET_DATA_FIELDS = ["Open", "High", "Low", "Close", "Volume", "Amount"]
