@@ -132,7 +132,9 @@ class TestCallbackDirtyOnly:
 
 def test_terminal_bridge_threading_guardrail() -> None:
     """A callback lock is allowed; background thread ownership is not."""
-    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text()
+    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text(
+        encoding="utf-8"
+    )
     assert "threading.Lock()" in source
     assert "threading.Thread(" not in source
     assert "MIST_BRIDGE_USE_FAKE_TQ" not in source
@@ -140,7 +142,9 @@ def test_terminal_bridge_threading_guardrail() -> None:
 
 
 def test_snapshot_delivery_has_no_producer_identity_or_retry_loop() -> None:
-    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text()
+    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text(
+        encoding="utf-8"
+    )
     assert "producerSequence" not in source
     assert "producer_sequence" not in source
     assert "next_producer_sequence" not in source
