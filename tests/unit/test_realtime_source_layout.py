@@ -60,3 +60,7 @@ def test_production_bridges_and_runtime_probe_have_distinct_identities() -> None
     assert (
         PROJECT_ROOT / "tools/qmt_runtime_probe/mist_qmt_runtime_probe.py"
     ).is_file()
+    assert (
+        PROJECT_ROOT
+        / "tools/qmt_runtime_probe/mist_qmt_subscription_introspection_probe.py"
+    ).is_file()

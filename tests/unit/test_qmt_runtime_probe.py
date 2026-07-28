@@ -3,14 +3,33 @@ import importlib.util
 import json
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_PROBE_SCRIPT = PROJECT_ROOT / "tools" / "qmt_runtime_probe" / "mist_qmt_runtime_probe.py"
+SUBSCRIPTION_INTROSPECTION_PROBE_SCRIPT = (
+    PROJECT_ROOT
+    / "tools"
+    / "qmt_runtime_probe"
+    / "mist_qmt_subscription_introspection_probe.py"
+)
 
 
 def _load_runtime_probe() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "mist_qmt_runtime_probe_test", RUNTIME_PROBE_SCRIPT
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_subscription_introspection_probe() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "mist_qmt_subscription_introspection_probe_test",
+        SUBSCRIPTION_INTROSPECTION_PROBE_SCRIPT,
     )
     assert spec is not None
     assert spec.loader is not None
@@ -111,3 +130,84 @@ def test_signature_failure_is_recorded_as_unknown_without_hiding_attribute() -> 
     assert method["signature"]["status"] == "unknown"
     assert "ValueError: native signature is unavailable" in method["signature"]["error"]
     assert calls == []
+
+
+def test_subscription_introspection_probe_parses_with_python36_grammar() -> None:
+    source = SUBSCRIPTION_INTROSPECTION_PROBE_SCRIPT.read_text(encoding="utf-8")
+
+    ast.parse(
+        source,
+        filename=str(SUBSCRIPTION_INTROSPECTION_PROBE_SCRIPT),
+        feature_version=(3, 6),
+    )
+
+
+def test_subscription_introspection_probe_never_calls_native_methods() -> None:
+    calls: list[str] = []
+
+    class FakeContext:
+        def subscribe_quote(self) -> None:
+            """Single subscription."""
+            calls.append("subscribe_quote")
+
+        def subscribe_whole_quote(self) -> None:
+            """Whole subscription."""
+            calls.append("subscribe_whole_quote")
+
+        def subscribe_all_market(self) -> None:
+            """Undocumented alias."""
+            calls.append("subscribe_all_market")
+
+        def unsubscribe_quote(self) -> None:
+            """Unsubscribe."""
+            calls.append("unsubscribe_quote")
+
+        def get_market_data_ex(self) -> None:
+            """Historical read."""
+            calls.append("get_market_data_ex")
+
+    module = _load_subscription_introspection_probe()
+    evidence = module._build_evidence(FakeContext())
+    introspection = evidence["subscriptionApiIntrospection"]
+
+    assert calls == []
+    assert evidence["readOnly"] is True
+    assert evidence["nativeMethodsInvoked"] == []
+    assert evidence["mutationExecuted"] is False
+    assert introspection["candidateAliases"] == [
+        "subscribe_all_market",
+        "subscribe_whole_quote",
+    ]
+    for name in introspection["requiredMethods"] + introspection["candidateAliases"]:
+        assert introspection["methods"][name]["getattr"]["callable"] is True
+
+
+def test_subscription_introspection_probe_sanitizes_paths_and_tokens() -> None:
+    module = _load_subscription_introspection_probe()
+
+    sanitized = module._sanitize_text(
+        r'C:\Users\alice\project.py leaseToken="top-secret" '
+        r'Authorization: Bearer bearer-secret'
+    )
+
+    assert "alice" not in sanitized
+    assert "top-secret" not in sanitized
+    assert "bearer-secret" not in sanitized
+    assert sanitized.count("<REDACTED>") == 2
+
+
+def test_subscription_introspection_probe_writes_json_and_log_fallback(
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
+    module = _load_subscription_introspection_probe()
+    output_path = tmp_path / "subscription-introspection.json"
+    module.OUTPUT_PATH = str(output_path)
+
+    evidence = module.run_probe(object())
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == evidence
+    captured = capsys.readouterr().out
+    assert "MIST_QMT_SUBSCRIPTION_INTROSPECTION_BEGIN" in captured
+    assert "MIST_QMT_SUBSCRIPTION_INTROSPECTION_END" in captured
+    assert '"mutationExecuted": false' in captured

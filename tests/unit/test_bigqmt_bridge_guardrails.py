@@ -4,6 +4,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BRIDGE_SCRIPT = PROJECT_ROOT / "qmt" / "builtin_bridge" / "mist_qmt_realtime_bridge.py"
 RUNTIME_PROBE_SCRIPT = PROJECT_ROOT / "tools" / "qmt_runtime_probe" / "mist_qmt_runtime_probe.py"
+SUBSCRIPTION_INTROSPECTION_PROBE_SCRIPT = (
+    PROJECT_ROOT
+    / "tools"
+    / "qmt_runtime_probe"
+    / "mist_qmt_subscription_introspection_probe.py"
+)
 README = PROJECT_ROOT / "README.md"
 QMT_ALIGNMENT = PROJECT_ROOT / "docs" / "references" / "qmt-provider-alignment.md"
 QMT_CLIENT = PROJECT_ROOT / "src" / "adapter" / "qmt" / "client.py"
@@ -191,7 +197,11 @@ def test_qmt_builtin_scripts_are_python36_compatible() -> None:
         " | ",
     )
     violations: list[str] = []
-    for path in (BRIDGE_SCRIPT, RUNTIME_PROBE_SCRIPT):
+    for path in (
+        BRIDGE_SCRIPT,
+        RUNTIME_PROBE_SCRIPT,
+        SUBSCRIPTION_INTROSPECTION_PROBE_SCRIPT,
+    ):
         source = path.read_text(encoding="utf-8")
         for token in forbidden_tokens:
             if token in source:

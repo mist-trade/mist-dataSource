@@ -6,6 +6,11 @@
 `tools/qmt_runtime_probe/mist_qmt_runtime_probe.py` 原始输出，并明确区分“本次重新采集”和历史
 结论。
 
+仅补订阅 API introspection 时，不运行完整环境 probe，改用严格只读的
+`tools/qmt_runtime_probe/mist_qmt_subscription_introspection_probe.py`。该脚本
+不调用 native method，只记录 `dir/getattr/__doc__/help/signature`；执行说明见
+同目录 `README.md`。
+
 ## Run Metadata
 
 - Date/time:
@@ -75,6 +80,29 @@ Record sanitized samples for the methods planned for normalized provider work:
 - Security info method:
 - Finance/report method:
 - Formula method:
+
+## Probe D: Subscription API Introspection
+
+附加 `mist-qmt-subscription-introspection.json`，并填写：
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| `subscribe_quote` availability/doc/help/signature | pending | |
+| `subscribe_whole_quote` availability/doc/help/signature | pending | |
+| `unsubscribe_quote` availability/doc/help/signature | pending | |
+| `get_market_data_ex` availability/doc/help/signature | pending | |
+| `subscribe*all*` candidates | pending | |
+| `subscribe*whole*` candidates | pending | |
+| Embedded Python version | pending | |
+| QMT/迅投 build | pending/unknown | |
+| Terminal build | pending/unknown | |
+| Strategy runtime build | pending/unknown | |
+| VIP/非 VIP permission tier | pending/unknown | |
+| Probe reports `nativeMethodsInvoked=[]` | pending | |
+| Probe reports `mutationExecuted=false` | pending | |
+
+拿不到的 build、权限或 signature 必须记录 `unknown`，不得根据方法名、账号用途
+或 UI 外观猜测。
 
 ## Conclusion
 
