@@ -5,6 +5,7 @@ memory-only realtime transport defaults to ``builtin`` and is mounted unless
 an operator explicitly selects ``off`` for rollback.
 """
 
+import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -22,6 +23,7 @@ from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.provider import QmtDatasourceProvider
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
 from src.datasource.qmt.realtime.subscription import (
+    QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV,
     QmtSubscriptionController,
     QmtSubscriptionJournal,
     configured_qmt_unsubscribe_success_values,
@@ -92,8 +94,9 @@ def create_qmt_app(
             error_publisher=publish_error,
             now=collector_now,
         )
+        journal = subscription_journal or QmtSubscriptionJournal()
         subscription_controller = QmtSubscriptionController(
-            journal=subscription_journal or QmtSubscriptionJournal(),
+            journal=journal,
             owner_validator=app_gateway.validate_owner,
             publisher=publish_snapshot,
             unsubscribe_success_values=(
@@ -102,6 +105,11 @@ def create_qmt_app(
                 else configured_qmt_unsubscribe_success_values()
             ),
         )
+        observation_path = os.environ.get(
+            QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV,
+            str(journal.path.with_name("context-rebuild-observation.json")),
+        )
+        subscription_controller.consume_rebuilt_context_observation(observation_path)
 
     @asynccontextmanager
     async def lifespan(target_app: FastAPI) -> AsyncGenerator[None]:

@@ -28,9 +28,13 @@ DEFAULT_JOURNAL_ROTATE_BYTES = 67_108_864
 DEFAULT_JOURNAL_ARCHIVE_MAX_BYTES = 536_870_912
 DEFAULT_JOURNAL_RESOLVED_RETENTION_DAYS = 90
 MAX_JOURNAL_RECORD_BYTES = 65_536
+MAX_CONTEXT_REBUILD_OBSERVATION_BYTES = 16_384
 MIN_ROTATION_OVERHEAD_BYTES = MAX_JOURNAL_RECORD_BYTES * 2
 DEFAULT_CONTROL_TIMEOUT_SECONDS = 10.0
 QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV = "MIST_QMT_UNSUBSCRIBE_SUCCESS_VALUES"
+QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV = (
+    "MIST_QMT_CONTEXT_REBUILD_OBSERVATION_PATH"
+)
 RFC3339_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d"
     r"(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
@@ -192,6 +196,7 @@ class QmtSubscriptionJournal:
         self.last_rotation_at: str | None = None
         self.last_compaction_at: str | None = None
         self._checkpoint_sequence = 0
+        self._last_record: dict[str, Any] | None = None
         self._recover_interrupted_rotation()
         self._recover_interrupted_compaction()
         self._load_tail()
@@ -217,6 +222,7 @@ class QmtSubscriptionJournal:
                     os.fsync(handle.fileno())
                 self._record_sequence = cast(int, record["sequence"])
                 self._previous_hash = cast(str, record["hash"])
+                self._last_record = record
                 self.healthy = True
                 self.last_error = None
                 return record
@@ -298,6 +304,7 @@ class QmtSubscriptionJournal:
         _atomic_bytes_write(self.path, encoded)
         self._record_sequence = cast(int, anchor["sequence"])
         self._previous_hash = cast(str, anchor["hash"])
+        self._last_record = anchor
         self.last_rotation_at = datetime.now(UTC).isoformat()
 
     def compact(self) -> bool:
@@ -618,6 +625,7 @@ class QmtSubscriptionJournal:
                             )
                         expected_sequence += 1
                         previous_hash = digest
+                        self._last_record = record
             self._record_sequence = expected_sequence - 1
             self._previous_hash = previous_hash
         except Exception as exc:
@@ -641,6 +649,10 @@ class QmtSubscriptionJournal:
     @property
     def record_sequence(self) -> int:
         return self._record_sequence
+
+    @property
+    def last_record(self) -> dict[str, Any] | None:
+        return dict(self._last_record) if self._last_record is not None else None
 
 
 class QmtSubscriptionController:
@@ -829,17 +841,139 @@ class QmtSubscriptionController:
             "journal": self.journal.health(),
         }
 
-    def observe_rebuilt_context(self) -> None:
-        """Unlock a restarted datasource only after operator-proven context rebuild."""
+    def observe_rebuilt_context(
+        self,
+        *,
+        affected_journal_sequence: int | None = None,
+        operator_evidence_digest: str = "0" * 64,
+        observation_time: str | None = None,
+        recovery_mode: str = "qmt_context_rebuilt",
+    ) -> None:
+        """Unlock only after a durable, operator-proven QMT context rebuild."""
+        affected_sequence = (
+            self.journal.record_sequence
+            if affected_journal_sequence is None
+            else affected_journal_sequence
+        )
+        if affected_sequence != self.journal.record_sequence:
+            raise QmtSubscriptionJournalError(
+                "QMT context rebuild observation is stale"
+            )
+        if not re.fullmatch(r"[0-9a-f]{64}", operator_evidence_digest):
+            raise QmtSubscriptionJournalError(
+                "QMT context rebuild evidence digest must be lowercase SHA-256"
+            )
+        observed_at = observation_time or datetime.now(UTC).isoformat()
+        if not RFC3339_PATTERN.fullmatch(observed_at):
+            raise QmtSubscriptionJournalError(
+                "QMT context rebuild observation time must be RFC3339"
+            )
         self.journal.append(
             "operator_observation",
             {
-                "observation": "qmt_context_rebuilt",
+                "affectedJournalSequence": affected_sequence,
+                "recoveryMode": recovery_mode,
+                "operatorEvidenceDigest": operator_evidence_digest,
+                "observationTime": observed_at,
                 "physicalSubscriptionsAssumedReleased": True,
             },
         )
         self.registry = QmtSubscriptionRegistry()
         self.reconciliation_required = False
+
+    def consume_rebuilt_context_observation(self, path: str | Path) -> None:
+        """Consume one protected one-shot recovery observation before serving."""
+        observation_path = Path(path)
+        processing_path = observation_path.with_name(observation_path.name + ".processing")
+        if observation_path.exists() and processing_path.exists():
+            raise QmtSubscriptionJournalError(
+                "ambiguous QMT context rebuild observation state"
+            )
+        if observation_path.exists():
+            if observation_path.stat().st_size > MAX_CONTEXT_REBUILD_OBSERVATION_BYTES:
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild observation exceeds bounded size"
+                )
+            _durable_replace(observation_path, processing_path)
+        if not processing_path.exists():
+            return
+
+        try:
+            raw = processing_path.read_bytes()
+            if len(raw) > MAX_CONTEXT_REBUILD_OBSERVATION_BYTES:
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild observation exceeds bounded size"
+                )
+            decoded: object = json.loads(raw.decode("utf-8-sig"))
+            if not isinstance(decoded, dict):
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild observation has invalid fields"
+                )
+            value = cast(dict[str, object], decoded)
+            if set(value.keys()) != {
+                "schemaVersion",
+                "observation",
+                "affectedJournalSequence",
+                "recoveryMode",
+                "operatorEvidenceDigest",
+                "observationTime",
+            }:
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild observation has invalid fields"
+                )
+            if value["schemaVersion"] != 1 or value["observation"] != "qmt_context_rebuilt":
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild observation has invalid identity"
+                )
+            affected_value = value["affectedJournalSequence"]
+            if type(affected_value) is not int or affected_value < 0:
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild affected sequence must be a non-negative integer"
+                )
+            affected_sequence = affected_value
+            recovery_mode = value["recoveryMode"]
+            evidence_digest = value["operatorEvidenceDigest"]
+            observation_time = value["observationTime"]
+            if (
+                not isinstance(recovery_mode, str)
+                or recovery_mode != "terminal_process_restarted"
+                or not isinstance(evidence_digest, str)
+                or not isinstance(observation_time, str)
+            ):
+                raise QmtSubscriptionJournalError(
+                    "QMT context rebuild observation has invalid recovery evidence"
+                )
+            detail: dict[str, Any] = {
+                "affectedJournalSequence": affected_sequence,
+                "recoveryMode": recovery_mode,
+                "operatorEvidenceDigest": evidence_digest,
+                "observationTime": observation_time,
+                "physicalSubscriptionsAssumedReleased": True,
+            }
+            last_record = self.journal.last_record
+            already_durable = (
+                last_record is not None
+                and last_record.get("kind") == "operator_observation"
+                and last_record.get("detail") == detail
+            )
+            if not already_durable:
+                self.observe_rebuilt_context(
+                    affected_journal_sequence=affected_sequence,
+                    recovery_mode=recovery_mode,
+                    operator_evidence_digest=evidence_digest,
+                    observation_time=observation_time,
+                )
+            else:
+                self.registry = QmtSubscriptionRegistry()
+                self.reconciliation_required = False
+            processing_path.unlink()
+            _fsync_directory(processing_path.parent)
+        except QmtSubscriptionJournalError:
+            raise
+        except Exception as exc:
+            raise QmtSubscriptionJournalError(
+                "QMT context rebuild observation is invalid: " + str(exc)
+            ) from exc
 
     def _record_control(
         self,

@@ -879,3 +879,118 @@ async def test_restart_requires_durable_operator_context_rebuild_observation(
         "subscriptions",
         {"success": {"whole": None, "singles": {}}},
     )
+
+
+def test_consumes_one_shot_context_rebuild_observation(tmp_path: Path) -> None:
+    journal = _journal(tmp_path)
+    journal.append("subscribe_result", {"subId": 123})
+    controller = QmtSubscriptionController(
+        journal=journal,
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+    )
+    observation = tmp_path / "context-rebuild-observation.json"
+    observation.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "observation": "qmt_context_rebuilt",
+                "affectedJournalSequence": 1,
+                "recoveryMode": "terminal_process_restarted",
+                "operatorEvidenceDigest": "a" * 64,
+                "observationTime": "2026-07-28T10:00:00+08:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    controller.consume_rebuilt_context_observation(observation)
+
+    assert controller.health()["reconciliationRequired"] is False
+    assert not observation.exists()
+    assert not observation.with_name(observation.name + ".processing").exists()
+    last_record = journal.last_record
+    assert last_record is not None
+    assert last_record["kind"] == "operator_observation"
+    assert last_record["detail"] == {
+        "affectedJournalSequence": 1,
+        "recoveryMode": "terminal_process_restarted",
+        "operatorEvidenceDigest": "a" * 64,
+        "observationTime": "2026-07-28T10:00:00+08:00",
+        "physicalSubscriptionsAssumedReleased": True,
+    }
+
+
+def test_rejects_stale_context_rebuild_observation(tmp_path: Path) -> None:
+    journal = _journal(tmp_path)
+    journal.append("subscribe_result", {"subId": 123})
+    journal.append("unsubscribe_intent", {"subId": 123})
+    controller = QmtSubscriptionController(
+        journal=journal,
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+    )
+    observation = tmp_path / "context-rebuild-observation.json"
+    observation.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "observation": "qmt_context_rebuilt",
+                "affectedJournalSequence": 1,
+                "recoveryMode": "terminal_process_restarted",
+                "operatorEvidenceDigest": "b" * 64,
+                "observationTime": "2026-07-28T10:00:00+08:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(QmtSubscriptionJournalError, match="stale"):
+        controller.consume_rebuilt_context_observation(observation)
+
+    assert controller.health()["reconciliationRequired"] is True
+    assert observation.with_name(observation.name + ".processing").exists()
+
+
+def test_finishes_consuming_already_durable_context_observation(tmp_path: Path) -> None:
+    journal = _journal(tmp_path)
+    journal.append("subscribe_result", {"subId": 123})
+    controller = QmtSubscriptionController(
+        journal=journal,
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+    )
+    processing = tmp_path / "context-rebuild-observation.json.processing"
+    value = {
+        "schemaVersion": 1,
+        "observation": "qmt_context_rebuilt",
+        "affectedJournalSequence": 1,
+        "recoveryMode": "terminal_process_restarted",
+        "operatorEvidenceDigest": "c" * 64,
+        "observationTime": "2026-07-28T10:00:00+08:00",
+    }
+    processing.write_text(json.dumps(value), encoding="utf-8")
+    controller.observe_rebuilt_context(
+        affected_journal_sequence=1,
+        recovery_mode="terminal_process_restarted",
+        operator_evidence_digest="c" * 64,
+        observation_time="2026-07-28T10:00:00+08:00",
+    )
+    restarted = QmtSubscriptionController(
+        journal=QmtSubscriptionJournal(
+            path=journal.path,
+            rotate_bytes=262_144,
+            archive_max_bytes=524_288,
+            resolved_retention_days=90,
+        ),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+    )
+
+    restarted.consume_rebuilt_context_observation(
+        tmp_path / "context-rebuild-observation.json"
+    )
+
+    assert restarted.health()["reconciliationRequired"] is False
+    assert not processing.exists()
+    assert restarted.journal.record_sequence == 2
