@@ -22,6 +22,7 @@
           "timeoutSeconds": {
             "anyOf": [
               {
+                "exclusiveMinimum": 0.0,
                 "type": "number"
               },
               {
@@ -114,6 +115,8 @@
           },
           "limit": {
             "default": 1,
+            "exclusiveMinimum": 0.0,
+            "maximum": 16.0,
             "title": "Limit",
             "type": "integer"
           },
@@ -187,6 +190,281 @@
           "stock_list"
         ],
         "title": "QmtBarQueryRequest",
+        "type": "object"
+      },
+      "QmtBridgeHealth": {
+        "additionalProperties": false,
+        "description": "Typed QMT bridge-scoped diagnostics.",
+        "properties": {
+          "bridgeArtifactSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridgeartifactsha256"
+          },
+          "bridgeBuildId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridgebuildid"
+          },
+          "bridgeRuntimeFingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridgeruntimefingerprint"
+          },
+          "commandRejectionTotals": {
+            "items": {
+              "$ref": "#/components/schemas/QmtCommandRejectionTotal"
+            },
+            "title": "Commandrejectiontotals",
+            "type": "array"
+          },
+          "inFlightCount": {
+            "minimum": 0.0,
+            "title": "Inflightcount",
+            "type": "integer"
+          },
+          "lastHeartbeatAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastheartbeatat"
+          },
+          "maxCommandBytes": {
+            "minimum": 1.0,
+            "title": "Maxcommandbytes",
+            "type": "integer"
+          },
+          "maxOutstandingCommands": {
+            "minimum": 1.0,
+            "title": "Maxoutstandingcommands",
+            "type": "integer"
+          },
+          "maxPollLimit": {
+            "minimum": 1.0,
+            "title": "Maxpolllimit",
+            "type": "integer"
+          },
+          "maxResultBytes": {
+            "minimum": 1.0,
+            "title": "Maxresultbytes",
+            "type": "integer"
+          },
+          "maxRetainedResultBytes": {
+            "minimum": 1.0,
+            "title": "Maxretainedresultbytes",
+            "type": "integer"
+          },
+          "maxRetainedResults": {
+            "minimum": 1.0,
+            "title": "Maxretainedresults",
+            "type": "integer"
+          },
+          "oldestPendingAgeSeconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldestpendingageseconds"
+          },
+          "oldestResultAgeSeconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldestresultageseconds"
+          },
+          "ownerAgeSeconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ownerageseconds"
+          },
+          "ownerGeneration": {
+            "minimum": 0.0,
+            "title": "Ownergeneration",
+            "type": "integer"
+          },
+          "ownerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ownerid"
+          },
+          "ownerStale": {
+            "title": "Ownerstale",
+            "type": "boolean"
+          },
+          "pendingCount": {
+            "minimum": 0.0,
+            "title": "Pendingcount",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "resultCount": {
+            "minimum": 0.0,
+            "title": "Resultcount",
+            "type": "integer"
+          },
+          "resultTtlSeconds": {
+            "exclusiveMinimum": 0.0,
+            "title": "Resultttlseconds",
+            "type": "number"
+          },
+          "retainedResultBytes": {
+            "minimum": 0.0,
+            "title": "Retainedresultbytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ready",
+          "ownerId",
+          "ownerGeneration",
+          "bridgeBuildId",
+          "lastHeartbeatAt",
+          "ownerAgeSeconds",
+          "ownerStale",
+          "bridgeArtifactSha256",
+          "bridgeRuntimeFingerprint",
+          "pendingCount",
+          "inFlightCount",
+          "resultCount",
+          "maxOutstandingCommands",
+          "maxRetainedResults",
+          "resultTtlSeconds",
+          "maxPollLimit",
+          "maxCommandBytes",
+          "maxResultBytes",
+          "maxRetainedResultBytes",
+          "retainedResultBytes",
+          "oldestPendingAgeSeconds",
+          "oldestResultAgeSeconds",
+          "commandRejectionTotals"
+        ],
+        "title": "QmtBridgeHealth",
+        "type": "object"
+      },
+      "QmtCommandRejectionTotal": {
+        "additionalProperties": false,
+        "description": "Fixed-cardinality QMT historical command rejection counter.",
+        "properties": {
+          "reason": {
+            "enum": [
+              "capacity",
+              "command_invalid",
+              "command_too_large",
+              "result_capacity",
+              "result_invalid",
+              "result_too_large"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "value": {
+            "minimum": 0.0,
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reason",
+          "value"
+        ],
+        "title": "QmtCommandRejectionTotal",
+        "type": "object"
+      },
+      "QmtDatasourceHealth": {
+        "additionalProperties": false,
+        "description": "QMT root health with provider-specific state in responsibility objects.",
+        "properties": {
+          "bridge": {
+            "$ref": "#/components/schemas/QmtBridgeHealth"
+          },
+          "instance": {
+            "const": "qmt",
+            "title": "Instance",
+            "type": "string"
+          },
+          "realtime": {
+            "additionalProperties": true,
+            "title": "Realtime",
+            "type": "object"
+          },
+          "realtimeMode": {
+            "enum": [
+              "off",
+              "builtin"
+            ],
+            "title": "Realtimemode",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "subscriptions": {
+            "additionalProperties": true,
+            "title": "Subscriptions",
+            "type": "object"
+          }
+        },
+        "required": [
+          "status",
+          "instance",
+          "realtimeMode",
+          "bridge",
+          "realtime",
+          "subscriptions"
+        ],
+        "title": "QmtDatasourceHealth",
         "type": "object"
       },
       "ResultRequest": {
@@ -440,9 +718,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/QmtDatasourceHealth"
                 }
               }
             },
@@ -547,9 +823,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Bridge Health Qmt Bridge Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/QmtBridgeHealth"
                 }
               }
             },

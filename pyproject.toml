@@ -48,6 +48,8 @@ ignore = ["E501", "B008", "B904"]
 
 [tool.pyright]
 pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
 typeCheckingMode = "strict"
 include = ["src", "tdx", "qmt", "scripts"]
 exclude = ["tests", "qmt/builtin_bridge", "tdx/builtin_bridge", "tools/qmt_runtime_probe"]

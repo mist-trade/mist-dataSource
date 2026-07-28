@@ -42,7 +42,6 @@ from src.datasource.tdx.models import (
     TdxSecurityRelationsQueryRequest,
     TdxShareCapitalQueryRequest,
     TdxSingleFinanceValueQueryRequest,
-    TdxSnapshotQueryRequest,
     TdxStockTradeAggregateByDateQueryRequest,
     TdxStockTradeAggregateQueryRequest,
     TdxTrackingEtfsQueryRequest,
@@ -247,19 +246,6 @@ async def query_bars(payload: TdxBarQueryRequest, request: Request):
         ),
         capability_family="bars",
         operation_name="bars/query",
-    )
-
-
-@router.post("/v1/snapshots/query")
-async def query_snapshots(payload: TdxSnapshotQueryRequest, request: Request):
-    return await _call_provider(
-        request,
-        lambda provider: _wrap(
-            "snapshots",
-            provider.get_snapshots(payload.symbols, fields=payload.fields),
-        ),
-        capability_family="snapshots",
-        operation_name="snapshots/query",
     )
 
 

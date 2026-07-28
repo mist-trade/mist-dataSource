@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.operations.market import QmtBridgeError
 from src.datasource.qmt.provider import QmtDatasourceProvider
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
 
 async def _wait_for_pending(gateway: QmtCommandGateway) -> None:

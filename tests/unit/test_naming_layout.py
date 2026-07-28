@@ -3,11 +3,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_provider_specific_runtime_and_bridge_paths_remain_explicit() -> None:
-    assert (ROOT / "src/datasource/tdx/realtime/runtime.py").is_file()
-    assert (ROOT / "src/datasource/qmt/bridge.py").is_file()
-    assert not (ROOT / "src/datasource/tdx/realtime/gateway.py").exists()
-    assert not (ROOT / "src/datasource/qmt/realtime/gateway.py").exists()
+def test_realtime_gateways_use_the_same_provider_relative_path() -> None:
+    assert (ROOT / "src/datasource/tdx/realtime/gateway.py").is_file()
+    assert (ROOT / "src/datasource/qmt/realtime/gateway.py").is_file()
+    assert not (ROOT / "src/datasource/tdx/realtime/runtime.py").exists()
+    assert not (ROOT / "src/datasource/qmt/bridge.py").exists()
 
 
 def test_tdx_market_normalization_has_a_specific_name() -> None:

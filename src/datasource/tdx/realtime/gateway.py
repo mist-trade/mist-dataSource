@@ -1,4 +1,4 @@
-"""Formal TDX realtime gateway.
+"""TDX realtime control-plane gateway.
 
 Control-plane authority for the builtin-bridge pathway. Owns:
 - single-owner lease (with opaque token + stale eviction)

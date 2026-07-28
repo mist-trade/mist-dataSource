@@ -28,7 +28,7 @@ def test_tdx_mounts_only_v1_and_builtin_realtime_surfaces() -> None:
     paths = _paths()
     assert "/providers" in paths
     assert "/v1/bars/query" in paths
-    assert "/v1/snapshots/query" in paths
+    assert "/v1/snapshots/query" not in paths
     assert "/tdx/bridge/owner" in paths
     assert "/tdx/bridge/health" in paths
     assert "/ws/realtime/tdx/{client_id}" in paths
@@ -39,7 +39,7 @@ def test_tdx_off_keeps_product_apis_and_omits_realtime_surfaces() -> None:
     paths = _paths(off_app)
 
     assert "/v1/bars/query" in paths
-    assert "/v1/snapshots/query" in paths
+    assert "/v1/snapshots/query" not in paths
     assert "/tdx/bridge/owner" not in paths
     assert "/tdx/bridge/health" not in paths
     assert "/ws/realtime/tdx/{client_id}" not in paths

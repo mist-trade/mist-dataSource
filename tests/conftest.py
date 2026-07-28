@@ -21,7 +21,7 @@ async def tdx_client() -> AsyncGenerator[AsyncClient, None]:
 @pytest.fixture
 async def qmt_client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async HTTP client for testing QMT API."""
-    from src.datasource.qmt.bridge import QmtCommandGateway
+    from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
     previous_gateway = qmt_app.state.qmt_command_gateway
     previous_bridge_now = getattr(qmt_app.state, "qmt_bridge_now", None)

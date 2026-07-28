@@ -6,9 +6,10 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from src.core.local_bridge import is_trusted_local_bridge_peer
-from src.datasource.qmt.bridge import (
+from src.datasource.qmt.realtime.gateway import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
+    QmtCommandRejectedError,
 )
 from src.datasource.qmt.realtime.subscription import (
     QmtNativeReply,
@@ -16,6 +17,7 @@ from src.datasource.qmt.realtime.subscription import (
     QmtSubscriptionController,
     QmtSubscriptionSequenceError,
 )
+from src.ws.health_contract import QmtBridgeHealth
 
 router = APIRouter()
 
@@ -40,11 +42,16 @@ class OwnerRequest(BridgeModel):
     )
 
 
+PositiveStrictInt = Annotated[StrictInt, Field(gt=0)]
+PollLimit = Annotated[StrictInt, Field(gt=0, le=16)]
+PositiveFiniteSeconds = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+
+
 class PollRequest(BridgeModel):
     owner_id: str = Field(alias="ownerId")
     lease_token: str = Field(alias="leaseToken")
     generation: int
-    limit: int = 1
+    limit: PollLimit = 1
 
 
 class ResultRequest(BridgeModel):
@@ -65,10 +72,10 @@ class CommandRequest(BridgeModel):
         "get_stock_list_in_sector",
     ]
     params: dict[str, Any] = Field(default_factory=dict)
-    timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds")
-
-
-PositiveStrictInt = Annotated[StrictInt, Field(gt=0)]
+    timeout_seconds: PositiveFiniteSeconds | None = Field(
+        default=None,
+        alias="timeoutSeconds",
+    )
 
 
 class SubscriptionLeaseRequest(BridgeModel):
@@ -131,11 +138,17 @@ def _require_loopback(request: Request) -> None:
 @router.post("/commands")
 async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
-    command = gateway.enqueue(
-        payload.method,
-        payload.params,
-        timeout_seconds=payload.timeout_seconds,
-    )
+    try:
+        command = gateway.enqueue(
+            payload.method,
+            payload.params,
+            timeout_seconds=payload.timeout_seconds,
+        )
+    except QmtCommandRejectedError as exc:
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail=exc.as_detail(),
+        ) from exc
     return {
         "commandId": command.command_id,
         "method": command.method,
@@ -152,8 +165,19 @@ async def get_command_result(
     gateway.expire_timed_out()
     result = gateway.result_for(command_id)
     if result is None:
-        response.status_code = 202
-        return {"commandId": command_id, "status": "pending"}
+        state = gateway.command_state(command_id)
+        if state in {"pending", "in_flight"}:
+            response.status_code = 202
+            return {"commandId": command_id, "status": "pending"}
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "QMT_COMMAND_NOT_FOUND",
+                "message": "QMT command is unknown or its result has expired",
+                "retryable": False,
+                "details": {"commandId": command_id},
+            },
+        )
     return {
         "commandId": result.command_id,
         "ok": result.ok,
@@ -301,7 +325,7 @@ async def post_subscription_snapshot(
         raise HTTPException(status_code=422, detail=exc.reason) from exc
 
 
-@router.get("/health")
+@router.get("/health", response_model=QmtBridgeHealth)
 async def bridge_health(request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
     gateway.expire_timed_out()

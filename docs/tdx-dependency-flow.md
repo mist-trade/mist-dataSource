@@ -9,8 +9,8 @@ gateway 与 route；HTTP provider 始终保留。
 /v1/* -> TdxDatasourceProvider -> TdxHttpClient -> 127.0.0.1:17709
 ```
 
-该链路负责历史 bars、HTTP snapshot、reference、finance、sector、report、formula
-和 operator raw calls。它不 import `tqcenter`，也不订阅实时行情。
+该链路负责历史 bars、reference、finance、sector、report、formula 和 operator
+raw calls。它不 import `tqcenter`，也不订阅实时行情。
 
 ## Builtin realtime bridge
 
@@ -32,6 +32,7 @@ TDX terminal strategy (builtin script)
 - datasource 进程内 `tqcenter` adapter
 - dirty collector 与旧 subscription client
 - `/api/tdx/*`
+- `/v1/snapshots/query` 与 datasource/provider 的按需 snapshot wrapper
 - `/ws/quote/{client_id}`
 - 旧 experimental realtime route 与 mode 名称
 

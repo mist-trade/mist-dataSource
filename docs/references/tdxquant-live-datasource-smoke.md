@@ -196,7 +196,8 @@ Important fields in the documented return:
 - `Average`
 - `ErrorId`
 
-The datasource normalized snapshot should map at least:
+The product `/v1/snapshots/query` wrapper has been removed. Realtime bridge
+validation maps the native fields into the internal canonical snapshot:
 
 | Native field | Normalized field |
 | --- | --- |
@@ -308,17 +309,14 @@ gateway path:
    - envelope `ok=true`
    - `data.bars` is non-empty
    - normalized bars contain numeric OHLCV fields
-4. `POST /v1/raw/tdx/call` with `method=get_market_snapshot`
-   - native result has `Now`, `LastClose`, `Open`, `Max`, `Min`, `Volume`,
-     `Amount`, and `ErrorId`
-5. `POST /v1/snapshots/query`
-   - envelope `ok=true`
-   - normalized snapshots contain `last`, `open`, `high`, `low`, `lastClose`,
-     `volume`, `amount`, and `asOf`
-6. `POST /v1/raw/tdx/call` with `method=get_stock_list_in_sector`
+4. `POST /v1/raw/tdx/call` with `method=get_stock_list_in_sector`
    - result is a non-empty list for a known sector such as `880081.SH`
-7. `POST /v1/sectors/query`
+5. `POST /v1/sectors/query`
    - normalized symbols are returned
+
+Snapshot proof belongs to the terminal bridge/WebSocket HIL and must verify the
+native `LastClose` field, bridge acceptance, WebSocket delivery, and backend
+ingress. Basic HTTP provider smoke does not call `get_market_snapshot`.
 
 ### Finance/Report Optional Mode
 

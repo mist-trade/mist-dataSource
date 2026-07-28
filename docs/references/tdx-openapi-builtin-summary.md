@@ -12,7 +12,7 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Summary: Health
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: object
+- Responses: 200: TdxDatasourceHealth
 
 ## GET /providers
 
@@ -39,7 +39,7 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Summary: Bridge Health
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: object
+- Responses: 200: TdxBridgeHealth
 
 ## POST /tdx/bridge/owner
 
@@ -401,15 +401,6 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Parameters: -
 - Responses: 200: -; 422: HTTPValidationError
 
-## POST /v1/snapshots/query
-
-- Operation ID: `query_snapshots_v1_snapshots_query_post`
-- Tags: V1
-- Summary: Query Snapshots
-- Request Body: `TdxSnapshotQueryRequest`
-- Parameters: -
-- Responses: 200: -; 422: HTTPValidationError
-
 ## Schemas
 
 - `FormulaCallRequest`
@@ -422,7 +413,9 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - `SectorQueryRequest`
 - `SnapshotRequest`
 - `TdxBarQueryRequest`
+- `TdxBridgeHealth`
 - `TdxConvertibleBondInfoQueryRequest`
+- `TdxDatasourceHealth`
 - `TdxDividendFactorsQueryRequest`
 - `TdxFinancialDataByDateQueryRequest`
 - `TdxFinancialDataQueryRequest`
@@ -446,7 +439,6 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - `TdxSecurityRelationsQueryRequest`
 - `TdxShareCapitalQueryRequest`
 - `TdxSingleFinanceValueQueryRequest`
-- `TdxSnapshotQueryRequest`
 - `TdxStockTradeAggregateByDateQueryRequest`
 - `TdxStockTradeAggregateQueryRequest`
 - `TdxTrackingEtfsQueryRequest`

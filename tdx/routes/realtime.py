@@ -16,7 +16,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from src.datasource.tdx.realtime.runtime import ACCEPTED_SCHEMA_VERSION
+from src.datasource.tdx.realtime.gateway import ACCEPTED_SCHEMA_VERSION
 from src.ws.protocol import ws_error, ws_pong, ws_ready, ws_subscription_result
 
 router = APIRouter()
@@ -66,7 +66,7 @@ async def tdx_realtime(websocket: WebSocket, client_id: str) -> None:
             {
                 "mode": "builtin",
                 "schemaVersion": ACCEPTED_SCHEMA_VERSION,
-                "source": "tdx",
+                "source": "TDX",
                 "quality": "latest-state",
                 "bridge": {
                     "ready": bridge_health["ready"],

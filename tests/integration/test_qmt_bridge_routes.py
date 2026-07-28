@@ -7,7 +7,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import qmt.main
-from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 from src.datasource.qmt.realtime.subscription import QmtSubscriptionJournal
 
 
@@ -179,6 +179,92 @@ async def test_qmt_bridge_command_route_rejects_unknown_methods(qmt_client):
     response = await qmt_client.post(
         "/qmt/bridge/commands",
         json={"method": "order_stock", "params": {}},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_route_maps_capacity_and_payload_failures(
+    qmt_client,
+):
+    qmt.main.app.state.qmt_command_gateway = QmtCommandGateway(
+        max_outstanding_commands=1,
+        max_retained_results=1,
+        max_command_bytes=128,
+        max_retained_result_bytes=1_024,
+    )
+    accepted = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={"method": "health", "params": {}},
+    )
+    capacity = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={"method": "health", "params": {}},
+    )
+
+    assert accepted.status_code == 200
+    assert capacity.status_code == 429
+    assert capacity.json()["detail"]["code"] == "QMT_COMMAND_CAPACITY_EXCEEDED"
+    assert capacity.json()["detail"]["retryable"] is True
+
+    qmt.main.app.state.qmt_command_gateway = QmtCommandGateway(
+        max_command_bytes=128,
+    )
+    oversized = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={"method": "health", "params": {"value": "x" * 200}},
+    )
+    assert oversized.status_code == 413
+    assert oversized.json()["detail"]["code"] == "QMT_COMMAND_PAYLOAD_TOO_LARGE"
+    assert oversized.json()["detail"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_qmt_bridge_command_status_distinguishes_active_and_unknown(
+    qmt_client,
+):
+    gateway = QmtCommandGateway()
+    qmt.main.app.state.qmt_command_gateway = gateway
+    command = gateway.enqueue("health", {})
+
+    pending = await qmt_client.get(f"/qmt/bridge/commands/{command.command_id}")
+    unknown = await qmt_client.get("/qmt/bridge/commands/never-existed")
+
+    assert pending.status_code == 202
+    assert pending.json()["status"] == "pending"
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["code"] == "QMT_COMMAND_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [0, 17, True, 1.5])
+async def test_qmt_bridge_poll_requires_strict_bounded_integer(
+    qmt_client,
+    limit: object,
+):
+    response = await qmt_client.post(
+        "/qmt/bridge/poll",
+        json={
+            "ownerId": "bridge-a",
+            "leaseToken": "lease",
+            "generation": 1,
+            "limit": limit,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout", [0, -1, "nan", "inf"])
+async def test_qmt_bridge_command_timeout_must_be_positive_and_finite(
+    qmt_client,
+    timeout: object,
+):
+    response = await qmt_client.post(
+        "/qmt/bridge/commands",
+        json={"method": "health", "params": {}, "timeoutSeconds": timeout},
     )
 
     assert response.status_code == 422

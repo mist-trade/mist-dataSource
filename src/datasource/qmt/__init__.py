@@ -1,6 +1,6 @@
 """Full-QMT datasource bridge components."""
 
-from src.datasource.qmt.bridge import (
+from src.datasource.qmt.realtime.gateway import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
     QmtCommandTimeoutError,

@@ -1,7 +1,7 @@
 from fastapi import Request
 
-from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.provider import QmtDatasourceProvider
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
 
 def get_qmt_provider(request: Request) -> QmtDatasourceProvider | None:

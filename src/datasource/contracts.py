@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 BEIJING_TZ = timezone(timedelta(hours=8))
+MYSQL_K_DECIMAL_INTEGER_DIGITS = 28
+MYSQL_K_DECIMAL_SCALE = 8
 
 
 def normalize_beijing_iso(value: str | datetime | None) -> str | None:
@@ -16,6 +19,33 @@ def normalize_beijing_iso(value: str | datetime | None) -> str | None:
 
     dt = dt.replace(tzinfo=BEIJING_TZ) if dt.tzinfo is None else dt.astimezone(BEIJING_TZ)
     return dt.isoformat()
+
+
+def normalize_nullable_k_decimal(value: Any) -> Decimal | None:
+    """Return a bounded exact decimal or None for an absent/invalid measure."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    try:
+        decimal_value = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not decimal_value.is_finite():
+        return None
+    if decimal_value.is_zero():
+        return Decimal("0")
+
+    normalized = decimal_value.normalize()
+    integer_digits = max(normalized.adjusted() + 1, 0)
+    exponent = normalized.as_tuple().exponent
+    assert isinstance(exponent, int)
+    fractional_digits = max(-exponent, 0)
+    if integer_digits > MYSQL_K_DECIMAL_INTEGER_DIGITS:
+        raise ValueError("K decimal value exceeds 28 integer digits")
+    if fractional_digits > MYSQL_K_DECIMAL_SCALE:
+        raise ValueError("K decimal value exceeds 8 fractional digits")
+    return Decimal(format(normalized, "f"))
 
 
 class DatasourceModel(BaseModel):

@@ -19,8 +19,8 @@ from qmt.routes.realtime import router as realtime_router
 from qmt.routes.v1 import router as v1_router
 from src.core.config import settings
 from src.core.logging import setup_logging
-from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.provider import QmtDatasourceProvider
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
 from src.datasource.qmt.realtime.subscription import (
     QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV,
@@ -28,6 +28,7 @@ from src.datasource.qmt.realtime.subscription import (
     QmtSubscriptionJournal,
     configured_qmt_unsubscribe_success_values,
 )
+from src.ws.health_contract import QmtDatasourceHealth
 from src.ws.manager import ConnectionManager
 from src.ws.protocol import ws_error, ws_realtime_snapshot, ws_stream_started
 
@@ -147,7 +148,7 @@ def create_qmt_app(
         allow_headers=["*"],
     )
 
-    @target.get("/health")
+    @target.get("/health", response_model=QmtDatasourceHealth)
     async def health() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         current_gateway: QmtCommandGateway = target.state.qmt_command_gateway
         return {

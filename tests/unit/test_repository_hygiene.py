@@ -166,12 +166,12 @@ def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
     assert not any("/api/tdx/" in line for line in tdx_api_table_rows)
     for endpoint in (
         "/v1/bars/query",
-        "/v1/snapshots/query",
         "/v1/sectors/query",
         "/v1/finance/financial-data/query",
         "/v1/instruments/convertible-bonds/query",
     ):
         assert endpoint in tdx_api_section
+
 
 def test_routes_share_adapter_dependency_helpers() -> None:
     route_roots = (PROJECT_ROOT / "tdx" / "routes", PROJECT_ROOT / "qmt" / "routes")

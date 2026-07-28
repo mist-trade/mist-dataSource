@@ -1,8 +1,8 @@
 """TDX realtime native snapshot validator.
 
 Strict validation of native ``get_market_snapshot`` payloads for the
-formal builtin-bridge pathway. Shares the raw field-projection table
-with the HTTP path but applies its own validation policy:
+formal builtin-bridge pathway. It applies strict validation after projecting
+provider-native fields:
 
 - ``last`` is required and must be a finite number (reject NaN/Inf/bool).
 - ``open``/``high``/``low``/``lastClose`` are always present on the typed wire;
@@ -11,8 +11,6 @@ with the HTTP path but applies its own validation policy:
   from the clock).
 - Conflicting native aliases (e.g. both ``Now`` and ``Last``) are rejected.
 
-This module deliberately does NOT reuse ``normalize_tdx_snapshot`` (which fills
-missing prices with 0) or ``normalize_number`` (which maps ``None`` -> ``0.0``).
 """
 
 from __future__ import annotations
@@ -70,6 +68,17 @@ def _reject_conflicting_aliases(native: Mapping[str, Any]) -> None:
             )
 
 
+def _reject_non_exact_last_close_keys(native: Mapping[str, Any]) -> None:
+    for key in native:
+        if key == "LastClose":
+            continue
+        normalized = normalize_native_key(key)
+        if normalized in {"lastclose", "preclose"}:
+            raise TdxRealtimeNativeValidationError(
+                f"TDX realtime previous close must use exact native key LastClose, got {key!r}"
+            )
+
+
 def _first_present(*values: Any) -> Any:
     for value in values:
         if value is not None and not (isinstance(value, str) and value.strip() == ""):
@@ -110,6 +119,7 @@ def validate_tdx_realtime_native_snapshot(
     when ``ErrorId`` indicates a provider error, or when conflicting aliases
     are present.
     """
+    _reject_non_exact_last_close_keys(native)
     _reject_conflicting_aliases(native)
     raw = extract_tdx_snapshot_native_fields(native)
 

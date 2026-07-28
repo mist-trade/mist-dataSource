@@ -47,7 +47,6 @@ Python 3.6 不支持的语法。
 |---|---|
 | Health | `GET /health` |
 | Bars | `POST /v1/bars/query` |
-| Snapshot | `POST /v1/snapshots/query` |
 | Sector | `POST /v1/sectors/query` |
 | Finance | `POST /v1/finance/financial-data/query` |
 | Instrument | `POST /v1/instruments/convertible-bonds/query` |
@@ -58,7 +57,7 @@ Python 3.6 不支持的语法。
 - `GET /tdx/bridge/evidence/{symbol}`（loopback、bounded evidence）
 - `WS /ws/realtime/tdx/{client_id}`
 
-已删除的 `/api/tdx/*` 和 `/ws/quote/*` 不得恢复。
+已删除的 `/api/tdx/*`、`/v1/snapshots/query` 和 `/ws/quote/*` 不得恢复。
 
 #### QMT `:9002`
 

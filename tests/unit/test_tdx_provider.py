@@ -242,28 +242,6 @@ async def test_get_bars_accepts_symbol_wrapper_array_shape():
 
 
 @pytest.mark.asyncio
-async def test_get_snapshots_calls_tdx_snapshot_and_returns_normalized_snapshot():
-    fake_client = FakeTdxHttpClient({"get_market_snapshot": native_snapshot()})
-    provider = TdxDatasourceProvider(fake_client)
-
-    snapshots = await provider.get_snapshots(["600519.SH"], fields=None)
-
-    assert fake_client.calls == [
-        (
-            "get_market_snapshot",
-            {
-                "stock_code": "600519.SH",
-                "field_list": [],
-            },
-        )
-    ]
-    assert len(snapshots) == 1
-    assert snapshots[0].symbol == "600519.SH"
-    assert snapshots[0].last == 10.2
-    assert snapshots[0].lastClose == 9.9
-
-
-@pytest.mark.asyncio
 async def test_provider_facade_exposes_representative_product_debug_and_lifecycle_methods():
     fake_client = FakeTdxHttpClient(
         {
@@ -291,7 +269,6 @@ async def test_provider_facade_exposes_representative_product_debug_and_lifecycl
     )
     provider = TdxDatasourceProvider(fake_client)
 
-    snapshot = (await provider.get_snapshots(["600519.SH"]))[0]
     financial = await provider.get_financial_data(
         ["600519.SH"],
         ["FN193"],
@@ -305,7 +282,6 @@ async def test_provider_facade_exposes_representative_product_debug_and_lifecycl
     health = await provider.health()
     await provider.aclose()
 
-    assert snapshot.symbol == "600519.SH"
     assert financial[0]["field"] == "FN193"
     assert sector["code"] == "880081.SH"
     assert formula[0]["symbol"] == "688318.SH"

@@ -15,7 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.core.config import settings
 from src.core.logging import setup_logging
 from src.datasource.tdx.provider import TdxDatasourceProvider
-from src.datasource.tdx.realtime.runtime import TdxRealtimeGateway
+from src.datasource.tdx.realtime.gateway import TdxRealtimeGateway
+from src.ws.health_contract import TdxDatasourceHealth
 from src.ws.manager import ConnectionManager
 from tdx.routes.bridge import router as bridge_router
 from tdx.routes.realtime import router as realtime_router
@@ -81,7 +82,7 @@ def create_tdx_app(
         allow_headers=["*"],
     )
 
-    @target.get("/health")
+    @target.get("/health", response_model=TdxDatasourceHealth)
     async def health() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         current_provider = target.state.tdx_provider
         try:
@@ -102,6 +103,7 @@ def create_tdx_app(
 
         current_gateway: TdxRealtimeGateway | None = target.state.tdx_realtime_gateway
         current_manager: ConnectionManager | None = target.state.tdx_realtime_ws_manager
+        bridge_health: dict[str, Any]
         bridge_health = (
             await current_gateway.health()
             if current_gateway is not None
@@ -109,7 +111,22 @@ def create_tdx_app(
                 "ready": False,
                 "ownerId": None,
                 "ownerGeneration": 0,
+                "ownerAgeSeconds": None,
                 "bridgeBuildId": None,
+                "desiredRevision": 0,
+                "convergedRevision": 0,
+                "desiredSymbols": 0,
+                "convergedSymbols": 0,
+                "attemptedRevision": -1,
+                "nativeProbeRevision": 0,
+                "completedNativeProbeRevision": 0,
+                "reconcileRetryAttempt": 0,
+                "reconcileRetryAfterMs": None,
+                "lastFailureCode": None,
+                "lastFailureRetryable": None,
+                "lastSnapshotAt": None,
+                "lastSnapshotAgeSeconds": None,
+                "controlTotals": list[dict[str, Any]](),
             }
         )
         connections = current_manager.connection_count if current_manager else 0

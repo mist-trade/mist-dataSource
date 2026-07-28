@@ -7,7 +7,8 @@ from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 
 from src.datasource.tdx.http_client import TdxHttpError
-from src.datasource.tdx.models import TdxBar, TdxSnapshot
+from src.datasource.tdx.market_normalization import TdxBarNormalizationError
+from src.datasource.tdx.models import TdxBar
 from tdx.main import app
 from tdx.routes.v1 import product as tdx_v1_routes
 
@@ -50,6 +51,7 @@ class FakeTdxProvider:
         self.formula_batch_execution_queries: list[tuple[str, str, list[str], int]] = []
         self.formula_calls: list[tuple[str, Any, Any]] = []
         self.fail_bars = False
+        self.malformed_bars = False
 
     async def get_bars(
         self,
@@ -82,6 +84,12 @@ class FakeTdxProvider:
                 retryable=True,
                 details={"method": "get_market_data"},
             )
+        if self.malformed_bars:
+            raise TdxBarNormalizationError(
+                symbol=symbols[0],
+                timestamp="2026-04-06T09:31:00+08:00",
+                invalid_fields={"close": "missing"},
+            )
 
         return [
             TdxBar(
@@ -97,26 +105,6 @@ class FakeTdxProvider:
                 receivedAt=datetime(2026, 4, 6, 9, 31, tzinfo=UTC),
             )
         ][: count or 1]
-
-    async def get_snapshots(
-        self,
-        symbols: list[str],
-        fields: list[str] | None = None,
-    ) -> list[TdxSnapshot]:
-        _ = fields
-        return [
-            TdxSnapshot(
-                symbol=symbols[0],
-                last=10.0,
-                open=9.8,
-                high=10.2,
-                low=9.7,
-                lastClose=9.6,
-                volume=10000,
-                amount=100000,
-                asOf="2026-04-06T10:00:00+08:00",
-            )
-        ]
 
     async def raw_call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.raw_calls.append((method, params))
@@ -636,7 +624,7 @@ async def test_providers_returns_tdx_capability_manifest_only(
     }
 
     assert tdx_families["bars"] == "supported"
-    assert tdx_families["snapshots"] == "supported"
+    assert "snapshots" not in tdx_families
     assert tdx_families["sector-members"] == "supported"
     assert tdx_families["calendar"] == "supported"
     assert tdx_families["securities"] == "supported"
@@ -678,10 +666,6 @@ async def test_providers_returns_tdx_capability_manifest_only(
             {"provider": "qmt", "symbols": ["600519.SH"], "period": "1d"},
         ),
         (
-            "/v1/snapshots/query",
-            {"provider": "qmt", "symbols": ["600519.SH"]},
-        ),
-        (
             "/v1/sectors/query",
             {"provider": "qmt", "sector": "通达信88"},
         ),
@@ -716,6 +700,8 @@ async def test_bars_query_returns_normalized_envelope(v1_client: AsyncClient) ->
     assert body["meta"]["transport"] == "http"
     assert body["data"]["bars"][0]["symbol"] == "600519.SH"
     assert body["data"]["bars"][0]["barTime"] == "2026-04-06T09:31:00+08:00"
+    assert body["data"]["bars"][0]["volume"] == "1000"
+    assert body["data"]["bars"][0]["amount"] == "1500"
 
 
 @pytest.mark.asyncio
@@ -751,18 +737,13 @@ async def test_bars_query_passes_fields_and_adjustment_options(v1_client: AsyncC
 
 
 @pytest.mark.asyncio
-async def test_snapshots_query_returns_normalized_envelope(v1_client: AsyncClient) -> None:
+async def test_snapshots_query_is_removed(v1_client: AsyncClient) -> None:
     response = await v1_client.post(
         "/v1/snapshots/query",
         json={"symbols": ["600519.SH"]},
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    assert body["provider"] == "tdx"
-    assert body["data"]["snapshots"][0]["symbol"] == "600519.SH"
-    assert body["data"]["snapshots"][0]["lastClose"] == 9.6
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -1408,6 +1389,35 @@ async def test_provider_error_returns_failure_envelope(v1_client: AsyncClient) -
         "message": "TDX HTTP is unavailable",
         "retryable": True,
         "details": {"method": "get_market_data"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_malformed_bar_returns_structured_failure_envelope(
+    v1_client: AsyncClient,
+) -> None:
+    app.state.tdx_provider.malformed_bars = True
+    response = await v1_client.post(
+        "/v1/bars/query",
+        json={"symbols": ["600519.SH"], "period": "1m", "count": 2},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["data"] is None
+    assert body["error"] == {
+        "code": "TDX_BAR_REQUIRED_PRICE_INVALID",
+        "message": (
+            "TDX bar has invalid required prices for 600519.SH at 2026-04-06T09:31:00+08:00: close"
+        ),
+        "retryable": False,
+        "details": {
+            "source": "tdx",
+            "symbol": "600519.SH",
+            "timestamp": "2026-04-06T09:31:00+08:00",
+            "invalidFields": {"close": "missing"},
+        },
     }
 
 

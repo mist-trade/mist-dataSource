@@ -6,10 +6,9 @@ from src.datasource.tdx.http_client import TdxHttpClient
 from src.datasource.tdx.market_normalization import (
     normalize_symbol,
     normalize_tdx_bar_rows,
-    normalize_tdx_snapshot,
     to_tdx_http_code,
 )
-from src.datasource.tdx.models import TdxBar, TdxSnapshot
+from src.datasource.tdx.models import TdxBar
 from src.datasource.tdx.native import (
     first_native_value,
     native_item_for_symbol,
@@ -72,24 +71,6 @@ class TdxMarketOperations:
             end_time=None,
             count=count,
         )
-
-    async def get_snapshots(
-        self,
-        symbols: list[str],
-        fields: list[str] | None = None,
-    ) -> list[TdxSnapshot]:
-        snapshots: list[TdxSnapshot] = []
-        for symbol in symbols:
-            tdx_symbol = to_tdx_http_code(symbol)
-            native = await self.client.call(
-                "get_market_snapshot",
-                {
-                    "stock_code": tdx_symbol,
-                    "field_list": fields or [],
-                },
-            )
-            snapshots.append(normalize_tdx_snapshot(tdx_symbol, native))
-        return snapshots
 
     async def get_price_volume(
         self,

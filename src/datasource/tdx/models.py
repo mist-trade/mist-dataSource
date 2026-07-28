@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -30,16 +31,12 @@ class TdxBar(TdxModel):
     high: float
     low: float
     close: float
-    volume: float
-    amount: float
+    volume: Decimal | None
+    amount: Decimal | None
     forward_factor: float | None = Field(default=None, alias="forwardFactor")
     vol_in_stock: float | None = Field(default=None, alias="volInStock")
     provider: str = "tdx"
     received_at: str = Field(alias="receivedAt")
-
-    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        kwargs.setdefault("exclude_none", True)
-        return super().model_dump(*args, **kwargs)
 
     @property
     def barTime(self) -> str:
@@ -67,36 +64,6 @@ class TdxBar(TdxModel):
         return normalized
 
 
-class TdxSnapshot(TdxModel):
-    symbol: str
-    last: float
-    open: float
-    high: float
-    low: float
-    last_close: float = Field(alias="lastClose")
-    volume: float
-    amount: float
-    provider: str = "tdx"
-    as_of: str = Field(alias="asOf")
-
-    @property
-    def lastClose(self) -> float:
-        return self.last_close
-
-    @property
-    def asOf(self) -> str:
-        return self.as_of
-
-    @field_validator("as_of", mode="before")
-    @classmethod
-    def normalize_as_of(cls, value: str) -> str:
-        normalized = normalize_beijing_iso(value)
-        if normalized is None:
-            msg = "asOf is required"
-            raise ValueError(msg)
-        return normalized
-
-
 class TdxBarQueryRequest(TdxModel):
     symbols: list[str]
     period: str
@@ -112,12 +79,6 @@ class TdxBarQueryRequest(TdxModel):
     @classmethod
     def normalize_time_filters(cls, value: str | None) -> str | None:
         return normalize_beijing_iso(value)
-
-
-class TdxSnapshotQueryRequest(TdxModel):
-    symbols: list[str]
-    fields: list[str] | None = None
-    include_raw: bool = Field(default=False, alias="includeRaw")
 
 
 class TdxPriceVolumeQueryRequest(TdxModel):

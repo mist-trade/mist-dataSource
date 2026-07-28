@@ -346,6 +346,183 @@
         "title": "TdxBarQueryRequest",
         "type": "object"
       },
+      "TdxBridgeHealth": {
+        "additionalProperties": false,
+        "description": "Typed TDX bridge-scoped diagnostics.",
+        "properties": {
+          "attemptedRevision": {
+            "minimum": -1.0,
+            "title": "Attemptedrevision",
+            "type": "integer"
+          },
+          "bridgeBuildId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridgebuildid"
+          },
+          "completedNativeProbeRevision": {
+            "minimum": 0.0,
+            "title": "Completednativeproberevision",
+            "type": "integer"
+          },
+          "controlTotals": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Controltotals",
+            "type": "array"
+          },
+          "convergedRevision": {
+            "minimum": -1.0,
+            "title": "Convergedrevision",
+            "type": "integer"
+          },
+          "convergedSymbols": {
+            "minimum": 0.0,
+            "title": "Convergedsymbols",
+            "type": "integer"
+          },
+          "desiredRevision": {
+            "minimum": 0.0,
+            "title": "Desiredrevision",
+            "type": "integer"
+          },
+          "desiredSymbols": {
+            "minimum": 0.0,
+            "title": "Desiredsymbols",
+            "type": "integer"
+          },
+          "lastFailureCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastfailurecode"
+          },
+          "lastFailureRetryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastfailureretryable"
+          },
+          "lastSnapshotAgeSeconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsnapshotageseconds"
+          },
+          "lastSnapshotAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsnapshotat"
+          },
+          "nativeProbeRevision": {
+            "minimum": 0.0,
+            "title": "Nativeproberevision",
+            "type": "integer"
+          },
+          "ownerAgeSeconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ownerageseconds"
+          },
+          "ownerGeneration": {
+            "minimum": 0.0,
+            "title": "Ownergeneration",
+            "type": "integer"
+          },
+          "ownerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ownerid"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reconcileRetryAfterMs": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconcileretryafterms"
+          },
+          "reconcileRetryAttempt": {
+            "minimum": 0.0,
+            "title": "Reconcileretryattempt",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ready",
+          "ownerId",
+          "ownerGeneration",
+          "bridgeBuildId",
+          "ownerAgeSeconds",
+          "desiredRevision",
+          "convergedRevision",
+          "desiredSymbols",
+          "convergedSymbols",
+          "attemptedRevision",
+          "nativeProbeRevision",
+          "completedNativeProbeRevision",
+          "reconcileRetryAttempt",
+          "reconcileRetryAfterMs",
+          "lastFailureCode",
+          "lastFailureRetryable",
+          "lastSnapshotAt",
+          "lastSnapshotAgeSeconds",
+          "controlTotals"
+        ],
+        "title": "TdxBridgeHealth",
+        "type": "object"
+      },
       "TdxConvertibleBondInfoQueryRequest": {
         "additionalProperties": false,
         "properties": {
@@ -381,6 +558,69 @@
           "symbol"
         ],
         "title": "TdxConvertibleBondInfoQueryRequest",
+        "type": "object"
+      },
+      "TdxDatasourceHealth": {
+        "additionalProperties": false,
+        "description": "TDX root health with an explicit aggregate bridge boundary.",
+        "properties": {
+          "bridge": {
+            "$ref": "#/components/schemas/TdxBridgeHealth"
+          },
+          "connections": {
+            "minimum": 0.0,
+            "title": "Connections",
+            "type": "integer"
+          },
+          "instance": {
+            "const": "tdx",
+            "title": "Instance",
+            "type": "string"
+          },
+          "lastError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lasterror"
+          },
+          "realtimeMode": {
+            "enum": [
+              "off",
+              "builtin"
+            ],
+            "title": "Realtimemode",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "tdxHttpReachable": {
+            "title": "Tdxhttpreachable",
+            "type": "boolean"
+          },
+          "wsConnected": {
+            "title": "Wsconnected",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "instance",
+          "realtimeMode",
+          "connections",
+          "wsConnected",
+          "tdxHttpReachable",
+          "lastError",
+          "bridge"
+        ],
+        "title": "TdxDatasourceHealth",
         "type": "object"
       },
       "TdxDividendFactorsQueryRequest": {
@@ -1064,42 +1304,6 @@
         "title": "TdxSingleFinanceValueQueryRequest",
         "type": "object"
       },
-      "TdxSnapshotQueryRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "fields": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fields"
-          },
-          "includeRaw": {
-            "default": false,
-            "title": "Includeraw",
-            "type": "boolean"
-          },
-          "symbols": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Symbols",
-            "type": "array"
-          }
-        },
-        "required": [
-          "symbols"
-        ],
-        "title": "TdxSnapshotQueryRequest",
-        "type": "object"
-      },
       "TdxStockTradeAggregateByDateQueryRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1286,9 +1490,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TdxDatasourceHealth"
                 }
               }
             },
@@ -1370,9 +1572,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Bridge Health Tdx Bridge Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TdxBridgeHealth"
                 }
               }
             },
@@ -2956,45 +3156,6 @@
           }
         },
         "summary": "Query Securities",
-        "tags": [
-          "V1"
-        ]
-      }
-    },
-    "/v1/snapshots/query": {
-      "post": {
-        "operationId": "query_snapshots_v1_snapshots_query_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TdxSnapshotQueryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Query Snapshots",
         "tags": [
           "V1"
         ]

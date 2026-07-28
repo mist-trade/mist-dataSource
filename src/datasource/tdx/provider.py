@@ -4,7 +4,7 @@ from src.core.config import settings
 from src.datasource.tdx.errors import TdxNativeError as TdxNativeError
 from src.datasource.tdx.errors import TdxSymbolNotFoundError as TdxSymbolNotFoundError
 from src.datasource.tdx.http_client import TdxHttpClient
-from src.datasource.tdx.models import TdxBar, TdxSnapshot
+from src.datasource.tdx.models import TdxBar
 from src.datasource.tdx.normalizers.formula import (
     TdxFormulaRequestLimitError as TdxFormulaRequestLimitError,
 )
@@ -67,13 +67,6 @@ class TdxDatasourceProvider:
         count: int,
     ) -> list[TdxBar]:
         return await self._market.collect_recent_bars(symbols, period, count)
-
-    async def get_snapshots(
-        self,
-        symbols: list[str],
-        fields: list[str] | None = None,
-    ) -> list[TdxSnapshot]:
-        return await self._market.get_snapshots(symbols, fields)
 
     async def get_price_volume(
         self,

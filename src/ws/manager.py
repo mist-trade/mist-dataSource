@@ -13,9 +13,20 @@ class ConnectionManager:
     典型场景：1-2 个 NestJS 后端实例连接，不是面向终端用户.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        send_timeout_seconds: float = 5.0,
+        max_concurrent_sends: int = 16,
+    ) -> None:
+        if send_timeout_seconds <= 0:
+            raise ValueError("send_timeout_seconds must be positive")
+        if max_concurrent_sends <= 0:
+            raise ValueError("max_concurrent_sends must be positive")
         self._connections: dict[str, WebSocket] = {}
         self._lock = asyncio.Lock()
+        self._send_timeout_seconds = send_timeout_seconds
+        self._max_concurrent_sends = max_concurrent_sends
 
     async def connect(self, websocket: WebSocket, client_id: str) -> None:
         """Accept and register a WebSocket connection.
@@ -53,17 +64,33 @@ class ConnectionManager:
             message: The WSMessage to broadcast
         """
         payload = message.to_json()
-        dead: list[str] = []
+        async with self._lock:
+            connections = list(self._connections.items())
+        semaphore = asyncio.Semaphore(self._max_concurrent_sends)
 
-        for cid, ws in self._connections.items():
+        async def send(cid: str, ws: WebSocket) -> tuple[str, WebSocket] | None:
             try:
-                await ws.send_text(payload)
+                async with semaphore:
+                    await asyncio.wait_for(
+                        ws.send_text(payload),
+                        timeout=self._send_timeout_seconds,
+                    )
             except Exception:
-                dead.append(cid)
+                return cid, ws
+            return None
 
-        # Clean up dead connections
-        for cid in dead:
-            await self.disconnect(cid)
+        failed = [
+            item
+            for item in await asyncio.gather(
+                *(send(cid, ws) for cid, ws in connections)
+            )
+            if item is not None
+        ]
+        if failed:
+            async with self._lock:
+                for cid, ws in failed:
+                    if self._connections.get(cid) is ws:
+                        self._connections.pop(cid, None)
 
     async def send_to_client(self, client_id: str, message: WSMessage) -> bool:
         """Send a message to a specific client.

@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 import qmt.main
-from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
 
 async def _wait_for_pending(gateway: QmtCommandGateway) -> None:
@@ -24,7 +24,7 @@ async def test_qmt_v1_bars_query_returns_native_bridge_market_data(qmt_client) -
         qmt_client.post(
             "/v1/bars/query",
             json={
-                "fields": ["close", "preClose"],
+                "fields": ["close", "preClose", "volume", "amount"],
                 "stock_list": ["000001.SZ"],
                 "period": "1h",
                 "start_time": "20260701",
@@ -42,7 +42,7 @@ async def test_qmt_v1_bars_query_returns_native_bridge_market_data(qmt_client) -
     assert len(commands) == 1
     assert commands[0].method == "get_market_data_ex"
     assert commands[0].params == {
-        "fields": ["close", "preClose"],
+        "fields": ["close", "preClose", "volume", "amount"],
         "stock_list": ["000001.SZ"],
         "period": "1h",
         "start_time": "20260701",
@@ -59,6 +59,8 @@ async def test_qmt_v1_bars_query_returns_native_bridge_market_data(qmt_client) -
             "000001.SZ": {
                 "close": {"20260701100000": 10.5},
                 "preClose": {"20260701100000": 10.2},
+                "volume": {"20260701100000": "1200.12500000"},
+                "amount": {"20260701100000": None},
             }
         },
     )
@@ -71,6 +73,8 @@ async def test_qmt_v1_bars_query_returns_native_bridge_market_data(qmt_client) -
             "000001.SZ": {
                 "close": {"20260701100000": 10.5},
                 "preClose": {"20260701100000": 10.2},
+                "volume": {"20260701100000": "1200.125"},
+                "amount": {"20260701100000": None},
             }
         },
         "source": "native_bridge",

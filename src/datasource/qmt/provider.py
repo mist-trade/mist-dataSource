@@ -1,5 +1,5 @@
-from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.operations.market import QmtMarketOperations
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
 
 class QmtDatasourceProvider:

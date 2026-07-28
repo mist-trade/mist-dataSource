@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
 
 class QmtRealtimeCollector:
@@ -101,6 +101,6 @@ class QmtRealtimeCollector:
         return {
             "mode": "builtin",
             "schemaVersion": 2,
-            "source": "qmt",
+            "source": "QMT",
             "quality": "latest-state",
         }

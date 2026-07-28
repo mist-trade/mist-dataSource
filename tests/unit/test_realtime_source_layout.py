@@ -7,8 +7,8 @@ def test_tdx_and_qmt_share_provider_local_realtime_responsibilities() -> None:
     shared = (
         "provider.py",
         "realtime/__init__.py",
-        "realtime/runtime.py",
         "realtime/contract.py",
+        "realtime/gateway.py",
     )
     for source in ("tdx", "qmt"):
         root = PROJECT_ROOT / "src" / "datasource" / source
@@ -32,6 +32,8 @@ def test_legacy_flat_and_experimental_paths_are_absent() -> None:
         "src/datasource/tdx_normalization.py",
         "src/datasource/qmt_provider.py",
         "src/datasource/tdx/realtime_gateway.py",
+        "src/datasource/tdx/realtime/runtime.py",
+        "src/datasource/qmt/bridge.py",
         "src/datasource/tdx/realtime_native_validator.py",
         "src/datasource/qmt/realtime.py",
         "qmt/routes/ws.py",
@@ -45,9 +47,9 @@ def test_legacy_flat_and_experimental_paths_are_absent() -> None:
 
 def test_provider_specific_capabilities_remain_explicit() -> None:
     assert (PROJECT_ROOT / "src/datasource/tdx/operations/formula.py").is_file()
-    assert (PROJECT_ROOT / "src/datasource/qmt/bridge.py").is_file()
+    assert (PROJECT_ROOT / "src/datasource/qmt/realtime/runtime.py").is_file()
     assert not (PROJECT_ROOT / "src/datasource/qmt/operations/formula.py").exists()
-    assert not (PROJECT_ROOT / "src/datasource/tdx/bridge.py").exists()
+    assert not (PROJECT_ROOT / "src/datasource/tdx/realtime/runtime.py").exists()
 
 
 def test_production_bridges_and_runtime_probe_have_distinct_identities() -> None:

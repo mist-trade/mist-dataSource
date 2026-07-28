@@ -1,6 +1,6 @@
 import inspect
 
-from src.datasource.qmt.bridge import QmtCommandGateway
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
 
 
@@ -11,7 +11,7 @@ def test_qmt_runtime_store_exposes_schema_v2_latest_state_without_polling() -> N
     assert runtime.ready_contract() == {
         "mode": "builtin",
         "schemaVersion": 2,
-        "source": "qmt",
+        "source": "QMT",
         "quality": "latest-state",
     }
     assert "collect_once" not in dir(runtime)

@@ -12,7 +12,7 @@ Generated from the `qmt` FastAPI app in `builtin` mode.
 - Summary: Health
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: object
+- Responses: 200: QmtDatasourceHealth
 
 ## POST /qmt/bridge/commands
 
@@ -39,7 +39,7 @@ Generated from the `qmt` FastAPI app in `builtin` mode.
 - Summary: Bridge Health
 - Request Body: `-`
 - Parameters: -
-- Responses: 200: object
+- Responses: 200: QmtBridgeHealth
 
 ## POST /qmt/bridge/owner
 
@@ -120,6 +120,9 @@ Generated from the `qmt` FastAPI app in `builtin` mode.
 - `OwnerRequest`
 - `PollRequest`
 - `QmtBarQueryRequest`
+- `QmtBridgeHealth`
+- `QmtCommandRejectionTotal`
+- `QmtDatasourceHealth`
 - `ResultRequest`
 - `SubscriptionLeaseRequest`
 - `SubscriptionResultFailure`

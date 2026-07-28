@@ -20,7 +20,7 @@ def test_qmt_builtin_mounts_formal_realtime_websocket() -> None:
             **ready["data"],
             "mode": "builtin",
             "schemaVersion": 2,
-            "source": "qmt",
+            "source": "QMT",
             "quality": "latest-state",
         }
         assert ready["data"]["bridge"] == {

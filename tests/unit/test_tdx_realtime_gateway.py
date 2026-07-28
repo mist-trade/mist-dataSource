@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from src.datasource.tdx.realtime.runtime import (
+from src.datasource.tdx.realtime.gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
     GatewayError,
@@ -54,7 +54,7 @@ class TestOwnerRegistration:
             events.append((epoch, generation, owner_id, build_id))
 
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime.runtime.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime.gateway.time.monotonic", lambda: clock)
         callback_gateway = TdxRealtimeGateway(on_epoch_change=capture)
         async_loop.run_until_complete(
             callback_gateway.register_owner(
@@ -160,7 +160,7 @@ class TestOwnerRegistration:
         self, gateway: TdxRealtimeGateway, async_loop, monkeypatch
     ) -> None:
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime.runtime.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime.gateway.time.monotonic", lambda: clock)
         old = async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-old",
@@ -229,7 +229,7 @@ class TestOwnerRegistration:
         self, gateway: TdxRealtimeGateway, async_loop, monkeypatch
     ) -> None:
         clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime.runtime.time.monotonic", lambda: clock)
+        monkeypatch.setattr("src.datasource.tdx.realtime.gateway.time.monotonic", lambda: clock)
         result = async_loop.run_until_complete(
             gateway.register_owner(
                 owner_id="bridge-1",

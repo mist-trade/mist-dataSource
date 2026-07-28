@@ -1,12 +1,17 @@
-"""Normalize TDX market bars, snapshots, and provider-native fields."""
+"""Normalize TDX market bars and project provider-native realtime fields."""
 
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-from src.datasource.contracts import BEIJING_TZ, normalize_beijing_iso
-from src.datasource.tdx.models import TdxBar, TdxSnapshot
+from src.datasource.contracts import (
+    BEIJING_TZ,
+    normalize_beijing_iso,
+    normalize_nullable_k_decimal,
+)
+from src.datasource.tdx.models import TdxBar
 
 TDX_SNAPSHOT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     # Keep provider fields separate. In particular, Now/Last/Close and
@@ -37,6 +42,36 @@ TDX_REALTIME_LOGICAL_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
     "eventTime": ("AsOf",),
 }
 
+REQUIRED_TDX_BAR_PRICE_FIELDS = ("open", "high", "low", "close")
+
+
+class TdxBarNormalizationError(Exception):
+    """Structured failure for a malformed nonempty TDX bar result."""
+
+    def __init__(
+        self,
+        *,
+        symbol: str,
+        timestamp: str,
+        invalid_fields: dict[str, str],
+    ) -> None:
+        normalized_symbol = normalize_symbol(symbol)
+        field_names = ", ".join(sorted(invalid_fields))
+        message = (
+            f"TDX bar has invalid required prices for {normalized_symbol} "
+            f"at {timestamp}: {field_names}"
+        )
+        super().__init__(message)
+        self.code = "TDX_BAR_REQUIRED_PRICE_INVALID"
+        self.message = message
+        self.retryable = False
+        self.details = {
+            "source": "tdx",
+            "symbol": normalized_symbol,
+            "timestamp": timestamp,
+            "invalidFields": invalid_fields,
+        }
+
 
 @dataclass(frozen=True)
 class RawTdxSnapshotFields:
@@ -61,12 +96,7 @@ class RawTdxSnapshotFields:
 def extract_tdx_snapshot_native_fields(
     native: Mapping[str, Any],
 ) -> RawTdxSnapshotFields:
-    """Project native aliases without applying a consumer-specific policy.
-
-    Each provider field is projected independently. This preserves the
-    historical HTTP behavior while allowing the realtime validator to apply
-    a separate logical-alias policy after its strict conflict check.
-    """
+    """Project native realtime fields without applying validation policy."""
     values = {
         logical: native_value(native, *aliases)
         for logical, aliases in TDX_SNAPSHOT_FIELD_ALIASES.items()
@@ -135,12 +165,6 @@ def beijing_iso(value: str | datetime | None = None) -> str:
     return normalized
 
 
-def normalize_number(value: Any) -> float:
-    if value is None or value == "":
-        return 0.0
-    return float(value)
-
-
 def normalize_optional_number(value: Any) -> float | None:
     if value is None:
         return None
@@ -185,44 +209,62 @@ def normalize_tdx_bar_rows(symbol: str, period: str, native: dict[str, Any]) -> 
         )
     )
 
-    return [
-        TdxBar(
-            symbol=normalized_symbol,
-            period=period,
-            barTime=beijing_iso(timestamp),
-            open=normalize_number(open_values.get(timestamp)),
-            high=normalize_number(high_values.get(timestamp)),
-            low=normalize_number(low_values.get(timestamp)),
-            close=normalize_number(close_values.get(timestamp)),
-            volume=normalize_number(volume_values.get(timestamp)),
-            amount=normalize_number(amount_values.get(timestamp)),
-            forwardFactor=normalize_optional_number(forward_factor_values.get(timestamp)),
-            volInStock=normalize_optional_number(vol_in_stock_values.get(timestamp)),
-            provider="tdx",
-            receivedAt=beijing_iso(),
+    rows: list[TdxBar] = []
+    for timestamp in timestamps:
+        required_values = {
+            "open": open_values.get(timestamp),
+            "high": high_values.get(timestamp),
+            "low": low_values.get(timestamp),
+            "close": close_values.get(timestamp),
+        }
+        prices: dict[str, float] = {}
+        invalid_fields: dict[str, str] = {}
+        for field_name in REQUIRED_TDX_BAR_PRICE_FIELDS:
+            value, invalid_reason = _required_finite_number(required_values[field_name])
+            if invalid_reason is not None:
+                invalid_fields[field_name] = invalid_reason
+            else:
+                assert value is not None
+                prices[field_name] = value
+        if invalid_fields:
+            raise TdxBarNormalizationError(
+                symbol=normalized_symbol,
+                timestamp=timestamp,
+                invalid_fields=invalid_fields,
+            )
+
+        rows.append(
+            TdxBar(
+                symbol=normalized_symbol,
+                period=period,
+                barTime=beijing_iso(timestamp),
+                open=prices["open"],
+                high=prices["high"],
+                low=prices["low"],
+                close=prices["close"],
+                volume=normalize_nullable_k_decimal(volume_values.get(timestamp)),
+                amount=normalize_nullable_k_decimal(amount_values.get(timestamp)),
+                forwardFactor=normalize_optional_number(forward_factor_values.get(timestamp)),
+                volInStock=normalize_optional_number(vol_in_stock_values.get(timestamp)),
+                provider="tdx",
+                receivedAt=beijing_iso(),
+            )
         )
-        for timestamp in timestamps
-    ]
+    return rows
 
 
-def normalize_tdx_snapshot(symbol: str, native: dict[str, Any]) -> TdxSnapshot:
-    normalized_symbol = normalize_symbol(symbol)
-    raw = extract_tdx_snapshot_native_fields(native)
-
-    return TdxSnapshot(
-        symbol=normalized_symbol,
-        # Formal HTTP semantics are intentionally frozen to the historical
-        # provider fields. Realtime-only aliases must not leak here.
-        last=normalize_number(raw.now),
-        open=normalize_number(raw.open),
-        high=normalize_number(raw.maximum),
-        low=normalize_number(raw.minimum),
-        lastClose=normalize_number(raw.lastClose),
-        volume=normalize_number(raw.nativeVolume),
-        amount=normalize_number(raw.nativeAmount),
-        provider="tdx",
-        asOf=beijing_iso(raw.eventTime),
-    )
+def _required_finite_number(value: Any) -> tuple[float | None, str | None]:
+    if value is None:
+        return None, "missing"
+    if isinstance(value, str) and value.strip() == "":
+        return None, "blank"
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        return None, "not_numeric"
+    if not math.isfinite(normalized):
+        return None, "not_finite"
+    return normalized, None
 
 
 def _series_for_symbol(

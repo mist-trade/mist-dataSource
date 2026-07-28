@@ -46,7 +46,6 @@ class ProviderManifest(DatasourceModel):
 
 TDX_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str | None]] = {
     "bars": ("supported", "stable", ["get_market_data"], None),
-    "snapshots": ("supported", "stable", ["get_market_snapshot"], None),
     "price-volume": ("supported", "stable", ["get_pricevol"], None),
     "benchmarks": ("planned", "planned", ["get_benchmark_data"], None),
     "calendar": ("supported", "stable", ["get_trading_dates"], None),
@@ -162,7 +161,6 @@ TDX_CAPABILITY_STATUSES: dict[str, tuple[CapabilityStatus, str, list[str], str |
 
 TDX_PROVIDER_METHODS: dict[str, list[str]] = {
     "bars": ["get_bars", "collect_recent_bars"],
-    "snapshots": ["get_snapshots"],
     "price-volume": ["get_price_volume"],
     "benchmarks": [],
     "calendar": ["get_trading_dates"],

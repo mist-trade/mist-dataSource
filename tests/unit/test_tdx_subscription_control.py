@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 
-from src.datasource.tdx.realtime.runtime import (
+from src.datasource.tdx.realtime.gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
     TdxRealtimeGateway,

@@ -15,12 +15,13 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.local_bridge import is_trusted_local_bridge_peer
-from src.datasource.tdx.realtime.runtime import (
+from src.datasource.tdx.realtime.gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
     GatewayError,
     TdxRealtimeGateway,
 )
+from src.ws.health_contract import TdxBridgeHealth
 from src.ws.protocol import ws_realtime_snapshot
 
 router = APIRouter()
@@ -198,7 +199,7 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
         ) from exc
 
 
-@router.get("/tdx/bridge/health")
+@router.get("/tdx/bridge/health", response_model=TdxBridgeHealth)
 async def bridge_health(request: Request) -> dict[str, Any]:
     _require_loopback(request)
     gateway = _get_gateway(request)

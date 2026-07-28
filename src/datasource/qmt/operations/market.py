@@ -1,7 +1,8 @@
 import asyncio
 from typing import Any, cast
 
-from src.datasource.qmt.bridge import QmtCommandGateway, QmtCommandResult
+from src.datasource.contracts import normalize_nullable_k_decimal
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway, QmtCommandResult
 
 
 class QmtBridgeError(Exception):
@@ -188,8 +189,20 @@ def _normalize_bridge_market_data(
             details={"resultKeys": sorted(bridge_value)},
         )
 
+    try:
+        normalized_market_data = _normalize_historical_measures(
+            cast(dict[Any, Any], market_data_value)
+        )
+    except ValueError as exc:
+        raise QmtBridgeError(
+            code="QMT_BRIDGE_DECIMAL_OUT_OF_RANGE",
+            message=str(exc),
+            retryable=True,
+            details={},
+        ) from exc
+
     result: dict[str, object] = {
-        "marketData": market_data_value,
+        "marketData": normalized_market_data,
         "source": "native_bridge",
     }
     if include_raw:
@@ -199,3 +212,35 @@ def _normalize_bridge_market_data(
             "commandId": command_id,
         }
     return result
+
+
+def _normalize_historical_measures(
+    market_data: dict[Any, Any],
+) -> dict[str, object]:
+    normalized: dict[str, object] = {}
+    for symbol, symbol_value in market_data.items():
+        if not isinstance(symbol, str) or not isinstance(symbol_value, dict):
+            normalized[str(symbol)] = symbol_value
+            continue
+        fields: dict[str, object] = {}
+        symbol_mapping = cast(dict[Any, Any], symbol_value)
+        for field_name, field_value in symbol_mapping.items():
+            key = str(field_name)
+            if key.lower() not in {"volume", "amount"}:
+                fields[key] = field_value
+                continue
+            if isinstance(field_value, dict):
+                field_mapping = cast(dict[Any, Any], field_value)
+                fields[key] = {
+                    str(row_key): normalize_nullable_k_decimal(row_value)
+                    for row_key, row_value in field_mapping.items()
+                }
+            elif isinstance(field_value, list):
+                field_list = cast(list[Any], field_value)
+                fields[key] = [
+                    normalize_nullable_k_decimal(row_value) for row_value in field_list
+                ]
+            else:
+                fields[key] = normalize_nullable_k_decimal(field_value)
+        normalized[symbol] = fields
+    return normalized

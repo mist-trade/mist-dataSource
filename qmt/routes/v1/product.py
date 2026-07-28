@@ -13,9 +13,9 @@ from src.datasource.contracts import (
     ResponseMeta,
     serialize_response_data,
 )
-from src.datasource.qmt.bridge import QmtCommandGateway
 from src.datasource.qmt.operations.market import QmtBridgeError
 from src.datasource.qmt.provider import QmtDatasourceProvider
+from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 
 router = APIRouter()
 
