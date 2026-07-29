@@ -12,7 +12,6 @@ import secrets
 import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,9 +31,6 @@ MAX_JOURNAL_RECORD_BYTES = 65_536
 MAX_CONTEXT_REBUILD_OBSERVATION_BYTES = 16_384
 MIN_ROTATION_OVERHEAD_BYTES = MAX_JOURNAL_RECORD_BYTES * 2
 DEFAULT_CONTROL_TIMEOUT_SECONDS = 10.0
-DEFAULT_FALSE_UNSUBSCRIBE_VERIFY_SECONDS = 2.0
-DEFAULT_CALLBACK_FRESH_SECONDS = 5.0
-CONTROL_COMPLETION_MARGIN_SECONDS = 0.25
 QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV = "MIST_QMT_UNSUBSCRIBE_SUCCESS_VALUES"
 QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV = (
     "MIST_QMT_CONTEXT_REBUILD_OBSERVATION_PATH"
@@ -683,8 +679,6 @@ class QmtSubscriptionController:
         publisher: Callable[[dict[str, Any]], Awaitable[None] | None],
         unsubscribe_success_values: frozenset[int] = frozenset(),
         timeout_seconds: float = DEFAULT_CONTROL_TIMEOUT_SECONDS,
-        false_unsubscribe_verify_seconds: float = DEFAULT_FALSE_UNSUBSCRIBE_VERIFY_SECONDS,
-        callback_fresh_seconds: float = DEFAULT_CALLBACK_FRESH_SECONDS,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.registry = QmtSubscriptionRegistry()
@@ -693,17 +687,12 @@ class QmtSubscriptionController:
         self._publisher = publisher
         self._unsubscribe_success_values = unsubscribe_success_values
         self._timeout_seconds = timeout_seconds
-        self._false_unsubscribe_verify_seconds = max(
-            0.0, false_unsubscribe_verify_seconds
-        )
-        self._callback_fresh_seconds = max(0.0, callback_fresh_seconds)
         self._clock = clock
         self._mutation_lock = asyncio.Lock()
         self._slot: _NativeSlot | None = None
         self._call_sequence = 0
         self._callback_counts: dict[int, int] = {}
         self._callback_last_seen: dict[int, float] = {}
-        self._callback_event = asyncio.Event()
         self.reconciliation_required = self.journal.record_sequence > 0
         self._control_counts: dict[tuple[str, str, str], int] = {}
 
@@ -822,7 +811,6 @@ class QmtSubscriptionController:
                 self._callback_counts.get(subscription_id, 0) + 1
             )
             self._callback_last_seen[subscription_id] = self._clock()
-            self._callback_event.set()
         accepted: dict[str, Any] = {}
         rejected: list[dict[str, str]] = []
         for raw_symbol, value in native.items():
@@ -1126,7 +1114,6 @@ class QmtSubscriptionController:
         symbol: str | None,
         sub_id: int,
     ) -> QmtSubscriptionControlError | None:
-        call_started_at = self._clock()
         try:
             reply, durable = await self._native_call(
                 "unsubscribe_quote",
@@ -1141,20 +1128,16 @@ class QmtSubscriptionController:
         confirmed_by: str | None = None
         if (
             reply.success_present
+            and type(reply.success) is bool
+            and reply.success is True
+        ):
+            confirmed_by = "hil_boolean_true"
+        elif (
+            reply.success_present
             and type(reply.success) is int
             and reply.success in self._unsubscribe_success_values
         ):
             confirmed_by = "hil_integer"
-        elif (
-            reply.success_present
-            and type(reply.success) is bool
-            and reply.success is False
-            and await self._verify_false_unsubscribe(
-                sub_id=sub_id,
-                call_started_at=call_started_at,
-            )
-        ):
-            confirmed_by = "callback_silence_with_live_witness"
         if confirmed_by is None:
             return QmtSubscriptionControlError(
                 "QMT_UNSUBSCRIBE_UNCONFIRMED",
@@ -1190,52 +1173,6 @@ class QmtSubscriptionController:
     def _forget_callback_observation(self, sub_id: int) -> None:
         self._callback_counts.pop(sub_id, None)
         self._callback_last_seen.pop(sub_id, None)
-
-    async def _verify_false_unsubscribe(
-        self,
-        *,
-        sub_id: int,
-        call_started_at: float,
-    ) -> bool:
-        last_seen = self._callback_last_seen.get(sub_id)
-        if (
-            last_seen is None
-            or call_started_at - last_seen > self._callback_fresh_seconds
-        ):
-            return False
-        witness_ids = self.registry.current_subscription_ids() - {sub_id}
-        if not witness_ids or self._false_unsubscribe_verify_seconds <= 0:
-            return False
-        target_baseline = self._callback_counts.get(sub_id, 0)
-        witness_baseline = {
-            witness_id: self._callback_counts.get(witness_id, 0)
-            for witness_id in witness_ids
-        }
-        deadline = min(
-            self._clock() + self._false_unsubscribe_verify_seconds,
-            call_started_at
-            + self._timeout_seconds
-            - CONTROL_COMPLETION_MARGIN_SECONDS,
-        )
-        if deadline <= self._clock():
-            return False
-        while True:
-            if self._callback_counts.get(sub_id, 0) > target_baseline:
-                return False
-            now = self._clock()
-            if now >= deadline:
-                return any(
-                    self._callback_counts.get(witness_id, 0) > baseline
-                    for witness_id, baseline in witness_baseline.items()
-                )
-            self._callback_event.clear()
-            if self._callback_counts.get(sub_id, 0) > target_baseline:
-                continue
-            with suppress(TimeoutError):
-                await asyncio.wait_for(
-                    self._callback_event.wait(),
-                    timeout=max(0.0, deadline - now),
-                )
 
     async def _native_call(
         self,

@@ -32,8 +32,6 @@ def _controller(
     tmp_path: Path,
     *,
     timeout_seconds: float = 1.0,
-    false_unsubscribe_verify_seconds: float = 0.02,
-    callback_fresh_seconds: float = 1.0,
 ) -> tuple[QmtSubscriptionController, list[dict[str, Any]]]:
     published: list[dict[str, Any]] = []
     controller = QmtSubscriptionController(
@@ -42,8 +40,6 @@ def _controller(
         publisher=published.append,
         unsubscribe_success_values=frozenset({0}),
         timeout_seconds=timeout_seconds,
-        false_unsubscribe_verify_seconds=false_unsubscribe_verify_seconds,
-        callback_fresh_seconds=callback_fresh_seconds,
     )
     return controller, published
 
@@ -159,121 +155,38 @@ async def test_whole_member_individual_unsubscribe_is_rejected_without_native_ca
 
 
 @pytest.mark.asyncio
-async def test_false_unsubscribe_is_confirmed_by_fresh_target_and_live_witness(
-    tmp_path: Path,
-) -> None:
-    controller, _ = _controller(tmp_path)
-    controller.registry.singles = {"300502.SZ": 123, "600519.SH": 456}
-    for sub_id, symbol in [(123, "300502.SZ"), (456, "600519.SH")]:
-        await controller.accept_snapshot(
-            "owner",
-            "token",
-            1,
-            sub_id,
-            "2026-07-28T10:00:00+08:00",
-            {symbol: {"lastPrice": 10.5}},
-        )
-
-    task = asyncio.create_task(
-        controller.execute("unsubscribe", symbol="300502.SZ")
-    )
-    await _wait_for_slot(controller)
-    command = controller.poll_command("owner", "token", 1)
-    assert command is not None
-    controller.post_result(
-        "owner",
-        "token",
-        1,
-        command["callSequence"],
-        QmtNativeReply(success_present=True, success=False, failure=None),
-    )
-    await asyncio.sleep(0)
-    await controller.accept_snapshot(
-        "owner",
-        "token",
-        1,
-        456,
-        "2026-07-28T10:00:01+08:00",
-        {"600519.SH": {"lastPrice": 1685.0}},
-    )
-
-    assert await task == ("unsubscribed", {"success": None})
-    assert controller.registry.public_value()["singles"] == {"600519.SH": 456}
-    assert controller.journal.last_record is not None
-    assert controller.journal.last_record["detail"]["confirmedBy"] == (
-        "callback_silence_with_live_witness"
-    )
-
-
-@pytest.mark.asyncio
-async def test_false_unsubscribe_remains_unconfirmed_when_target_callback_continues(
-    tmp_path: Path,
-) -> None:
-    controller, _ = _controller(tmp_path)
-    controller.registry.singles = {"300502.SZ": 123, "600519.SH": 456}
-    for sub_id, symbol in [(123, "300502.SZ"), (456, "600519.SH")]:
-        await controller.accept_snapshot(
-            "owner",
-            "token",
-            1,
-            sub_id,
-            "2026-07-28T10:00:00+08:00",
-            {symbol: {"lastPrice": 10.5}},
-        )
-
-    task = asyncio.create_task(
-        controller.execute("unsubscribe", symbol="300502.SZ")
-    )
-    await _wait_for_slot(controller)
-    command = controller.poll_command("owner", "token", 1)
-    assert command is not None
-    controller.post_result(
-        "owner",
-        "token",
-        1,
-        command["callSequence"],
-        QmtNativeReply(success_present=True, success=False, failure=None),
-    )
-    await asyncio.sleep(0)
-    await controller.accept_snapshot(
-        "owner",
-        "token",
-        1,
-        123,
-        "2026-07-28T10:00:01+08:00",
-        {"300502.SZ": {"lastPrice": 10.6}},
-    )
-
-    assert await task == (
-        "unsubscribed",
-        {
-            "failure": {
-                "symbol": "300502.SZ",
-                "reason": "QMT_UNSUBSCRIBE_UNCONFIRMED",
-                "subscriptionState": "unknown",
-            }
-        },
-    )
-    assert controller.registry.public_value()["singles"] == {
-        "300502.SZ": 123,
-        "600519.SH": 456,
-    }
-
-
-@pytest.mark.asyncio
-async def test_false_unsubscribe_requires_a_different_live_callback_witness(
+async def test_true_unsubscribe_is_confirmed_directly(
     tmp_path: Path,
 ) -> None:
     controller, _ = _controller(tmp_path)
     controller.registry.singles = {"300502.SZ": 123}
-    await controller.accept_snapshot(
+
+    task = asyncio.create_task(
+        controller.execute("unsubscribe", symbol="300502.SZ")
+    )
+    await _wait_for_slot(controller)
+    command = controller.poll_command("owner", "token", 1)
+    assert command is not None
+    controller.post_result(
         "owner",
         "token",
         1,
-        123,
-        "2026-07-28T10:00:00+08:00",
-        {"300502.SZ": {"lastPrice": 10.5}},
+        command["callSequence"],
+        QmtNativeReply(success_present=True, success=True, failure=None),
     )
+
+    assert await task == ("unsubscribed", {"success": None})
+    assert controller.registry.public_value()["singles"] == {}
+    assert controller.journal.last_record is not None
+    assert controller.journal.last_record["detail"]["confirmedBy"] == "hil_boolean_true"
+
+
+@pytest.mark.asyncio
+async def test_false_unsubscribe_remains_unconfirmed(
+    tmp_path: Path,
+) -> None:
+    controller, _ = _controller(tmp_path)
+    controller.registry.singles = {"300502.SZ": 123}
 
     task = asyncio.create_task(
         controller.execute("unsubscribe", symbol="300502.SZ")
@@ -288,7 +201,6 @@ async def test_false_unsubscribe_requires_a_different_live_callback_witness(
         command["callSequence"],
         QmtNativeReply(success_present=True, success=False, failure=None),
     )
-
     assert await task == (
         "unsubscribed",
         {
@@ -300,42 +212,6 @@ async def test_false_unsubscribe_requires_a_different_live_callback_witness(
         },
     )
     assert controller.registry.public_value()["singles"] == {"300502.SZ": 123}
-
-
-@pytest.mark.asyncio
-async def test_false_unsubscribe_requires_a_fresh_target_callback(
-    tmp_path: Path,
-) -> None:
-    controller, _ = _controller(tmp_path, callback_fresh_seconds=0.0)
-    controller.registry.singles = {"300502.SZ": 123, "600519.SH": 456}
-    await controller.accept_snapshot(
-        "owner",
-        "token",
-        1,
-        123,
-        "2026-07-28T10:00:00+08:00",
-        {"300502.SZ": {"lastPrice": 10.5}},
-    )
-
-    task = asyncio.create_task(
-        controller.execute("unsubscribe", symbol="300502.SZ")
-    )
-    await _wait_for_slot(controller)
-    command = controller.poll_command("owner", "token", 1)
-    assert command is not None
-    controller.post_result(
-        "owner",
-        "token",
-        1,
-        command["callSequence"],
-        QmtNativeReply(success_present=True, success=False, failure=None),
-    )
-
-    assert (await task)[1]["failure"]["reason"] == "QMT_UNSUBSCRIBE_UNCONFIRMED"
-    assert controller.registry.public_value()["singles"] == {
-        "300502.SZ": 123,
-        "600519.SH": 456,
-    }
 
 
 @pytest.mark.asyncio
