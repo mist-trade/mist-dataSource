@@ -30,7 +30,7 @@ from src.datasource.qmt.realtime.subscription import (
 )
 from src.ws.health_contract import QmtDatasourceHealth
 from src.ws.manager import ConnectionManager
-from src.ws.protocol import ws_error, ws_realtime_snapshot, ws_stream_started
+from src.ws.protocol import ws_error, ws_realtime_snapshot
 
 setup_logging()
 
@@ -84,14 +84,9 @@ def create_qmt_app(
                 )
             )
 
-        async def publish_epoch(data: dict[str, Any]) -> None:
-            assert manager is not None
-            await manager.broadcast(ws_stream_started("qmt", data))
-
         collector = QmtRealtimeCollector(
             gateway=app_gateway,
             publisher=publish_snapshot,
-            epoch_publisher=publish_epoch,
             error_publisher=publish_error,
             now=collector_now,
         )

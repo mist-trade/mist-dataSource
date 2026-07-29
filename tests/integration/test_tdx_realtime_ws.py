@@ -28,14 +28,12 @@ def test_backend_syncs_complete_desired_set_over_realtime_websocket() -> None:
         ready = websocket.receive_json()
         assert ready["type"] == "realtime.ready"
         assert ready["provider"] == "tdx"
-        assert ready["data"]["source"] == "TDX"
-        assert ready["data"]["bridge"] == {
-            "ready": False,
-            "ownerId": None,
-            "ownerGeneration": 0,
-            "bridgeBuildId": None,
+        assert ready["data"] == {
+            "mode": "builtin",
+            "schemaVersion": 2,
+            "source": "TDX",
+            "quality": "latest-state",
         }
-        assert "tdxRealtimeBridgeReady" not in ready["data"]
         websocket.send_json(
             {"type": "sync_subscriptions", "symbols": ["600030.SH"]}
         )

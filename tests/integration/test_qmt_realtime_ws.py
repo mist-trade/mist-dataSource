@@ -23,12 +23,7 @@ def test_qmt_builtin_mounts_formal_realtime_websocket() -> None:
             "source": "QMT",
             "quality": "latest-state",
         }
-        assert ready["data"]["bridge"] == {
-            "ready": False,
-            "ownerId": None,
-            "ownerGeneration": 0,
-            "bridgeBuildId": None,
-        }
+        assert "bridge" not in ready["data"]
         assert "collectorReady" not in ready["data"]
         assert "generation" not in ready["data"]
         assert "ownerId" not in ready["data"]

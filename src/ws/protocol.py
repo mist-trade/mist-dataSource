@@ -23,7 +23,6 @@ class WSMessage(BaseModel):
         "subscriptions",
         "error",
         "realtime.native_snapshot",
-        "realtime.stream_started",
     ]
     provider: str | None = None
     data: dict[str, Any]
@@ -103,12 +102,3 @@ def ws_subscription_result(
 def ws_realtime_snapshot(provider: str, data: dict[str, Any]) -> WSMessage:
     """Create a formal provider-native realtime snapshot frame."""
     return WSMessage(type="realtime.native_snapshot", provider=provider, data=data)
-
-
-def ws_stream_started(provider: str, data: dict[str, Any]) -> WSMessage:
-    """Create a stream_started control event (owner generation changed).
-
-    Already-connected clients receive this; late-connecting clients recover the
-    epoch via ``ready``.
-    """
-    return WSMessage(type="realtime.stream_started", provider=provider, data=data)

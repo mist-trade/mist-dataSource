@@ -20,14 +20,12 @@ class QmtRealtimeCollector:
         *,
         gateway: QmtCommandGateway,
         publisher: Callable[[dict[str, Any]], Awaitable[None] | None],
-        epoch_publisher: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
         error_publisher: Callable[[str, str], Awaitable[None] | None] | None = None,
         now: Callable[[], datetime] | None = None,
         interval_seconds: float = 1.0,
     ) -> None:
         self.gateway = gateway
         self.publisher = publisher
-        self.epoch_publisher = epoch_publisher
         self.error_publisher = error_publisher
         self.connected_clients: set[str] = set()
         self.leader_client_id: str | None = None

@@ -100,11 +100,6 @@ class TdxRealtimeGateway:
     """Control-plane gateway for the TDX builtin bridge."""
 
     max_subscriptions: int = 100
-    # Callback invoked when stream_epoch changes (owner generation change).
-    # Set by the lifespan wiring to broadcast stream_started on the realtime
-    # WS manager. Signature: async (stream_epoch, generation, owner_id,
-    # bridge_build_id) -> None.
-    on_epoch_change: Any = None
     control_timeout_seconds: float = 10.0
     _owner: BridgeOwner | None = None
     _owner_generation_counter: int = 0
@@ -147,10 +142,6 @@ class TdxRealtimeGateway:
     _control_counts: dict[tuple[str, str, str], int] = field(
         default_factory=lambda: dict[tuple[str, str, str], int]()
     )
-    # Separate lock to serialize epoch-change broadcasts (prevents out-of-order
-    # broadcast when concurrent same-owner registrations interleave).
-    _broadcast_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
     # --- owner / lease -------------------------------------------------
 
     async def register_owner(
@@ -255,19 +246,6 @@ class TdxRealtimeGateway:
                     "acquisitionProfile": ACCEPTED_ACQUISITION_PROFILE,
                 },
             }
-        # Broadcast stream_started, serialized by _broadcast_lock to guarantee
-        # in-generation-order delivery. Also re-check generation after acquiring
-        # broadcast lock to skip stale broadcasts.
-        if self.on_epoch_change is not None:
-            async with self._broadcast_lock:
-                current: Any = self._owner
-                if current is not None and current.generation == generation:
-                    await self.on_epoch_change(
-                        stream_epoch,
-                        generation,
-                        current.owner_id,
-                        current.bridge_build_id,
-                    )
         return result
 
     def _validate_contract_tuple(

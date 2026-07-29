@@ -45,42 +45,6 @@ def async_loop() -> asyncio.AbstractEventLoop:
 
 
 class TestOwnerRegistration:
-    def test_epoch_callback_carries_the_current_owner_generation(
-        self, async_loop, monkeypatch
-    ) -> None:
-        events: list[tuple[str, int, str, str]] = []
-
-        async def capture(epoch: str, generation: int, owner_id: str, build_id: str) -> None:
-            events.append((epoch, generation, owner_id, build_id))
-
-        clock = 100.0
-        monkeypatch.setattr("src.datasource.tdx.realtime.gateway.time.monotonic", lambda: clock)
-        callback_gateway = TdxRealtimeGateway(on_epoch_change=capture)
-        async_loop.run_until_complete(
-            callback_gateway.register_owner(
-                owner_id="bridge-a",
-                bridge_build_id="build-a",
-                bridge_artifact_sha256="sha-a",
-                **CONTRACT_KWARGS,
-            )
-        )
-        clock = 111.0
-        second = async_loop.run_until_complete(
-            callback_gateway.register_owner(
-                owner_id="bridge-b",
-                bridge_build_id="build-b",
-                bridge_artifact_sha256="sha-b",
-                **CONTRACT_KWARGS,
-            )
-        )
-
-        assert events[-1] == (
-            second["streamEpoch"],
-            second["generation"],
-            "bridge-b",
-            "build-b",
-        )
-
     def test_register_returns_lease_and_epoch(
         self, gateway: TdxRealtimeGateway, async_loop
     ) -> None:
