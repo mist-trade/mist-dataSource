@@ -449,7 +449,10 @@ async def test_confirmed_unsubscribe_durability_failure_retains_original_bucket(
 @pytest.mark.asyncio
 async def test_snapshot_checks_handle_membership_per_code(tmp_path: Path) -> None:
     controller, published = _controller(tmp_path)
-    controller.registry.singles["300502.SZ"] = 7
+    controller.registry.whole = QmtWholeSubscription(
+        7,
+        ("300502.SZ", "600030.SH"),
+    )
 
     result = await controller.accept_snapshot(
         "owner",
@@ -460,14 +463,15 @@ async def test_snapshot_checks_handle_membership_per_code(tmp_path: Path) -> Non
         {
             "300502.SZ": {"lastPrice": 10.5},
             "600030.SH": {"lastPrice": 20.5},
+            "000001.SZ": {"lastPrice": 12.5},
             "not-a-symbol": {"lastPrice": 1},
         },
     )
 
     assert result == {
-        "accepted": ["300502.SZ"],
+        "accepted": ["300502.SZ", "600030.SH"],
         "rejected": [
-            {"symbol": "600030.SH", "reason": "QMT_SNAPSHOT_NON_MEMBER"},
+            {"symbol": "000001.SZ", "reason": "QMT_SNAPSHOT_NON_MEMBER"},
             {"symbol": "NOT-A-SYMBOL", "reason": "QMT_SNAPSHOT_SYMBOL_INVALID"},
         ],
     }
@@ -475,7 +479,10 @@ async def test_snapshot_checks_handle_membership_per_code(tmp_path: Path) -> Non
         {
             "schemaVersion": 2,
             "capturedAt": "2026-07-26T10:00:00+08:00",
-            "native": {"300502.SZ": {"lastPrice": 10.5}},
+            "native": {
+                "300502.SZ": {"lastPrice": 10.5},
+                "600030.SH": {"lastPrice": 20.5},
+            },
         }
     ]
 
