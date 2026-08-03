@@ -47,8 +47,8 @@ async def test_tdx_snapshot_route_has_no_producer_sequence_or_item_ack() -> None
             "Max": 1690.0,
             "Min": 1665.0,
             "LastClose": 1672.5,
-            "Volume": 12345600,
-            "Amount": 20800000000,
+            "Volume": "12345600",
+            "Amount": "20800000000",
         },
     }
     transport = ASGITransport(app=app, client=("127.0.0.1", 12345))

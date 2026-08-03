@@ -16,6 +16,7 @@ provider-native fields:
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +33,9 @@ from src.datasource.tdx.market_normalization import (
 #: but possibly null). ``last`` is required, handled separately.
 _OPTIONAL_PRICE_FIELDS = ("open", "high", "low", "lastClose")
 _OPTIONAL_NATIVE_FIELDS = ("nativeVolume", "nativeAmount")
+_TDX_QUANTITY_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]{1,8})?$")
+_TDX_QUANTITY_MAX_LENGTH = 37
+_TDX_QUANTITY_MAX_INTEGER_DIGITS = 28
 
 
 class TdxRealtimeNativeValidationError(ValueError):
@@ -48,8 +52,8 @@ class ValidatedTdxNativeSnapshot:
     high: float | None
     low: float | None
     lastClose: float | None
-    nativeVolume: float | None
-    nativeAmount: float | None
+    nativeVolume: str | None
+    nativeAmount: str | None
     eventTime: str | None
     quality: dict[str, bool]
 
@@ -76,6 +80,17 @@ def _reject_non_exact_last_close_keys(native: Mapping[str, Any]) -> None:
         if normalized in {"lastclose", "preclose"}:
             raise TdxRealtimeNativeValidationError(
                 f"TDX realtime previous close must use exact native key LastClose, got {key!r}"
+            )
+
+
+def _reject_non_exact_quantity_keys(native: Mapping[str, Any]) -> None:
+    exact_keys = {"Volume", "Amount"}
+    for key in native:
+        if key in exact_keys:
+            continue
+        if normalize_native_key(key) in {"volume", "amount"}:
+            raise TdxRealtimeNativeValidationError(
+                f"TDX realtime quantity must use exact native key Volume/Amount, got {key!r}"
             )
 
 
@@ -107,6 +122,27 @@ def _optional_finite_float(value: Any, *, field_name: str) -> float | None:
     return _finite_float(value, field_name=field_name)
 
 
+def _optional_quantity_text(value: Any, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TdxRealtimeNativeValidationError(f"{field_name} must be a native decimal string")
+    if len(value) > _TDX_QUANTITY_MAX_LENGTH:
+        raise TdxRealtimeNativeValidationError(
+            f"{field_name} exceeds {_TDX_QUANTITY_MAX_LENGTH} ASCII characters"
+        )
+    if _TDX_QUANTITY_PATTERN.fullmatch(value) is None:
+        raise TdxRealtimeNativeValidationError(
+            f"{field_name} must be unsigned ASCII fixed-point with scale <= 8"
+        )
+    integer = value.partition(".")[0].lstrip("0") or "0"
+    if len(integer) > _TDX_QUANTITY_MAX_INTEGER_DIGITS:
+        raise TdxRealtimeNativeValidationError(
+            f"{field_name} exceeds {_TDX_QUANTITY_MAX_INTEGER_DIGITS} integer digits"
+        )
+    return value
+
+
 def validate_tdx_realtime_native_snapshot(
     symbol: str,
     native: Mapping[str, Any],
@@ -120,6 +156,7 @@ def validate_tdx_realtime_native_snapshot(
     are present.
     """
     _reject_non_exact_last_close_keys(native)
+    _reject_non_exact_quantity_keys(native)
     _reject_conflicting_aliases(native)
     raw = extract_tdx_snapshot_native_fields(native)
 
@@ -155,8 +192,8 @@ def validate_tdx_realtime_native_snapshot(
     high = _optional_finite_float(raw_high, field_name="high")
     low = _optional_finite_float(raw_low, field_name="low")
     last_close = _optional_finite_float(raw.lastClose, field_name="lastClose")
-    native_volume = _optional_finite_float(raw.nativeVolume, field_name="nativeVolume")
-    native_amount = _optional_finite_float(raw.nativeAmount, field_name="nativeAmount")
+    native_volume = _optional_quantity_text(raw.nativeVolume, field_name="Volume")
+    native_amount = _optional_quantity_text(raw.nativeAmount, field_name="Amount")
 
     # eventTime: null if missing (NEVER clock-filled).
     event_time: str | None = None
