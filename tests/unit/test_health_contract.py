@@ -14,6 +14,7 @@ def bridge() -> dict[str, object]:
         "ownerId": "owner-1",
         "ownerGeneration": 1,
         "bridgeBuildId": "bridge-v2",
+        "bridgeArtifactSha256": "a" * 64,
     }
 
 
@@ -65,3 +66,20 @@ def test_bridge_health_requires_normalized_owner_metadata() -> None:
 
     with pytest.raises(ValidationError):
         BridgeHealth.model_validate(payload)
+
+
+def test_tdx_health_requires_bridge_artifact_identity() -> None:
+    payload = {
+        "status": "ok",
+        "instance": "tdx",
+        "realtimeMode": "builtin",
+        "connections": 1,
+        "wsConnected": True,
+        "tdxHttpReachable": True,
+        "lastError": None,
+        "bridge": bridge(),
+    }
+    del payload["bridge"]["bridgeArtifactSha256"]  # type: ignore[index]
+
+    with pytest.raises(ValidationError):
+        TdxDatasourceHealth.model_validate(payload)

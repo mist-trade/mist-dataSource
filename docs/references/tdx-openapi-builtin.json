@@ -516,6 +516,7 @@
           "ownerId",
           "ownerGeneration",
           "bridgeBuildId",
+          "bridgeArtifactSha256",
           "ownerAgeSeconds",
           "bridgeArtifactSha256",
           "desiredRevision",
