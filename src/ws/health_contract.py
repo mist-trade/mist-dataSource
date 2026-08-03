@@ -23,6 +23,7 @@ class BridgeHealth(BaseModel):
 class TdxBridgeHealth(BridgeHealth):
     """Typed TDX bridge-scoped diagnostics."""
 
+    bridge_artifact_sha256: str | None = Field(alias="bridgeArtifactSha256")
     owner_age_seconds: float | None = Field(alias="ownerAgeSeconds", ge=0)
     desired_revision: int = Field(alias="desiredRevision", ge=0)
     converged_revision: int = Field(alias="convergedRevision", ge=-1)

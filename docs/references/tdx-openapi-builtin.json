@@ -356,6 +356,17 @@
             "title": "Attemptedrevision",
             "type": "integer"
           },
+          "bridgeArtifactSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridgeartifactsha256"
+          },
           "bridgeBuildId": {
             "anyOf": [
               {
@@ -505,6 +516,7 @@
           "ownerId",
           "ownerGeneration",
           "bridgeBuildId",
+          "bridgeArtifactSha256",
           "ownerAgeSeconds",
           "desiredRevision",
           "convergedRevision",
