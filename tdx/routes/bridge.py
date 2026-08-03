@@ -71,16 +71,19 @@ class SnapshotRequest(StrictRequestModel):
     streamEpoch: str  # Golden requires streamEpoch.
     symbol: str
     capturedAt: str
-    native: dict[str, Any]
+    native: dict[str, Any] = Field(
+        description=(
+            "Complete provider-native TDX snapshot. When present, exact Volume and "
+            "Amount keys must contain unsigned ASCII decimal strings with scale <= 8."
+        )
+    )
 
 
 # --- helpers ------------------------------------------------------------
 
 
 def _get_gateway(request: Request) -> TdxRealtimeGateway:
-    gateway: TdxRealtimeGateway | None = getattr(
-        request.app.state, "tdx_realtime_gateway", None
-    )
+    gateway: TdxRealtimeGateway | None = getattr(request.app.state, "tdx_realtime_gateway", None)
     if gateway is None:
         raise GatewayError(
             "TDX_BRIDGE_NOT_READY", "realtime gateway not initialized", retryable=True
