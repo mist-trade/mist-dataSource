@@ -26,4 +26,5 @@ def test_replays_captured_live_market_snapshot_through_realtime_contract() -> No
     assert snapshot.last == 1418.0
     assert snapshot.high == 1426.5
     assert snapshot.low == 1406.0
-    assert snapshot.nativeVolume == 3138308.0
+    assert snapshot.nativeVolume == "3138308"
+    assert snapshot.nativeAmount == "4446039416.0"
