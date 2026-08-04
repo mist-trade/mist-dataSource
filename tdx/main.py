@@ -113,6 +113,7 @@ def create_tdx_app(
                 "ownerGeneration": 0,
                 "ownerAgeSeconds": None,
                 "bridgeBuildId": None,
+                "bridgeArtifactSha256": None,
                 "desiredRevision": 0,
                 "convergedRevision": 0,
                 "desiredSymbols": 0,

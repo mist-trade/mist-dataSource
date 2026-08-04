@@ -792,6 +792,7 @@ class TdxRealtimeGateway:
                     round(time.monotonic() - owner.last_seen_monotonic, 3) if owner else None
                 ),
                 "bridgeBuildId": owner.bridge_build_id if owner else None,
+                "bridgeArtifactSha256": owner.bridge_artifact_sha256 if owner else None,
                 "desiredRevision": self._desired_revision,
                 "convergedRevision": self._converged_revision,
                 "desiredSymbols": len(self._desired_symbols),

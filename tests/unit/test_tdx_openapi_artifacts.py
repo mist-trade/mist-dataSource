@@ -74,6 +74,7 @@ def test_mode_specific_health_openapi_exposes_normalized_bridge_contract() -> No
             "ownerId",
             "ownerGeneration",
             "bridgeBuildId",
+            "bridgeArtifactSha256",
         }.issubset(bridge["properties"]), name
         assert "generation" not in bridge["properties"], name
 

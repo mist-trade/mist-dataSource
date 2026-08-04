@@ -1434,6 +1434,7 @@ async def test_health_includes_enriched_tdx_state(v1_client: AsyncClient) -> Non
     assert body["wsConnected"] is False
     assert body["bridge"]["ready"] is False
     assert body["bridge"]["ownerGeneration"] == 0
+    assert body["bridge"]["bridgeArtifactSha256"] is None
     assert "tdxRealtimeBridgeReady" not in body
 
 

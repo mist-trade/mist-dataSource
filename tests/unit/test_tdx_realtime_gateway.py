@@ -300,6 +300,7 @@ class TestSubscriptionConvergence:
             assert second["retryAfterMs"] == 500
 
             health = await gateway.health()
+            assert health["bridgeArtifactSha256"] == "h"
             assert health["attemptedRevision"] == rev
             assert health["lastFailureRetryable"] is True
             assert health["reconcileRetryAttempt"] == 2
