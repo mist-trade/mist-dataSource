@@ -518,7 +518,6 @@
           "bridgeBuildId",
           "bridgeArtifactSha256",
           "ownerAgeSeconds",
-          "bridgeArtifactSha256",
           "desiredRevision",
           "convergedRevision",
           "desiredSymbols",
