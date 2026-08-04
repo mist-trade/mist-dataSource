@@ -103,6 +103,7 @@ async def websocket_quote(websocket: WebSocket, client_id: str) -> None:
         return
 
     collector.claim_leader(client_id)
+    await subscription_controller.reconcile_startup()
     ready_data = collector.ready_contract()
     ready_data.update(
         {

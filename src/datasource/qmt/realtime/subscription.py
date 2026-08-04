@@ -12,6 +12,7 @@ import secrets
 import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -31,10 +32,10 @@ MAX_JOURNAL_RECORD_BYTES = 65_536
 MAX_CONTEXT_REBUILD_OBSERVATION_BYTES = 16_384
 MIN_ROTATION_OVERHEAD_BYTES = MAX_JOURNAL_RECORD_BYTES * 2
 DEFAULT_CONTROL_TIMEOUT_SECONDS = 10.0
+DEFAULT_STARTUP_RECONCILIATION_TIMEOUT_SECONDS = 30.0
+MAX_STARTUP_RECOVERY_CANDIDATES = 16
 QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV = "MIST_QMT_UNSUBSCRIBE_SUCCESS_VALUES"
-QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV = (
-    "MIST_QMT_CONTEXT_REBUILD_OBSERVATION_PATH"
-)
+QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV = "MIST_QMT_CONTEXT_REBUILD_OBSERVATION_PATH"
 RFC3339_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d"
     r"(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
@@ -99,6 +100,15 @@ class _NativeSlot:
     future: asyncio.Future[QmtNativeReply]
     created_at: float
     exposed: bool = False
+
+
+@dataclass
+class _StartupRecoveryCandidate:
+    bucket: Literal["whole", "single"]
+    symbol: str | None
+    symbols: tuple[str, ...]
+    sub_id: int
+    attempted: bool = False
 
 
 class QmtSubscriptionRegistry:
@@ -210,13 +220,22 @@ class QmtSubscriptionJournal:
         self.last_compaction_at: str | None = None
         self._checkpoint_sequence = 0
         self._last_record: dict[str, Any] | None = None
-        self._recover_interrupted_rotation()
-        self._recover_interrupted_compaction()
-        self._load_tail()
+        self._replay_records: list[dict[str, Any]] = []
+        try:
+            self._recover_interrupted_rotation()
+            self._recover_interrupted_compaction()
+            self._verify_catalog_and_manifest()
+            self._load_tail()
+        except Exception as exc:
+            self.healthy = False
+            self.last_error = type(exc).__name__ + ": " + str(exc)
+            self._replay_records = []
 
     def append(self, kind: str, detail: Mapping[str, Any]) -> dict[str, Any]:
         with self._lock:
             try:
+                if not self.healthy:
+                    raise QmtSubscriptionJournalError("QMT subscription journal is unhealthy")
                 record = self._build_record(kind, detail)
                 encoded = _encode_record(record)
                 if len(encoded) > MAX_JOURNAL_RECORD_BYTES:
@@ -236,6 +255,7 @@ class QmtSubscriptionJournal:
                 self._record_sequence = cast(int, record["sequence"])
                 self._previous_hash = cast(str, record["hash"])
                 self._last_record = record
+                self._replay_records.append(record)
                 self.healthy = True
                 self.last_error = None
                 return record
@@ -403,9 +423,7 @@ class QmtSubscriptionJournal:
                 _fsync_directory(self.path.parent)
                 return
             if not checkpoint.exists():
-                raise QmtSubscriptionJournalError(
-                    "QMT journal compaction checkpoint is missing"
-                )
+                raise QmtSubscriptionJournalError("QMT journal compaction checkpoint is missing")
             checkpoint_value = cast(
                 dict[str, Any], json.loads(checkpoint.read_text(encoding="utf-8"))
             )
@@ -435,9 +453,7 @@ class QmtSubscriptionJournal:
             ) from exc
 
     def _publish_catalog(self, checkpoint: Path) -> None:
-        checkpoint_value = cast(
-            dict[str, Any], json.loads(checkpoint.read_text(encoding="utf-8"))
-        )
+        checkpoint_value = cast(dict[str, Any], json.loads(checkpoint.read_text(encoding="utf-8")))
         _atomic_json_write(
             self.path.with_name(self.path.name + ".catalog.json"),
             {
@@ -467,12 +483,8 @@ class QmtSubscriptionJournal:
             key=_checkpoint_sort_key,
         )
         prior_sealed_digest = _sha256_file(previous_folds[-1]) if previous_folds else None
-        first = cast(
-            dict[str, Any], json.loads(expired[0].read_text(encoding="utf-8"))
-        )
-        last = cast(
-            dict[str, Any], json.loads(expired[-1].read_text(encoding="utf-8"))
-        )
+        first = cast(dict[str, Any], json.loads(expired[0].read_text(encoding="utf-8")))
+        last = cast(dict[str, Any], json.loads(expired[-1].read_text(encoding="utf-8")))
         fold_path = self.path.with_name(
             self.path.name
             + ".compaction-fold."
@@ -540,6 +552,37 @@ class QmtSubscriptionJournal:
             if item.is_file()
         )
 
+    def _verify_catalog_and_manifest(self) -> None:
+        archives = self._archive_paths()
+        manifest_path = self.path.with_name(self.path.name + ".manifest.json")
+        if archives:
+            if not manifest_path.exists():
+                raise QmtSubscriptionJournalError("QMT subscription journal manifest is missing")
+            manifest_value = cast(
+                dict[str, Any], json.loads(manifest_path.read_text(encoding="utf-8"))
+            )
+            latest_archive = archives[-1]
+            if manifest_value.get("archive") != latest_archive.name or manifest_value.get(
+                "sha256"
+            ) != _sha256_file(latest_archive):
+                raise QmtSubscriptionJournalError("QMT subscription journal manifest mismatch")
+        checkpoint = self._latest_checkpoint()
+        catalog_path = self.path.with_name(self.path.name + ".catalog.json")
+        if checkpoint is not None:
+            if not catalog_path.exists():
+                raise QmtSubscriptionJournalError(
+                    "QMT subscription journal checkpoint catalog is missing"
+                )
+            catalog_value = cast(
+                dict[str, Any], json.loads(catalog_path.read_text(encoding="utf-8"))
+            )
+            if catalog_value.get("latestCheckpoint") != checkpoint.name or catalog_value.get(
+                "latestCheckpointSha256"
+            ) != _sha256_file(checkpoint):
+                raise QmtSubscriptionJournalError(
+                    "QMT subscription journal checkpoint catalog mismatch"
+                )
+
     def _recover_interrupted_rotation(self) -> None:
         rotating = self.path.with_name(self.path.name + ".rotating")
         temporary = self.path.with_name(self.path.name + ".tmp")
@@ -595,6 +638,7 @@ class QmtSubscriptionJournal:
         if not paths:
             return
         try:
+            self._replay_records = []
             checkpoint = self._latest_checkpoint()
             if checkpoint is None:
                 expected_sequence = 1
@@ -639,6 +683,7 @@ class QmtSubscriptionJournal:
                         expected_sequence += 1
                         previous_hash = digest
                         self._last_record = record
+                        self._replay_records.append(record)
             self._record_sequence = expected_sequence - 1
             self._previous_hash = previous_hash
         except Exception as exc:
@@ -667,6 +712,10 @@ class QmtSubscriptionJournal:
     def last_record(self) -> dict[str, Any] | None:
         return dict(self._last_record) if self._last_record is not None else None
 
+    @property
+    def replay_records(self) -> tuple[dict[str, Any], ...]:
+        return tuple(dict(record) for record in self._replay_records)
+
 
 class QmtSubscriptionController:
     """Execute explicit backend control through one loopback native-call slot."""
@@ -679,6 +728,7 @@ class QmtSubscriptionController:
         publisher: Callable[[dict[str, Any]], Awaitable[None] | None],
         unsubscribe_success_values: frozenset[int] = frozenset(),
         timeout_seconds: float = DEFAULT_CONTROL_TIMEOUT_SECONDS,
+        startup_timeout_seconds: float = DEFAULT_STARTUP_RECONCILIATION_TIMEOUT_SECONDS,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.registry = QmtSubscriptionRegistry()
@@ -687,14 +737,28 @@ class QmtSubscriptionController:
         self._publisher = publisher
         self._unsubscribe_success_values = unsubscribe_success_values
         self._timeout_seconds = timeout_seconds
+        self._startup_timeout_seconds = startup_timeout_seconds
         self._clock = clock
         self._mutation_lock = asyncio.Lock()
         self._slot: _NativeSlot | None = None
         self._call_sequence = 0
         self._callback_counts: dict[int, int] = {}
         self._callback_last_seen: dict[int, float] = {}
-        self.reconciliation_required = self.journal.record_sequence > 0
+        self.reconciliation_required = False
         self._control_counts: dict[tuple[str, str, str], int] = {}
+        self._startup_lock = asyncio.Lock()
+        self._startup_phase = "not_started"
+        self._startup_duration_seconds: float | None = None
+        self._startup_unknown_count = 0
+        self._startup_candidates: dict[int, _StartupRecoveryCandidate] = {}
+        self._startup_attempt_totals: dict[str, int] = {
+            "confirmed": 0,
+            "unconfirmed": 0,
+            "timeout": 0,
+            "exception": 0,
+            "durability_failed": 0,
+        }
+        self._restore_startup_state()
 
     async def execute(
         self,
@@ -795,16 +859,12 @@ class QmtSubscriptionController:
         try:
             datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
         except ValueError as exc:
-            raise QmtSubscriptionControlError(
-                "QMT_SNAPSHOT_CAPTURED_AT_INVALID"
-            ) from exc
+            raise QmtSubscriptionControlError("QMT_SNAPSHOT_CAPTURED_AT_INVALID") from exc
         if type(subscription_id) is not int:
             raise QmtSubscriptionControlError("QMT_SNAPSHOT_SUBSCRIPTION_ID_INVALID")
         if any(
             QMT_SYMBOL_PATTERN.fullmatch(str(raw_symbol).strip().upper())
-            and self.registry.owns(
-                subscription_id, str(raw_symbol).strip().upper()
-            )
+            and self.registry.owns(subscription_id, str(raw_symbol).strip().upper())
             for raw_symbol in native
         ):
             self._callback_counts[subscription_id] = (
@@ -846,7 +906,7 @@ class QmtSubscriptionController:
         return {
             "ready": self.journal.healthy and not self.reconciliation_required,
             "journalHealthy": self.journal.healthy,
-            "journalError": self.journal.last_error,
+            "journalErrorReason": _journal_error_reason(self.journal),
             "reconciliationRequired": self.reconciliation_required,
             "retainedRecoveryCount": len(self.registry.retained_recovery),
             "wholeHandleCount": 1 if self.registry.whole is not None else 0,
@@ -861,12 +921,262 @@ class QmtSubscriptionController:
                     "reason": reason,
                     "value": value,
                 }
-                for (operation, result, reason), value in sorted(
-                    self._control_counts.items()
-                )
+                for (operation, result, reason), value in sorted(self._control_counts.items())
             ],
+            "startupReconciliation": {
+                "phase": self._startup_phase,
+                "durationSeconds": self._startup_duration_seconds,
+                "recoverableCount": len(self._startup_candidates),
+                "unknownCount": self._startup_unknown_count,
+                "attemptTotals": dict(self._startup_attempt_totals),
+            },
             "journal": self.journal.health(),
         }
+
+    async def reconcile_startup(self) -> None:
+        """Run one bounded, deterministic cleanup pass before first ready."""
+        async with self._startup_lock:
+            if self._startup_phase in {"completed", "degraded"}:
+                return
+            started = self._clock()
+            self._startup_phase = "running"
+            candidates = sorted(
+                self._startup_candidates.values(),
+                key=lambda item: (
+                    0 if item.bucket == "whole" else 1,
+                    item.symbol or "",
+                    item.sub_id,
+                ),
+            )[:MAX_STARTUP_RECOVERY_CANDIDATES]
+            for candidate in candidates:
+                if candidate.attempted:
+                    continue
+                if self._clock() - started >= self._startup_timeout_seconds:
+                    break
+                await self._attempt_startup_cleanup(candidate)
+            self.reconciliation_required = bool(
+                self._startup_candidates or self._startup_unknown_count
+            )
+            self._startup_phase = "degraded" if self.reconciliation_required else "completed"
+            self._startup_duration_seconds = max(0.0, self._clock() - started)
+
+    def _restore_startup_state(self) -> None:
+        pending: dict[int, dict[str, Any]] = {}
+        candidates: dict[int, _StartupRecoveryCandidate] = {}
+        unknown_count = 0 if self.journal.healthy else 1
+        for record in self.journal.replay_records:
+            kind = record.get("kind")
+            detail_value = record.get("detail")
+            if not isinstance(detail_value, dict):
+                unknown_count += 1
+                continue
+            detail = cast(dict[str, Any], detail_value)
+            if kind == "operator_observation":
+                pending.clear()
+                candidates.clear()
+                unknown_count = 0
+                self.registry = QmtSubscriptionRegistry()
+                continue
+            if kind == "native_intent":
+                call_sequence = detail.get("callSequence")
+                if type(call_sequence) is int and call_sequence > 0:
+                    pending[call_sequence] = detail
+                else:
+                    unknown_count += 1
+                continue
+            if kind == "native_result":
+                call_sequence_value = detail.get("callSequence")
+                if type(call_sequence_value) is not int:
+                    unknown_count += 1
+                    continue
+                call_sequence = call_sequence_value
+                intent = pending.pop(call_sequence, None)
+                if intent is None:
+                    unknown_count += 1
+                    continue
+                method = intent.get("method")
+                success = detail.get("success")
+                if method in {"subscribe_quote", "subscribe_whole_quote"} and type(success) is int:
+                    symbol = intent.get("symbol")
+                    symbols_value = intent.get("symbols", [])
+                    symbol_items = (
+                        cast(list[object], symbols_value) if isinstance(symbols_value, list) else []
+                    )
+                    symbols = (
+                        tuple(cast(list[str], symbols_value))
+                        if symbol_items and all(isinstance(item, str) for item in symbol_items)
+                        else ()
+                    )
+                    candidates[success] = _StartupRecoveryCandidate(
+                        bucket="whole" if method == "subscribe_whole_quote" else "single",
+                        symbol=symbol if isinstance(symbol, str) else None,
+                        symbols=symbols,
+                        sub_id=success,
+                    )
+                elif (
+                    method in {"subscribe_quote", "subscribe_whole_quote"}
+                    and detail.get("failure") is None
+                ):
+                    unknown_count += 1
+                continue
+            if kind == "registry_transition":
+                transition = detail.get("transition")
+                sub_id = detail.get("subId")
+                if type(sub_id) is not int:
+                    unknown_count += 1
+                    continue
+                if transition == "whole_subscribed":
+                    symbols_value = detail.get("symbols")
+                    symbol_items = (
+                        cast(list[object], symbols_value) if isinstance(symbols_value, list) else []
+                    )
+                    if not symbol_items or not all(isinstance(item, str) for item in symbol_items):
+                        unknown_count += 1
+                        continue
+                    symbols = tuple(cast(list[str], symbols_value))
+                    candidate = _StartupRecoveryCandidate(
+                        bucket="whole",
+                        symbol=None,
+                        symbols=symbols,
+                        sub_id=sub_id,
+                    )
+                    candidates[sub_id] = candidate
+                    self.registry.whole = QmtWholeSubscription(sub_id, symbols)
+                elif transition == "single_subscribed":
+                    symbol = detail.get("symbol")
+                    if not isinstance(symbol, str):
+                        unknown_count += 1
+                        continue
+                    candidate = _StartupRecoveryCandidate(
+                        bucket="single",
+                        symbol=symbol,
+                        symbols=(),
+                        sub_id=sub_id,
+                    )
+                    candidates[sub_id] = candidate
+                    self.registry.singles[symbol] = sub_id
+                elif transition == "unsubscribed":
+                    self._resolve_replayed_candidate(candidates, sub_id)
+                continue
+            if kind == "retained_recovery":
+                candidate = _candidate_from_detail(detail)
+                if candidate is None:
+                    unknown_count += 1
+                else:
+                    candidates[candidate.sub_id] = candidate
+                    self.registry.retained_recovery.add(
+                        (candidate.bucket, candidate.symbol, candidate.sub_id)
+                    )
+                continue
+            if kind == "startup_recovery_intent":
+                sub_id = detail.get("subId")
+                if type(sub_id) is int and sub_id in candidates:
+                    candidates[sub_id].attempted = True
+                else:
+                    unknown_count += 1
+                continue
+            if kind == "startup_recovery_terminal":
+                sub_id = detail.get("subId")
+                if type(sub_id) is int and detail.get("confirmed") is True:
+                    self._resolve_replayed_candidate(candidates, sub_id)
+                continue
+            if kind in {"startup_recovery_result", "rotation_anchor"}:
+                continue
+            unknown_count += 1
+        for intent in pending.values():
+            sub_id = intent.get("subId")
+            if (
+                intent.get("method") == "unsubscribe_quote"
+                and type(sub_id) is int
+                and sub_id in candidates
+            ):
+                candidates[sub_id].attempted = True
+            unknown_count += 1
+        self._startup_candidates = candidates
+        self._startup_unknown_count = unknown_count
+        self.reconciliation_required = bool(candidates or unknown_count)
+
+    def _resolve_replayed_candidate(
+        self,
+        candidates: dict[int, _StartupRecoveryCandidate],
+        sub_id: int,
+    ) -> None:
+        candidate = candidates.pop(sub_id, None)
+        if candidate is None:
+            return
+        if candidate.bucket == "whole" and self.registry.whole is not None:
+            if self.registry.whole.sub_id == sub_id:
+                self.registry.whole = None
+        elif candidate.symbol is not None and self.registry.singles.get(candidate.symbol) == sub_id:
+            self.registry.singles.pop(candidate.symbol, None)
+        self.registry.retained_recovery.discard(
+            (candidate.bucket, candidate.symbol, candidate.sub_id)
+        )
+
+    async def _attempt_startup_cleanup(self, candidate: _StartupRecoveryCandidate) -> None:
+        intent = {
+            "bucket": candidate.bucket,
+            "symbol": candidate.symbol,
+            "subId": candidate.sub_id,
+        }
+        try:
+            self.journal.append("startup_recovery_intent", intent)
+        except QmtSubscriptionJournalError:
+            candidate.attempted = True
+            self._startup_attempt_totals["durability_failed"] += 1
+            self._startup_unknown_count += 1
+            return
+        candidate.attempted = True
+        outcome = "exception"
+        confirmed = False
+        try:
+            reply, durable = await self._native_call(
+                "unsubscribe_quote",
+                {"subId": candidate.sub_id, "symbol": candidate.symbol},
+            )
+            confirmed = (
+                durable
+                and reply.failure is None
+                and reply.success_present
+                and type(reply.success) is bool
+                and reply.success is True
+            )
+            outcome = "confirmed" if confirmed else "unconfirmed"
+        except QmtSubscriptionControlError as exc:
+            outcome = "timeout" if exc.reason == "QMT_SUBSCRIPTION_CALL_TIMEOUT" else "exception"
+        except Exception:
+            outcome = "exception"
+        try:
+            self.journal.append(
+                "startup_recovery_result",
+                {**intent, "outcome": outcome, "confirmed": confirmed},
+            )
+            if confirmed:
+                transition_durable = self._append_transition(
+                    "unsubscribed",
+                    {**intent, "confirmedBy": "startup_boolean_true"},
+                )
+                if transition_durable:
+                    self._resolve_replayed_candidate(self._startup_candidates, candidate.sub_id)
+                    self.journal.append(
+                        "startup_recovery_terminal",
+                        {**intent, "confirmed": True},
+                    )
+                else:
+                    confirmed = False
+                    outcome = "durability_failed"
+                    self._startup_unknown_count += 1
+        except QmtSubscriptionJournalError:
+            confirmed = False
+            outcome = "durability_failed"
+            self._startup_unknown_count += 1
+        self._startup_attempt_totals[outcome] += 1
+
+    def _clear_startup_recovery_state(self) -> None:
+        self._startup_candidates.clear()
+        self._startup_unknown_count = 0
+        self._startup_phase = "completed"
+        self.reconciliation_required = False
 
     def observe_rebuilt_context(
         self,
@@ -883,9 +1193,7 @@ class QmtSubscriptionController:
             else affected_journal_sequence
         )
         if affected_sequence != self.journal.record_sequence:
-            raise QmtSubscriptionJournalError(
-                "QMT context rebuild observation is stale"
-            )
+            raise QmtSubscriptionJournalError("QMT context rebuild observation is stale")
         if not re.fullmatch(r"[0-9a-f]{64}", operator_evidence_digest):
             raise QmtSubscriptionJournalError(
                 "QMT context rebuild evidence digest must be lowercase SHA-256"
@@ -906,16 +1214,14 @@ class QmtSubscriptionController:
             },
         )
         self.registry = QmtSubscriptionRegistry()
-        self.reconciliation_required = False
+        self._clear_startup_recovery_state()
 
     def consume_rebuilt_context_observation(self, path: str | Path) -> None:
         """Consume one protected one-shot recovery observation before serving."""
         observation_path = Path(path)
         processing_path = observation_path.with_name(observation_path.name + ".processing")
         if observation_path.exists() and processing_path.exists():
-            raise QmtSubscriptionJournalError(
-                "ambiguous QMT context rebuild observation state"
-            )
+            raise QmtSubscriptionJournalError("ambiguous QMT context rebuild observation state")
         if observation_path.exists():
             if observation_path.stat().st_size > MAX_CONTEXT_REBUILD_OBSERVATION_BYTES:
                 raise QmtSubscriptionJournalError(
@@ -992,7 +1298,7 @@ class QmtSubscriptionController:
                 )
             else:
                 self.registry = QmtSubscriptionRegistry()
-                self.reconciliation_required = False
+                self._clear_startup_recovery_state()
             processing_path.unlink()
             _fsync_directory(processing_path.parent)
         except QmtSubscriptionJournalError:
@@ -1126,11 +1432,7 @@ class QmtSubscriptionController:
                 subscription_state="unknown",
             )
         confirmed_by: str | None = None
-        if (
-            reply.success_present
-            and type(reply.success) is bool
-            and reply.success is True
-        ):
+        if reply.success_present and type(reply.success) is bool and reply.success is True:
             confirmed_by = "hil_boolean_true"
         elif (
             reply.success_present
@@ -1256,6 +1558,44 @@ class QmtSubscriptionController:
     ) -> None:
         self.registry.retained_recovery.add((bucket, symbol, sub_id))
         self.reconciliation_required = True
+        with suppress(QmtSubscriptionJournalError):
+            self.journal.append(
+                "retained_recovery",
+                {"bucket": bucket, "symbol": symbol, "subId": sub_id},
+            )
+
+
+def _candidate_from_detail(
+    detail: Mapping[str, Any],
+) -> _StartupRecoveryCandidate | None:
+    bucket = detail.get("bucket")
+    symbol = detail.get("symbol")
+    sub_id = detail.get("subId")
+    if (
+        bucket not in {"whole", "single"}
+        or (symbol is not None and not isinstance(symbol, str))
+        or type(sub_id) is not int
+    ):
+        return None
+    return _StartupRecoveryCandidate(
+        bucket=cast(Literal["whole", "single"], bucket),
+        symbol=symbol,
+        symbols=(),
+        sub_id=sub_id,
+    )
+
+
+def _journal_error_reason(journal: QmtSubscriptionJournal) -> str:
+    if journal.healthy:
+        return "none"
+    value = (journal.last_error or "").lower()
+    if any(token in value for token in ("hash", "checksum", "manifest", "catalog")):
+        return "integrity"
+    if "maintenance" in value or "compaction" in value or "rotating" in value:
+        return "maintenance"
+    if "byte limit" in value or "bounded size" in value:
+        return "capacity"
+    return "unavailable"
 
 
 def _response_type(request_type: str) -> ControlResponseType:
@@ -1330,14 +1670,12 @@ def configured_qmt_unsubscribe_success_values() -> frozenset[int]:
         value = item.strip()
         if not value or value in {"+", "-"}:
             raise ValueError(
-                QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV
-                + " must be a comma-separated exact integer set"
+                QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV + " must be a comma-separated exact integer set"
             )
         unsigned = value[1:] if value[0] in {"+", "-"} else value
         if not unsigned.isdigit():
             raise ValueError(
-                QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV
-                + " must be a comma-separated exact integer set"
+                QMT_UNSUBSCRIBE_SUCCESS_VALUES_ENV + " must be a comma-separated exact integer set"
             )
         values.add(int(value))
     return frozenset(values)
@@ -1468,7 +1806,11 @@ def _resolved_archive_prefix(archives: Sequence[Path]) -> list[Path]:
                     pending[sequence] = detail
             elif kind == "native_result":
                 sequence = detail.get("callSequence")
-                sequence_int = sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else None
+                sequence_int = (
+                    sequence
+                    if isinstance(sequence, int) and not isinstance(sequence, bool)
+                    else None
+                )
                 intent = pending.pop(sequence_int, None) if sequence_int is not None else None
                 if (
                     intent is not None

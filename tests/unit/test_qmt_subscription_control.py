@@ -161,9 +161,7 @@ async def test_true_unsubscribe_is_confirmed_directly(
     controller, _ = _controller(tmp_path)
     controller.registry.singles = {"300502.SZ": 123}
 
-    task = asyncio.create_task(
-        controller.execute("unsubscribe", symbol="300502.SZ")
-    )
+    task = asyncio.create_task(controller.execute("unsubscribe", symbol="300502.SZ"))
     await _wait_for_slot(controller)
     command = controller.poll_command("owner", "token", 1)
     assert command is not None
@@ -188,9 +186,7 @@ async def test_false_unsubscribe_remains_unconfirmed(
     controller, _ = _controller(tmp_path)
     controller.registry.singles = {"300502.SZ": 123}
 
-    task = asyncio.create_task(
-        controller.execute("unsubscribe", symbol="300502.SZ")
-    )
+    task = asyncio.create_task(controller.execute("unsubscribe", symbol="300502.SZ"))
     await _wait_for_slot(controller)
     command = controller.poll_command("owner", "token", 1)
     assert command is not None
@@ -381,9 +377,7 @@ async def test_subscribe_durability_failure_retains_id_and_blocks_mutation(
     )
     assert snapshot == {
         "accepted": [],
-        "rejected": [
-            {"symbol": "300502.SZ", "reason": "QMT_SNAPSHOT_NON_MEMBER"}
-        ],
+        "rejected": [{"symbol": "300502.SZ", "reason": "QMT_SNAPSHOT_NON_MEMBER"}],
     }
     assert published == []
     assert await controller.execute("subscribe", symbol="600030.SH") == (
@@ -553,13 +547,14 @@ def test_journal_rotation_is_reloadable_and_archive_tamper_fails_closed(
 
     archive = archives[0]
     archive.write_bytes(archive.read_bytes() + b" ")
-    with pytest.raises(QmtSubscriptionJournalError):
-        QmtSubscriptionJournal(
-            path=path,
-            rotate_bytes=131_072,
-            archive_max_bytes=524_288,
-            resolved_retention_days=90,
-        )
+    degraded = QmtSubscriptionJournal(
+        path=path,
+        rotate_bytes=131_072,
+        archive_max_bytes=524_288,
+        resolved_retention_days=90,
+    )
+    assert degraded.healthy is False
+    assert "mismatch" in str(degraded.last_error)
 
 
 @pytest.mark.parametrize(
@@ -593,10 +588,7 @@ def test_journal_recovers_each_interrupted_rotation_publish_boundary(
 
     def interrupted_replace(source: Path, target: Path) -> None:
         original_replace(source, target)
-        if (
-            boundary == "active_to_rotating"
-            and target.name == "journal.jsonl.rotating"
-        ) or (
+        if (boundary == "active_to_rotating" and target.name == "journal.jsonl.rotating") or (
             boundary == "rotating_to_archive"
             and target.name.endswith(".jsonl")
             and target.name != "journal.jsonl"
@@ -605,9 +597,7 @@ def test_journal_recovers_each_interrupted_rotation_publish_boundary(
 
     def interrupted_json_write(path_value: Path, value: dict[str, Any]) -> None:
         original_json_write(path_value, value)
-        if boundary == "manifest_published" and path_value.name.endswith(
-            ".manifest.json"
-        ):
+        if boundary == "manifest_published" and path_value.name.endswith(".manifest.json"):
             raise OSError("injected rotation interruption")
 
     def interrupted_bytes_write(path_value: Path, value: bytes) -> None:
@@ -712,9 +702,7 @@ def test_journal_compacts_only_resolved_lifecycle_prefix_and_reloads(
             "subId": 123,
             "symbol": "300502.SZ",
             "terminal": "unsubscribed",
-            "terminalArchiveSha256": checkpoint["resolvedLifecycles"][0][
-                "terminalArchiveSha256"
-            ],
+            "terminalArchiveSha256": checkpoint["resolvedLifecycles"][0]["terminalArchiveSha256"],
             "terminalRecordHash": checkpoint["resolvedLifecycles"][0]["terminalRecordHash"],
         }
     ]
@@ -801,19 +789,18 @@ def test_journal_recovers_each_interrupted_compaction_publish_boundary(
         nonlocal failed
         original_json_write(path_value, value)
         is_target = (
-            boundary == "prepared"
-            and path_value.name.endswith(".maintenance.json")
-            and value.get("phase") == "prepared"
-        ) or (
-            boundary == "checkpoint"
-            and ".compaction-checkpoint." in path_value.name
-        ) or (
-            boundary == "checkpoint_published"
-            and path_value.name.endswith(".maintenance.json")
-            and value.get("phase") == "checkpoint_published"
-        ) or (
-            boundary == "catalog_published"
-            and path_value.name.endswith(".catalog.json")
+            (
+                boundary == "prepared"
+                and path_value.name.endswith(".maintenance.json")
+                and value.get("phase") == "prepared"
+            )
+            or (boundary == "checkpoint" and ".compaction-checkpoint." in path_value.name)
+            or (
+                boundary == "checkpoint_published"
+                and path_value.name.endswith(".maintenance.json")
+                and value.get("phase") == "checkpoint_published"
+            )
+            or (boundary == "catalog_published" and path_value.name.endswith(".catalog.json"))
         )
         if is_target and not failed:
             failed = True
@@ -948,6 +935,323 @@ async def test_restart_requires_durable_operator_context_rebuild_observation(
     )
 
 
+@pytest.mark.asyncio
+async def test_startup_replay_cleans_complete_open_handle_once_before_ready(
+    tmp_path: Path,
+) -> None:
+    journal = _journal(tmp_path)
+    journal.append(
+        "native_intent",
+        {
+            "callSequence": 1,
+            "method": "subscribe_whole_quote",
+            "symbols": ["300502.SZ", "600030.SH"],
+        },
+    )
+    journal.append(
+        "native_result",
+        {
+            "callSequence": 1,
+            "method": "subscribe_whole_quote",
+            "successPresent": True,
+            "success": 41,
+            "failure": None,
+        },
+    )
+    journal.append(
+        "registry_transition",
+        {
+            "transition": "whole_subscribed",
+            "symbols": ["300502.SZ", "600030.SH"],
+            "subId": 41,
+        },
+    )
+    controller = QmtSubscriptionController(
+        journal=_journal(tmp_path),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+        timeout_seconds=1.0,
+    )
+    assert controller.registry.public_value() == {
+        "whole": {"subId": 41, "symbols": ["300502.SZ", "600030.SH"]},
+        "singles": {},
+    }
+
+    cleanup = asyncio.create_task(controller.reconcile_startup())
+    await _wait_for_slot(controller)
+    command = controller.poll_command("owner", "lease", 1)
+    assert command == {
+        "callSequence": 1,
+        "method": "unsubscribe_quote",
+        "subId": 41,
+        "symbol": None,
+    }
+    controller.post_result(
+        "owner",
+        "lease",
+        1,
+        1,
+        QmtNativeReply(success_present=True, success=True, failure=None),
+    )
+    await cleanup
+
+    assert controller.registry.public_value() == {"whole": None, "singles": {}}
+    assert controller.health()["reconciliationRequired"] is False
+    assert controller.health()["startupReconciliation"] == {
+        "phase": "completed",
+        "durationSeconds": pytest.approx(
+            controller.health()["startupReconciliation"]["durationSeconds"]
+        ),
+        "recoverableCount": 0,
+        "unknownCount": 0,
+        "attemptTotals": {
+            "confirmed": 1,
+            "unconfirmed": 0,
+            "timeout": 0,
+            "exception": 0,
+            "durability_failed": 0,
+        },
+    }
+
+    restarted = QmtSubscriptionController(
+        journal=_journal(tmp_path),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+        timeout_seconds=0.01,
+    )
+    await restarted.reconcile_startup()
+    assert restarted.health()["inFlight"] is False
+    assert restarted.health()["startupReconciliation"]["attemptTotals"]["confirmed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_startup_cleanup_continues_after_false_and_keeps_replacement_blocked(
+    tmp_path: Path,
+) -> None:
+    journal = _journal(tmp_path)
+    for call_sequence, symbol, sub_id in [
+        (1, "300502.SZ", 51),
+        (2, "600030.SH", 52),
+    ]:
+        journal.append(
+            "native_intent",
+            {
+                "callSequence": call_sequence,
+                "method": "subscribe_quote",
+                "symbol": symbol,
+            },
+        )
+        journal.append(
+            "native_result",
+            {
+                "callSequence": call_sequence,
+                "method": "subscribe_quote",
+                "successPresent": True,
+                "success": sub_id,
+                "failure": None,
+            },
+        )
+        journal.append(
+            "registry_transition",
+            {
+                "transition": "single_subscribed",
+                "symbol": symbol,
+                "subId": sub_id,
+            },
+        )
+    controller = QmtSubscriptionController(
+        journal=_journal(tmp_path),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+        timeout_seconds=1.0,
+    )
+
+    cleanup = asyncio.create_task(controller.reconcile_startup())
+    await _wait_for_slot(controller)
+    first = controller.poll_command("owner", "lease", 1)
+    assert first is not None and first["subId"] == 51
+    controller.post_result(
+        "owner",
+        "lease",
+        1,
+        first["callSequence"],
+        QmtNativeReply(success_present=True, success=False, failure=None),
+    )
+    for _ in range(100):
+        await asyncio.sleep(0)
+        second = controller.poll_command("owner", "lease", 1)
+        if second is not None:
+            break
+    else:
+        raise AssertionError("second startup cleanup command was not exposed")
+    assert second["subId"] == 52
+    controller.post_result(
+        "owner",
+        "lease",
+        1,
+        second["callSequence"],
+        QmtNativeReply(success_present=True, success=True, failure=None),
+    )
+    await cleanup
+
+    health = controller.health()
+    assert health["startupReconciliation"]["phase"] == "degraded"
+    assert health["startupReconciliation"]["recoverableCount"] == 1
+    assert health["startupReconciliation"]["attemptTotals"] == {
+        "confirmed": 1,
+        "unconfirmed": 1,
+        "timeout": 0,
+        "exception": 0,
+        "durability_failed": 0,
+    }
+    assert await controller.execute("sync_subscriptions", symbols=[]) == (
+        "subscriptions_synced",
+        {
+            "failure": {
+                "symbol": None,
+                "reason": "QMT_JOURNAL_RECONCILIATION_REQUIRED",
+            }
+        },
+    )
+
+
+def test_startup_replay_classifies_untransitioned_retained_and_idless_evidence(
+    tmp_path: Path,
+) -> None:
+    journal = _journal(tmp_path)
+    journal.append(
+        "native_intent",
+        {"callSequence": 1, "method": "subscribe_quote", "symbol": "300502.SZ"},
+    )
+    journal.append(
+        "native_result",
+        {
+            "callSequence": 1,
+            "method": "subscribe_quote",
+            "successPresent": True,
+            "success": 61,
+            "failure": None,
+        },
+    )
+    journal.append(
+        "retained_recovery",
+        {"bucket": "single", "symbol": "600030.SH", "subId": 62},
+    )
+    journal.append(
+        "native_intent",
+        {"callSequence": 2, "method": "subscribe_quote", "symbol": "000001.SZ"},
+    )
+    journal.append(
+        "native_result",
+        {
+            "callSequence": 2,
+            "method": "subscribe_quote",
+            "successPresent": True,
+            "success": None,
+            "failure": None,
+        },
+    )
+
+    controller = QmtSubscriptionController(
+        journal=_journal(tmp_path),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+    )
+
+    assert controller.registry.public_value() == {"whole": None, "singles": {}}
+    assert controller.registry.retained_recovery == {("single", "600030.SH", 62)}
+    assert controller.health()["startupReconciliation"] == {
+        "phase": "not_started",
+        "durationSeconds": None,
+        "recoverableCount": 2,
+        "unknownCount": 1,
+        "attemptTotals": {
+            "confirmed": 0,
+            "unconfirmed": 0,
+            "timeout": 0,
+            "exception": 0,
+            "durability_failed": 0,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_startup_timeout_rejects_late_result_and_continues_next_id(
+    tmp_path: Path,
+) -> None:
+    journal = _journal(tmp_path)
+    for call_sequence, symbol, sub_id in [
+        (1, "300502.SZ", 71),
+        (2, "600030.SH", 72),
+    ]:
+        journal.append(
+            "native_intent",
+            {
+                "callSequence": call_sequence,
+                "method": "subscribe_quote",
+                "symbol": symbol,
+            },
+        )
+        journal.append(
+            "native_result",
+            {
+                "callSequence": call_sequence,
+                "method": "subscribe_quote",
+                "successPresent": True,
+                "success": sub_id,
+                "failure": None,
+            },
+        )
+        journal.append(
+            "registry_transition",
+            {
+                "transition": "single_subscribed",
+                "symbol": symbol,
+                "subId": sub_id,
+            },
+        )
+    controller = QmtSubscriptionController(
+        journal=_journal(tmp_path),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=lambda _frame: None,
+        timeout_seconds=0.01,
+    )
+
+    cleanup = asyncio.create_task(controller.reconcile_startup())
+    await _wait_for_slot(controller)
+    first = controller.poll_command("owner", "lease", 1)
+    assert first is not None and first["subId"] == 71
+    for _ in range(500):
+        await asyncio.sleep(0.001)
+        second = controller.poll_command("owner", "lease", 1)
+        if second is not None:
+            break
+    else:
+        raise AssertionError("cleanup did not continue after timeout")
+    assert second["subId"] == 72
+    with pytest.raises(QmtSubscriptionSequenceError):
+        controller.post_result(
+            "owner",
+            "lease",
+            1,
+            first["callSequence"],
+            QmtNativeReply(success_present=True, success=True, failure=None),
+        )
+    controller.post_result(
+        "owner",
+        "lease",
+        1,
+        second["callSequence"],
+        QmtNativeReply(success_present=True, success=True, failure=None),
+    )
+    await cleanup
+
+    totals = controller.health()["startupReconciliation"]["attemptTotals"]
+    assert totals["timeout"] == 1
+    assert totals["confirmed"] == 1
+    assert controller.health()["reconciliationRequired"] is True
+
+
 def test_consumes_one_shot_context_rebuild_observation(tmp_path: Path) -> None:
     journal = _journal(tmp_path)
     journal.append("subscribe_result", {"subId": 123})
@@ -1054,9 +1358,7 @@ def test_finishes_consuming_already_durable_context_observation(tmp_path: Path) 
         publisher=lambda _frame: None,
     )
 
-    restarted.consume_rebuilt_context_observation(
-        tmp_path / "context-rebuild-observation.json"
-    )
+    restarted.consume_rebuilt_context_observation(tmp_path / "context-rebuild-observation.json")
 
     assert restarted.health()["reconciliationRequired"] is False
     assert not processing.exists()
