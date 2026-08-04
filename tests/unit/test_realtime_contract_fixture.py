@@ -28,4 +28,14 @@ def test_realtime_contract_fixture_sha_and_shape() -> None:
         fixture["cases"]["qmtOneEntry"]["data"]["native"]["300502.SZ"]["lastPrice"]
         == 541.2
     )
+    tdx_native = fixture["cases"]["tdxOneEntry"]["data"]["native"]["600030.SH"]
+    qmt_native = fixture["cases"]["qmtOneEntry"]["data"]["native"]["300502.SZ"]
+    assert isinstance(tdx_native["Volume"], str)
+    assert isinstance(tdx_native["Amount"], str)
+    assert isinstance(qmt_native["volume"], int) and not isinstance(
+        qmt_native["volume"], bool
+    )
+    assert isinstance(qmt_native["amount"], int | float) and not isinstance(
+        qmt_native["amount"], bool
+    )
     assert len(fixture["cases"]["qmtMultiEntry"]["data"]["native"]) == 2

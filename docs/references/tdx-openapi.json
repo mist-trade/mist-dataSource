@@ -235,6 +235,7 @@
           },
           "native": {
             "additionalProperties": true,
+            "description": "Complete provider-native TDX snapshot. When present, exact Volume and Amount keys must contain unsigned ASCII decimal strings with scale <= 8.",
             "title": "Native",
             "type": "object"
           },
@@ -515,8 +516,8 @@
           "ownerId",
           "ownerGeneration",
           "bridgeBuildId",
-          "ownerAgeSeconds",
           "bridgeArtifactSha256",
+          "ownerAgeSeconds",
           "desiredRevision",
           "convergedRevision",
           "desiredSymbols",

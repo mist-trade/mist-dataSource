@@ -304,6 +304,7 @@ class TestSubscriptionConvergence:
             assert health["attemptedRevision"] == rev
             assert health["lastFailureRetryable"] is True
             assert health["reconcileRetryAttempt"] == 2
+            assert health["bridgeArtifactSha256"] == "h"
 
         async_loop.run_until_complete(run())
 
