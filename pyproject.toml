@@ -21,6 +21,7 @@ dev = [
     # Testing
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
     # Code quality
     "ruff>=0.8.0",
     "pyright>=1.1.411",
@@ -54,6 +55,36 @@ typeCheckingMode = "strict"
 include = ["src", "tdx", "qmt", "scripts"]
 exclude = ["tests", "qmt/builtin_bridge", "tdx/builtin_bridge", "tools/qmt_runtime_probe"]
 
+# Coverage (ratchet gate). Baseline anchored to the measured value; raise via
+# scripts/coverage-baseline.sh. Builtin bridges are non-importable scripts
+# covered by dedicated exec-harness tests, so they are omitted here.
+[tool.coverage.run]
+source = ["src", "tdx", "qmt"]
+branch = true
+omit = [
+    "*/builtin_bridge/*",
+    "*/main.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+# Ratchet baseline. coverage.py rounds the measured percentage to an integer
+# before comparing, so the threshold is an integer below the measured 85.75%
+# (avoids the round-to-86 ambiguity). CI enforces it explicitly via
+# `--cov-fail-under` on the command line (see ci.yml) because pytest-cov does
+# not reliably exit non-zero when --cov-fail-under is set in addopts (#728).
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Coverage measurement flags only; the fail-under gate is passed explicitly in
+# CI (ci.yml) to avoid the addopts cov-fail-under exit-code bug (pytest-cov #728).
+addopts = "--cov=src --cov=tdx --cov=qmt --cov-branch --cov-report=term-missing:skip-covered --cov-report=json:coverage-summary.json"
