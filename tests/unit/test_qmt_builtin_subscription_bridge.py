@@ -202,6 +202,32 @@ def test_callback_drops_only_unsafe_entry_and_contains_queue_overflow() -> None:
     assert item["native"] == {"300502.SZ": {"lastPrice": 10.5}}
 
 
+def test_history_json_safe_normalizes_non_finite_floats_to_none() -> None:
+    namespace = _bridge_namespace()
+    safe = namespace["_history_json_safe"]
+
+    # Terminal returns NaN for a measure that has no meaning on this bar (e.g.
+    # settle on a stock daily bar). It must normalize to None so the gateway's
+    # allow_nan=False serializer accepts the whole command result.
+    normalized = safe(
+        {
+            "600519.SH": {
+                "close": {"20260723": 1292.01},
+                "settle": {"20260723": float("nan")},
+                "volume": {"20260723": 42474},
+            }
+        }
+    )
+    assert normalized["600519.SH"]["settle"] == {"20260723": None}
+    assert normalized["600519.SH"]["close"] == {"20260723": 1292.01}
+
+    assert safe(float("nan")) is None
+    assert safe(float("inf")) is None
+    assert safe(float("-inf")) is None
+    assert safe(1292.01) == 1292.01
+    assert safe({"nested": [float("nan"), 1.5]}) == {"nested": [None, 1.5]}
+
+
 def test_bridge_contains_missing_method_exception_and_unknown_command_fields() -> None:
     namespace = _bridge_namespace()
 

@@ -9,6 +9,7 @@ callbacks and are drained by the scheduled QMT runtime function.
 import datetime
 import hashlib
 import json
+import math
 import os
 import queue
 import time
@@ -767,6 +768,14 @@ def _history_json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         sequence = cast(Any, value)
         return [_history_json_safe(item) for item in sequence]
+    if isinstance(value, float):
+        # NaN/Infinity from the terminal (e.g. settle on a stock daily bar) must
+        # not cross the wire as a non-finite float; the gateway stores results
+        # with allow_nan=False and would reject the whole command. Missing
+        # measures normalize to None (never zero) at the provider boundary.
+        if not math.isfinite(value):
+            return None
+        return value
     try:
         json.dumps(value)
         return value
