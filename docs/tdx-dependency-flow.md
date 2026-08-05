@@ -23,9 +23,10 @@ TDX terminal strategy (builtin script)
 ```
 
 终端脚本是唯一 native SDK owner，使用 `subscribe_hq` 和官方
-`get_market_snapshot`，每秒通过 loopback HTTP 获取完整 desired subscription set，
-并回传 native snapshot。Datasource 在 HTTP 边界验证一次，再广播稳定 frame；backend
-在 WebSocket 边界验证一次，不重复重建 native object。
+`get_market_snapshot`，每 3 秒（`POLL_INTERVAL_SECONDS`）通过 loopback HTTP 获取
+完整 desired subscription set，并回传 native snapshot。Datasource 在 HTTP 边界验证
+一次，再广播稳定 frame；backend 在 WebSocket 边界验证一次，不重复重建 native
+object。
 
 ## 已删除边界
 
@@ -38,4 +39,4 @@ TDX terminal strategy (builtin script)
 
 产品 HTTP 调用使用 `/v1/*`，实时 consumer 使用 builtin realtime WebSocket。当前
 datasource 实现位于 `src/datasource/tdx/provider.py` 与
-`src/datasource/tdx/realtime/{runtime.py,contract.py}`，和 QMT 的同职责结构对齐。
+`src/datasource/tdx/realtime/{gateway.py,contract.py}`。

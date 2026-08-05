@@ -64,6 +64,7 @@ Python 3.6 不支持的语法。
 - `GET /health`
 - `POST /v1/bars/query`，返回 native `data.marketData`
 - `POST /qmt/bridge/owner|commands|poll|result`
+- `POST /qmt/bridge/subscriptions/poll|result|snapshot`（loopback）
 - `GET /qmt/bridge/commands/{command_id}|health`
 - QMT realtime 启用时：`GET /qmt/realtime/health` 与
   `WS /ws/realtime/qmt/{client_id}`
