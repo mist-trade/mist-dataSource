@@ -1,5 +1,6 @@
 """Full-QMT command bridge routes."""
 
+import math
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -135,6 +136,30 @@ def _require_loopback(request: Request) -> None:
         raise HTTPException(status_code=403, detail="QMT subscription bridge is loopback-only")
 
 
+def _normalize_non_finite(value: Any) -> Any:
+    """Normalize non-finite floats (NaN/Infinity) to None at the bridge boundary.
+
+    Terminal get_market_data_ex results can contain NaN for measures with no
+    meaning on a given bar (e.g. settle on a stock daily bar). The command
+    gateway stores results with allow_nan=False and would reject the whole
+    command as QMT_COMMAND_RESULT_INVALID. Missing measures normalize to None
+    (never zero); backend consumers already treat null extension fields as
+    absent.
+    """
+    if isinstance(value, float):
+        return None if not math.isfinite(value) else value
+    if isinstance(value, dict):
+        items = cast(dict[Any, Any], value)
+        return {
+            key: _normalize_non_finite(item)
+            for key, item in items.items()
+        }
+    if isinstance(value, (list, tuple)):
+        items = cast(list[Any], value)
+        return [_normalize_non_finite(item) for item in items]
+    return value
+
+
 @router.post("/commands")
 async def enqueue_command(payload: CommandRequest, request: Request) -> dict[str, Any]:
     gateway = get_gateway(request)
@@ -243,7 +268,7 @@ async def post_result(payload: ResultRequest, request: Request) -> dict[str, Any
             lease_token=payload.lease_token,
             generation=payload.generation,
             ok=payload.ok,
-            result=payload.result,
+            result=_normalize_non_finite(payload.result),
             error=payload.error,
         )
     except QmtBridgeOwnershipError as exc:

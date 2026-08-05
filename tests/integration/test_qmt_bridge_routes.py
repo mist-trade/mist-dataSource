@@ -1,6 +1,7 @@
 """Integration tests for the full-QMT HTTP polling command bridge route surface."""
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,63 @@ async def test_qmt_bridge_owner_poll_and_result_flow(qmt_client):
     assert poll_response.json()["commands"][0]["commandId"] == command.command_id
     assert result_response.status_code == 200
     assert gateway.result_for(command.command_id).result == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_qmt_bridge_result_normalizes_non_finite_floats(qmt_client):
+    """Terminal NaN (e.g. settle on a stock daily bar) must not reject the
+    whole command result; the bridge boundary normalizes it to None."""
+    gateway = QmtCommandGateway()
+    qmt.main.app.state.qmt_command_gateway = gateway
+    command = gateway.enqueue("get_market_data_ex", {})
+
+    owner_response = await qmt_client.post(
+        "/qmt/bridge/owner",
+        json={
+            "ownerId": "bridge-a",
+            "startedAt": "2026-07-04T10:00:00+08:00",
+            "bridgeBuildId": "test-bridge-v1",
+            "bridgeArtifactSha256": "a" * 64,
+        },
+    )
+    identity = owner_response.json()
+    poll_response = await qmt_client.post(
+        "/qmt/bridge/poll",
+        json={
+            "ownerId": "bridge-a",
+            "leaseToken": identity["leaseToken"],
+            "generation": identity["generation"],
+            "limit": 1,
+        },
+    )
+    assert poll_response.json()["commands"][0]["commandId"] == command.command_id
+    result_response = await qmt_client.post(
+        "/qmt/bridge/result",
+        content=json.dumps(
+            {
+                "ownerId": "bridge-a",
+                "leaseToken": identity["leaseToken"],
+                "generation": identity["generation"],
+                "commandId": command.command_id,
+                "ok": True,
+                "result": {
+                    "marketData": {
+                        "600519.SH": {
+                            "settle": {"20260723": float("nan")},
+                            "close": {"20260723": 1292.01},
+                        }
+                    }
+                },
+            },
+            allow_nan=True,
+        ),
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert result_response.status_code == 200
+    stored = gateway.result_for(command.command_id).result
+    assert stored["marketData"]["600519.SH"]["settle"] == {"20260723": None}
+    assert stored["marketData"]["600519.SH"]["close"] == {"20260723": 1292.01}
 
 
 @pytest.mark.asyncio
