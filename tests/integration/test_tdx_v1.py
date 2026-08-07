@@ -566,15 +566,12 @@ class RaisingCloseProvider:
 async def v1_client() -> AsyncClient:
 
     previous_provider = app.state.tdx_provider
-    previous_state_provider = getattr(app.state, "tdx_provider", None)
     app.state.tdx_provider = FakeTdxProvider()
-    app.state.tdx_provider = app.state.tdx_provider
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
     finally:
         app.state.tdx_provider = previous_provider
-        app.state.tdx_provider = previous_state_provider
 
 
 def test_v1_provider_lookup_reads_request_app_state() -> None:

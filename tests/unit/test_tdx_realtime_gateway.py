@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 
 import pytest
 
@@ -40,8 +41,10 @@ def gateway() -> TdxRealtimeGateway:
 
 
 @pytest.fixture()
-def async_loop() -> asyncio.AbstractEventLoop:
-    return asyncio.new_event_loop()
+def async_loop() -> Iterator[asyncio.AbstractEventLoop]:
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 class TestOwnerRegistration:
