@@ -1,0 +1,33 @@
+# Exporter config for the local mock verification stack (all 127.0.0.1).
+# Shape follows mist-monitoring config.example.yaml.
+listen:
+  host: 127.0.0.1
+  port: 9109
+
+targets:
+  # Backend liveness.
+  - name: mist-backend
+    kind: http
+    address: http://127.0.0.1:8001/app/hello
+    timeout_ms: 1000
+
+  # Backend candle productization health (mode/status/sealed/discard).
+  - name: realtime-candles
+    kind: http
+    address: http://127.0.0.1:8001/internal/realtime/candles/status
+    timeout_ms: 1000
+    candle: true
+
+  # TDX datasource bridge health.
+  - name: datasource-tdx
+    kind: http
+    address: http://127.0.0.1:9001/health
+    timeout_ms: 1500
+    datasource: tdx
+
+  # QMT datasource bridge health.
+  - name: datasource-qmt
+    kind: http
+    address: http://127.0.0.1:9002/health
+    timeout_ms: 1500
+    datasource: qmt
