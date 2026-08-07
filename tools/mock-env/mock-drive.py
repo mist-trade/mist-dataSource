@@ -12,6 +12,7 @@ import json
 import pathlib
 import time
 import urllib.request
+from datetime import datetime, timedelta
 
 TDX_BASE = "http://127.0.0.1:9001"
 QMT_BASE = "http://127.0.0.1:9002"
@@ -47,6 +48,17 @@ def now_rfc3339() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S+08:00")
 
 
+def frame_time(base_iso: str | None, n: int, step_s: float) -> str:
+    """Per-frame eventTime: base capturedAt advanced by n*step seconds so
+    frames in one bucket carry distinct timestamps (the aggregator rejects
+    identical eventTimes as duplicates, leaving a single-frame candidate
+    with zero volume/amount delta)."""
+    if base_iso is None:
+        return now_rfc3339()
+    dt = datetime.fromisoformat(base_iso) + timedelta(seconds=n * step_s)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S") + base_iso[19:]
+
+
 def tdx_converge(lease: str, epoch: str, symbol: str) -> None:
     # Desired becomes non-empty only after the backend's sync lands; poll until
     # the revision moves, then report convergence. Backend restarts (which
@@ -76,6 +88,8 @@ def drive_tdx(args: argparse.Namespace) -> None:
     data = json.loads(TDX_FIXTURE.read_text())
     symbol = data["symbol"]                                  # 600519.SH
     native = data["nativePayload"]
+    volume_base = args.volume_base if args.volume_base is not None else int(native["Volume"])
+    amount_base = args.amount_base if args.amount_base is not None else float(native["Amount"])
     owner = post(TDX_BASE, "/tdx/bridge/owner", {
         "ownerId": "mock-terminal", "mode": "builtin",
         "bridgeBuildId": "mock-build", "bridgeArtifactSha256": "a" * 64,
@@ -89,17 +103,27 @@ def drive_tdx(args: argparse.Namespace) -> None:
     n = 0
     while args.frames == 0 or n < args.frames:
         frame_native = dict(native)
+        at = frame_time(args.captured_at, n, args.captured_at_step)
         if args.price_offset:
             frame_native["Now"] = str(float(native["Now"]) + args.price_offset * n)
+        if args.volume_offset:
+            # Increment volume per frame so the sealed delta (v/a) is
+            # non-zero; pair with --amount-offset for a consistent vwap or
+            # an intentional break (provider anomaly reproduction).
+            frame_native["Volume"] = str(volume_base + args.volume_offset * n)
+        if args.amount_offset:
+            # Break amount/volume consistency on purpose to exercise the
+            # closed-candle vwap check (provider anomaly reproduction).
+            frame_native["Amount"] = str(amount_base + args.amount_offset * n)
         post(TDX_BASE, "/tdx/bridge/snapshot", {
             "leaseToken": lease, "streamEpoch": epoch,
-            "symbol": symbol, "capturedAt": args.captured_at or now_rfc3339(),
+            "symbol": symbol, "capturedAt": at,
             "native": frame_native,
         })
         post(TDX_BASE, "/tdx/bridge/poll",   # heartbeat <10s keeps lease alive
              {"leaseToken": lease, "streamEpoch": epoch, "appliedRevision": -1})
         n += 1
-        print(f"tdx frame {n} @ {now_rfc3339()}")
+        print(f"tdx frame {n} @ {at}")
         time.sleep(1.0 / args.rate)
 
 
@@ -144,20 +168,23 @@ def drive_qmt(args: argparse.Namespace) -> None:
     n = 0
     while args.frames == 0 or n < args.frames:
         frame_native = dict(native)
+        at = frame_time(args.captured_at, n, args.captured_at_step)
         if args.captured_at:
             # QMT business time comes from native.timetag (YYYYMMDD HH:mm:ss),
             # not from capturedAt; rewrite it so eventTime lands in the
             # target trading session.
             frame_native['timetag'] = (
-                args.captured_at[:10].replace('-', '') + ' ' + args.captured_at[11:19]
+                at[:10].replace('-', '') + ' ' + at[11:19]
             )
+        if args.amount_offset:
+            frame_native['amount'] = native['amount'] + args.amount_offset * n
         post(QMT_BASE, "/qmt/bridge/subscriptions/snapshot", {
             "ownerId": "mock-terminal", "leaseToken": lease, "generation": gen,
-            "subscriptionId": sub_id, "capturedAt": args.captured_at or now_rfc3339(),
+            "subscriptionId": sub_id, "capturedAt": at,
             "native": {symbol: frame_native},
         })
         n += 1
-        print(f"qmt frame {n} @ {now_rfc3339()}")
+        print(f"qmt frame {n} @ {at}")
         time.sleep(1.0 / args.rate)
 
 
@@ -168,7 +195,12 @@ def main() -> None:
     ap.add_argument("--frames", type=int, default=0)
     ap.add_argument("--pause", type=float, default=0)
     ap.add_argument("--price-offset", type=float, default=0)
+    ap.add_argument("--volume-offset", type=int, default=0)
+    ap.add_argument("--amount-offset", type=float, default=0)
+    ap.add_argument("--volume-base", type=int, default=None)
+    ap.add_argument("--amount-base", type=float, default=None)
     ap.add_argument("--captured-at", default=None)
+    ap.add_argument("--captured-at-step", type=float, default=1.0)
     args = ap.parse_args()
     (drive_tdx if args.source == "tdx" else drive_qmt)(args)
 

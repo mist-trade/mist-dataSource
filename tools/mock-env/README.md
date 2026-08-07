@@ -50,14 +50,20 @@ bash tools/mock-env/stop-mock.sh
 ## 注入时间语义（重要）
 
 - **TDX**：eventTime 取 bridge 的 `capturedAt`；**QMT**：eventTime 取 native 的
-  `timetag`（注入器会把 `--captured-at` 同步写入 timetag）。
-- 聚合器要求帧的 bucket 未结束（或结束 ≤ grace）——**非交易时段注入需用未来
-  session 时间**（如 `--captured-at "2026-08-08T10:00:00+08:00"`，凌晨注入当天
-  10:00 的 bucket 即可聚合，candidates 增长）。
-- **sealed 是时间驱动的**：bucket 结束 + grace 后 due scanner 才封存。凌晨/周末
-  无法验证 sealed——**交易时段**注入「当前运行中的 bucket」（不传 --captured-at
-  即用当前时间）后，`mock-verify.sh` 会自动断言 sealed 增长（oldestLagMs > 0）。
-- QMT 订阅已存在时（之前跑过），注入器探测式直接推帧，无需重新执行订阅命令。
+  `timetag`（注入器会把 `--captured-at` 同步写入 timetag）。`--captured-at-step`（默认 1s）
+  让每帧时间递增——相同 eventTime 会被聚合器按 duplicate 拒绝，导致单帧候选、量额 delta 为 0。
+- **backend 时钟偏移**（`MIST_MOCK_CLOCK_OFFSET_MS`，见 `.env.mock`）：把 backend 的
+  Clock 前移，墙钟驱动的封存（due/finalize/vwap 校验）在非交易时段自然推进。
+  用法：`offset = 目标clock时间 - 当前真实时间` → 写入 `.env.mock` → 重启 backend →
+  注入 `--captured-at <目标时间>`（目标 bucket 的开始）。**重启 backend 会有 recovery_gap**
+  （聚合从下一个完整 bucket 开始）；backen 重启后 baseline 从 manifest 恢复，**注入量额
+  base 必须 ≥ 已封存桶的累计值**（`--volume-base/--amount-base`），否则触发 counter_reset。
+- **可复现的异常 case**（2026-08-08 实测）：
+  - sealed 封存 / no_snapshot discard / counter_reset discard / vwap 坏桶（HIL THROW）
+  - A2 断流形态（注入停、datasource 活着 → backend freshness 停滞）
+  - E2 重连恢复（backend 重启 → 重连 → sync → sealed 继续；source isolation）
+  - C1 QMT observation 卡死（构造 `context-rebuild-observation.json` + `.processing` 并存
+    → qmt 启动抛 `ambiguous QMT context rebuild observation state`；修复=清文件重启）
 
 ## 调试
 
