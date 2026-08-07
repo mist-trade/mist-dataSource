@@ -69,6 +69,10 @@ bash tools/mock-env/stop-mock.sh
 
 ## 已知事项
 
+- **QMT subscription journal**：datasource 的 journal 默认路径是 Windows 生产机的
+  `F:\quant\MistAPI\...`——run-mock.sh 已用 `MIST_QMT_SUBSCRIPTION_JOURNAL_PATH` 隔离到
+  `.mock-pids/`（runtime 目录，gitignore）。早期版本未隔离时 journal 曾落到仓库根目录，
+  已删除。
 - **exporter candle 契约漂移**：backend candle health 响应包含 exporter 未知字段，
   exporter 报 `mist_realtime_candle_contract_violation_total{kind="unexpected_field"}`、
   `mist_component_up{component="realtime-candles"}=0`。这是 monitoring 仓 schema
