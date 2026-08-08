@@ -63,7 +63,7 @@ def tdx_converge(lease: str, epoch: str, symbol: str) -> None:
     # Desired becomes non-empty only after the backend's sync lands; poll until
     # the revision moves, then report convergence. Backend restarts (which
     # re-trigger sync) can take minutes, so wait generously.
-    for attempt in range(240):
+    for _attempt in range(240):
         poll = post(TDX_BASE, "/tdx/bridge/poll",
                     {"leaseToken": lease, "streamEpoch": epoch, "appliedRevision": -1})
         rev = poll["desiredRevision"]
