@@ -51,7 +51,7 @@ fi
 (cd "$ROOT" && uv sync --quiet)
 export TDX_REALTIME_MODE=builtin
 export QMT_REALTIME_MODE=builtin
-OTEL_COMMON="OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5080 OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic cm9vdEBtaXN0LmxvY2FsOk1pc3RAMjAyNiFPYnNlcnZl'"
+OTEL_COMMON="OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5080/api/default OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM='"
 nohup bash -c "cd '$ROOT' && export $OTEL_COMMON && exec uv run uvicorn tdx.main:app --port 9001" \
   >"$PIDS_DIR/tdx-datasource.log" 2>&1 & echo $! >"$PIDS_DIR/tdx-datasource.pid"
 # QMT subscription journal defaults to a Windows path (production machine);
