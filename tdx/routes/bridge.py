@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.local_bridge import is_trusted_local_bridge_peer
+from src.core.logging import get_logger
+from src.datasource import metrics as ds_metrics
 from src.datasource.tdx.realtime.gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
@@ -23,6 +25,8 @@ from src.datasource.tdx.realtime.gateway import (
 )
 from src.ws.health_contract import TdxBridgeHealth
 from src.ws.protocol import ws_realtime_snapshot
+
+_log = get_logger(__name__)
 
 router = APIRouter()
 
@@ -175,8 +179,18 @@ async def post_result(body: ResultRequest, request: Request) -> dict[str, Any]:
 
 @router.post("/tdx/bridge/snapshot")
 async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, Any]:
-    _require_loopback(request)
-    gateway = _get_gateway(request)
+    try:
+        _require_loopback(request)
+    except HTTPException:
+        ds_metrics.record_snapshot_rejected("tdx", "not_loopback")
+        _log.warning("ingest reject source=tdx reason=not_loopback")
+        raise
+    try:
+        gateway = _get_gateway(request)
+    except GatewayError:
+        ds_metrics.record_snapshot_rejected("tdx", "not_ready")
+        _log.warning("ingest reject source=tdx reason=not_ready")
+        raise
     try:
         result = await gateway.post_snapshot(
             lease_token=body.leaseToken,
@@ -188,6 +202,11 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
         # Broadcast the validated native frame on the realtime WS manager.
         ws_manager = getattr(request.app.state, "tdx_realtime_ws_manager", None)
         if ws_manager is not None and result.get("accepted"):
+            _log.info(
+                "broadcast source=tdx clients=%d",
+                ws_manager.connection_count,
+            )
+            ds_metrics.set_ws_clients("tdx", ws_manager.connection_count)
             await ws_manager.broadcast(ws_realtime_snapshot("tdx", result["frame"]))
         return {}
     except GatewayError as exc:

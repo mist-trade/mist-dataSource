@@ -27,11 +27,18 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from opentelemetry import trace
+
+from src.core.logging import get_logger
+from src.datasource import metrics as ds_metrics
 from src.datasource.realtime_native_safety import validate_native_payload_safety
 from src.datasource.tdx.market_normalization import dedupe_normalized_symbols, dedupe_stable
 from src.datasource.tdx.realtime.contract import (
     validate_tdx_realtime_native_snapshot,
 )
+
+_log = get_logger(__name__)
+_tracer = trace.get_tracer("mist-datasource")
 
 # Contract tuple accepted by this gateway build.
 ACCEPTED_PAYLOAD_TYPE = "mist.realtime.native_snapshot"
@@ -449,38 +456,74 @@ class TdxRealtimeGateway:
         native: dict[str, Any],
     ) -> dict[str, Any]:
         """Accept one flat TDX native snapshot and wrap it in schema-v2."""
-        # Validate captured_at is RFC3339 (reject non-conforming timestamps).
-        self._validate_rfc3339(captured_at, field_name="capturedAt")
-        # Strictly validate the native object before preserving it on the wire.
-        validate_native_payload_safety(native)
-        validate_tdx_realtime_native_snapshot(symbol, native, expected_code=symbol)
-        # All state access under lock.
-        async with self._lock:
-            owner = self._require_owner_epoch_locked(lease_token, stream_epoch)
-            owner.last_seen_monotonic = time.monotonic()
-            if symbol not in self._observed_native_symbols:
-                raise GatewayError(
-                    "TDX_BRIDGE_SYMBOL_NOT_CONVERGED",
-                    f"{symbol} not in converged subscription set",
-                    retryable=False,
-                )
-            frame = self._build_wire_frame(
-                symbol=symbol,
-                captured_at=captured_at,
-                native=native,
+        with _tracer.start_as_current_span("tdx.snapshot.ingest") as span:
+            span.set_attribute("symbol", symbol)
+            span.set_attribute("captured_at", captured_at)
+            _log.info(
+                "ingest start source=tdx symbol=%s capturedAt=%s",
+                symbol,
+                captured_at,
             )
-            self._last_snapshot_monotonic = time.monotonic()
-            self._last_snapshot_at = dt.datetime.now(dt.UTC).isoformat()
-            self._native_evidence[symbol] = {
-                "symbol": symbol,
-                "ownerId": owner.owner_id,
-                "bridgeBuildId": owner.bridge_build_id,
-                "generation": owner.generation,
-                "streamEpoch": owner.stream_epoch,
-                "capturedAt": captured_at,
-                "native": copy.deepcopy(native),
-                "frame": copy.deepcopy(frame),
-            }
+            try:
+                # Validate captured_at is RFC3339 (reject non-conforming timestamps).
+                self._validate_rfc3339(captured_at, field_name="capturedAt")
+                # Strictly validate the native object before preserving it on the wire.
+                validate_native_payload_safety(native)
+                validate_tdx_realtime_native_snapshot(symbol, native, expected_code=symbol)
+                # All state access under lock.
+                async with self._lock:
+                    owner = self._require_owner_epoch_locked(lease_token, stream_epoch)
+                    owner.last_seen_monotonic = time.monotonic()
+                    if symbol not in self._observed_native_symbols:
+                        raise GatewayError(
+                            "TDX_BRIDGE_SYMBOL_NOT_CONVERGED",
+                            f"{symbol} not in converged subscription set",
+                            retryable=False,
+                        )
+                    frame = self._build_wire_frame(
+                        symbol=symbol,
+                        captured_at=captured_at,
+                        native=native,
+                    )
+                    self._last_snapshot_monotonic = time.monotonic()
+                    self._last_snapshot_at = dt.datetime.now(dt.UTC).isoformat()
+                    self._native_evidence[symbol] = {
+                        "symbol": symbol,
+                        "ownerId": owner.owner_id,
+                        "bridgeBuildId": owner.bridge_build_id,
+                        "generation": owner.generation,
+                        "streamEpoch": owner.stream_epoch,
+                        "capturedAt": captured_at,
+                        "native": copy.deepcopy(native),
+                        "frame": copy.deepcopy(frame),
+                    }
+            except GatewayError as exc:
+                span.add_event("rejected", {"reason": exc.code})
+                span.set_status(trace.StatusCode.ERROR, exc.code)
+                _log.warning(
+                    "ingest reject source=tdx reason=%s symbol=%s",
+                    exc.code,
+                    symbol,
+                )
+                ds_metrics.record_snapshot_rejected("tdx", exc.code)
+                raise
+            except Exception as exc:  # native validation errors etc.
+                span.add_event("rejected", {"reason": "native_invalid"})
+                span.set_status(trace.StatusCode.ERROR, "native_invalid")
+                _log.warning(
+                    "ingest reject source=tdx reason=native_invalid symbol=%s error=%s",
+                    symbol,
+                    exc,
+                )
+                ds_metrics.record_snapshot_rejected("tdx", "native_invalid")
+                raise
+            span.add_event("frame_built", {"schema": 2})
+            span.set_status(trace.StatusCode.OK)
+            _log.info(
+                "frame built source=tdx symbol=%s frame_schema=2",
+                symbol,
+            )
+            ds_metrics.record_snapshot_accepted("tdx")
             return {"accepted": True, "frame": frame}
 
     async def read_native_evidence(self, symbol: str) -> dict[str, Any]:
@@ -779,6 +822,12 @@ class TdxRealtimeGateway:
                 return False
 
     # --- health --------------------------------------------------------
+
+    def snapshot_age_seconds(self) -> float | None:
+        """Age of the last accepted snapshot (None before first accept)."""
+        if self._last_snapshot_monotonic is None:
+            return None
+        return round(time.monotonic() - self._last_snapshot_monotonic, 3)
 
     async def health(self) -> dict[str, Any]:
         async with self._lock:

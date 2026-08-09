@@ -14,7 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
 from src.core.logging import setup_logging
-from src.core.otel import configure_otel
+from src.core.otel import init_otel, instrument_app
+from src.datasource import metrics as ds_metrics
 from src.datasource.tdx.provider import TdxDatasourceProvider
 from src.datasource.tdx.realtime.gateway import TdxRealtimeGateway
 from src.ws.health_contract import TdxDatasourceHealth
@@ -24,6 +25,8 @@ from tdx.routes.realtime import router as realtime_router
 from tdx.routes.v1 import router as v1_router
 
 setup_logging()
+init_otel("tdx-datasource")
+ds_metrics.init_metrics()
 
 TdxRealtimeMode = Literal["off", "builtin"]
 TDX_REALTIME_MODES = {"off", "builtin"}
@@ -150,4 +153,11 @@ def create_tdx_app(
 
 
 app = create_tdx_app()
-configure_otel(app, "tdx-datasource")
+# snapshot-age observable callback: reads the gateway's last-accept time
+# at collection time so the gauge keeps growing when the terminal stalls.
+if app.state.tdx_realtime_gateway is not None:
+    ds_metrics.register_snapshot_age_callback(
+        "tdx",
+        lambda: app.state.tdx_realtime_gateway.snapshot_age_seconds(),
+    )
+instrument_app(app)

@@ -51,11 +51,12 @@ fi
 (cd "$ROOT" && uv sync --quiet)
 export TDX_REALTIME_MODE=builtin
 export QMT_REALTIME_MODE=builtin
-nohup bash -c "cd '$ROOT' && exec uv run uvicorn tdx.main:app --port 9001" \
+OTEL_COMMON="OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:5080 OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic cm9vdEBtaXN0LmxvY2FsOk1pc3RAMjAyNiFPYnNlcnZl'"
+nohup bash -c "cd '$ROOT' && export $OTEL_COMMON && exec uv run uvicorn tdx.main:app --port 9001" \
   >"$PIDS_DIR/tdx-datasource.log" 2>&1 & echo $! >"$PIDS_DIR/tdx-datasource.pid"
 # QMT subscription journal defaults to a Windows path (production machine);
 # isolate it under the runtime pids dir so it never lands in the repo.
-nohup bash -c "cd '$ROOT' && export MIST_QMT_SUBSCRIPTION_JOURNAL_PATH='$PIDS_DIR/qmt-subscription-journal.jsonl' && exec uv run uvicorn qmt.main:app --port 9002" \
+nohup bash -c "cd '$ROOT' && export MIST_QMT_SUBSCRIPTION_JOURNAL_PATH='$PIDS_DIR/qmt-subscription-journal.jsonl' && export $OTEL_COMMON && exec uv run uvicorn qmt.main:app --port 9002" \
   >"$PIDS_DIR/qmt-datasource.log" 2>&1 & echo $! >"$PIDS_DIR/qmt-datasource.pid"
 
 # 4. backend (mock mode; start:dev watches src, swap to start:debug for breakpoints)

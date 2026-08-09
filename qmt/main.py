@@ -13,13 +13,15 @@ from typing import Any, Literal, cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry import trace
 
 from qmt.routes.bridge import router as bridge_router
 from qmt.routes.realtime import router as realtime_router
 from qmt.routes.v1 import router as v1_router
 from src.core.config import settings
-from src.core.logging import setup_logging
-from src.core.otel import configure_otel
+from src.core.logging import get_logger, setup_logging
+from src.core.otel import force_flush, init_otel, instrument_app
+from src.datasource import metrics as ds_metrics
 from src.datasource.qmt.provider import QmtDatasourceProvider
 from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
@@ -34,6 +36,8 @@ from src.ws.manager import ConnectionManager
 from src.ws.protocol import ws_error, ws_realtime_snapshot
 
 setup_logging()
+init_otel("qmt-datasource")
+ds_metrics.init_metrics()
 
 QmtRealtimeMode = Literal["off", "builtin"]
 QMT_REALTIME_MODES = {"off", "builtin"}
@@ -69,6 +73,8 @@ def create_qmt_app(
             assert manager is not None
             if collector is not None:
                 collector.record_snapshot(str(data.get("capturedAt", "")))
+            _log.info("broadcast source=qmt clients=%d", manager.connection_count)
+            ds_metrics.set_ws_clients("qmt", manager.connection_count)
             await manager.broadcast(ws_realtime_snapshot("qmt", data))
 
         async def publish_error(code: str, message: str) -> None:
@@ -171,5 +177,28 @@ def create_qmt_app(
     return target
 
 
-app = create_qmt_app()
-configure_otel(app, "qmt-datasource")
+_log = get_logger(__name__)
+_tracer = trace.get_tracer("mist-datasource")
+
+
+def _build_app_with_startup_trace() -> FastAPI:
+    """Wrap app creation in a qmt.startup span so startup failures (e.g. the
+    ambiguous context-rebuild observation state) are directly observable:
+    error log (stdout) -> errored span -> synchronous force_flush -> re-raise.
+    """
+    with _tracer.start_as_current_span("qmt.startup") as span:
+        try:
+            app = create_qmt_app()
+        except Exception as exc:
+            span.set_status(trace.StatusCode.ERROR, str(exc))
+            span.record_exception(exc)
+            _log.error("qmt startup failed: %s", exc)
+            force_flush()  # sync export before the process exits
+            raise
+        span.set_status(trace.StatusCode.OK)
+        ds_metrics.set_startup_ok("qmt", True)
+        return app
+
+
+app = _build_app_with_startup_trace()
+instrument_app(app)

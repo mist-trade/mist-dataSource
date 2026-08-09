@@ -18,6 +18,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from opentelemetry import trace
+
+from src.core.logging import get_logger
+from src.datasource import metrics as ds_metrics
 from src.datasource.qmt.realtime.contract import QMT_SYMBOL_PATTERN
 from src.datasource.realtime_native_safety import (
     NativePayloadSafetyError,
@@ -717,6 +721,10 @@ class QmtSubscriptionJournal:
         return tuple(dict(record) for record in self._replay_records)
 
 
+_log = get_logger(__name__)
+_tracer = trace.get_tracer("mist-datasource")
+
+
 class QmtSubscriptionController:
     """Execute explicit backend control through one loopback native-call slot."""
 
@@ -853,54 +861,95 @@ class QmtSubscriptionController:
         captured_at: str,
         native: Mapping[str, Any],
     ) -> dict[str, Any]:
-        self._owner_validator(owner_id, lease_token, generation)
-        if not RFC3339_PATTERN.fullmatch(captured_at):
-            raise QmtSubscriptionControlError("QMT_SNAPSHOT_CAPTURED_AT_INVALID")
-        try:
-            datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise QmtSubscriptionControlError("QMT_SNAPSHOT_CAPTURED_AT_INVALID") from exc
-        if type(subscription_id) is not int:
-            raise QmtSubscriptionControlError("QMT_SNAPSHOT_SUBSCRIPTION_ID_INVALID")
-        if any(
-            QMT_SYMBOL_PATTERN.fullmatch(str(raw_symbol).strip().upper())
-            and self.registry.owns(subscription_id, str(raw_symbol).strip().upper())
-            for raw_symbol in native
-        ):
-            self._callback_counts[subscription_id] = (
-                self._callback_counts.get(subscription_id, 0) + 1
+        with _tracer.start_as_current_span("qmt.snapshot.ingest") as span:
+            span.set_attribute("subscription_id", subscription_id)
+            _log.info(
+                "ingest start source=qmt subscriptionId=%s capturedAt=%s",
+                subscription_id,
+                captured_at,
             )
-            self._callback_last_seen[subscription_id] = self._clock()
-        accepted: dict[str, Any] = {}
-        rejected: list[dict[str, str]] = []
-        for raw_symbol, value in native.items():
-            symbol = str(raw_symbol).strip().upper()
-            if not QMT_SYMBOL_PATTERN.fullmatch(symbol):
-                rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_SYMBOL_INVALID"})
-                continue
-            if not self.registry.owns(subscription_id, symbol):
-                rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_NON_MEMBER"})
-                continue
-            if not isinstance(value, dict):
-                rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_NATIVE_INVALID"})
-                continue
+            # try 范围：前 4 个校验（owner/captured_at/subscription_id）会 raise；
+            # per-symbol 循环在 try 外（循环不 raise，收集到 rejected 列表）
             try:
-                validate_native_payload_safety(cast(dict[str, Any], value))
-            except NativePayloadSafetyError:
-                rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_NATIVE_UNSAFE"})
-                continue
-            accepted[symbol] = value
-        if accepted:
-            published = self._publisher(
-                {
-                    "schemaVersion": 2,
-                    "capturedAt": captured_at,
-                    "native": accepted,
-                }
-            )
-            if inspect.isawaitable(published):
-                await published
-        return {"accepted": sorted(accepted), "rejected": rejected}
+                self._owner_validator(owner_id, lease_token, generation)
+                if not RFC3339_PATTERN.fullmatch(captured_at):
+                    raise QmtSubscriptionControlError("QMT_SNAPSHOT_CAPTURED_AT_INVALID")
+                try:
+                    datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise QmtSubscriptionControlError("QMT_SNAPSHOT_CAPTURED_AT_INVALID") from exc
+                if type(subscription_id) is not int:
+                    raise QmtSubscriptionControlError("QMT_SNAPSHOT_SUBSCRIPTION_ID_INVALID")
+            except QmtSubscriptionControlError as exc:
+                span.add_event("rejected", {"reason": exc.reason})
+                span.set_status(trace.StatusCode.ERROR, exc.reason)
+                _log.warning("ingest reject source=qmt reason=%s", exc.reason)
+                ds_metrics.record_snapshot_rejected("qmt", exc.reason)
+                raise
+            if any(
+                QMT_SYMBOL_PATTERN.fullmatch(str(raw_symbol).strip().upper())
+                and self.registry.owns(subscription_id, str(raw_symbol).strip().upper())
+                for raw_symbol in native
+            ):
+                self._callback_counts[subscription_id] = (
+                    self._callback_counts.get(subscription_id, 0) + 1
+                )
+                self._callback_last_seen[subscription_id] = self._clock()
+            accepted: dict[str, Any] = {}
+            rejected: list[dict[str, str]] = []
+            for raw_symbol, value in native.items():
+                symbol = str(raw_symbol).strip().upper()
+                if not QMT_SYMBOL_PATTERN.fullmatch(symbol):
+                    rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_SYMBOL_INVALID"})
+                    span.add_event("symbol_rejected", {"symbol": symbol, "reason": "QMT_SNAPSHOT_SYMBOL_INVALID"})
+                    _log.warning("symbol reject source=qmt symbol=%s reason=%s", symbol, "QMT_SNAPSHOT_SYMBOL_INVALID")
+                    ds_metrics.record_snapshot_rejected("qmt", "symbol_invalid")
+                    continue
+                if not self.registry.owns(subscription_id, symbol):
+                    rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_NON_MEMBER"})
+                    span.add_event("symbol_rejected", {"symbol": symbol, "reason": "QMT_SNAPSHOT_NON_MEMBER"})
+                    _log.warning("symbol reject source=qmt symbol=%s reason=%s", symbol, "QMT_SNAPSHOT_NON_MEMBER")
+                    ds_metrics.record_snapshot_rejected("qmt", "non_member")
+                    continue
+                if not isinstance(value, dict):
+                    rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_NATIVE_INVALID"})
+                    span.add_event("symbol_rejected", {"symbol": symbol, "reason": "QMT_SNAPSHOT_NATIVE_INVALID"})
+                    _log.warning("symbol reject source=qmt symbol=%s reason=%s", symbol, "QMT_SNAPSHOT_NATIVE_INVALID")
+                    ds_metrics.record_snapshot_rejected("qmt", "native_invalid")
+                    continue
+                try:
+                    validate_native_payload_safety(cast(dict[str, Any], value))
+                except NativePayloadSafetyError:
+                    rejected.append({"symbol": symbol, "reason": "QMT_SNAPSHOT_NATIVE_UNSAFE"})
+                    span.add_event("symbol_rejected", {"symbol": symbol, "reason": "QMT_SNAPSHOT_NATIVE_UNSAFE"})
+                    _log.warning("symbol reject source=qmt symbol=%s reason=%s", symbol, "QMT_SNAPSHOT_NATIVE_UNSAFE")
+                    ds_metrics.record_snapshot_rejected("qmt", "native_unsafe")
+                    continue
+                accepted[symbol] = value
+            if accepted:
+                span.set_status(trace.StatusCode.OK)
+                span.add_event(
+                    "frame_built",
+                    {"schema": 2, "accepted_symbols": len(accepted)},
+                )
+                _log.info(
+                    "frame built source=qmt frame_schema=2 accepted_symbols=%d",
+                    len(accepted),
+                )
+                ds_metrics.record_snapshot_accepted("qmt")
+                published = self._publisher(
+                    {
+                        "schemaVersion": 2,
+                        "capturedAt": captured_at,
+                        "native": accepted,
+                    }
+                )
+                if inspect.isawaitable(published):
+                    await published
+            else:
+                span.set_status(trace.StatusCode.ERROR, "no accepted symbols")
+                _log.warning("no accepted symbols, not publishing source=qmt")
+            return {"accepted": sorted(accepted), "rejected": rejected}
 
     def health(self) -> dict[str, Any]:
         return {

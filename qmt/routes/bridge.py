@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from src.core.local_bridge import is_trusted_local_bridge_peer
+from src.core.logging import get_logger
+from src.datasource import metrics as ds_metrics
 from src.datasource.qmt.realtime.gateway import (
     QmtBridgeOwnershipError,
     QmtCommandGateway,
@@ -328,13 +330,26 @@ async def post_subscription_result(
     return {"accepted": True}
 
 
+_log = get_logger(__name__)
+
+
 @router.post("/subscriptions/snapshot")
 async def post_subscription_snapshot(
     payload: SubscriptionSnapshotRequest,
     request: Request,
 ) -> dict[str, Any]:
-    _require_loopback(request)
-    controller = get_subscription_controller(request)
+    try:
+        _require_loopback(request)
+    except HTTPException:
+        ds_metrics.record_snapshot_rejected("qmt", "not_loopback")
+        _log.warning("ingest reject source=qmt reason=not_loopback")
+        raise
+    try:
+        controller = get_subscription_controller(request)
+    except QmtSubscriptionControlError as exc:
+        ds_metrics.record_snapshot_rejected("qmt", "controller_unavailable")
+        _log.warning("ingest reject source=qmt reason=controller_unavailable")
+        raise HTTPException(status_code=503, detail=exc.reason) from exc
     try:
         return await controller.accept_snapshot(
             payload.owner_id,
@@ -345,6 +360,8 @@ async def post_subscription_snapshot(
             payload.native,
         )
     except QmtBridgeOwnershipError as exc:
+        ds_metrics.record_snapshot_rejected("qmt", "ownership_invalid")
+        _log.warning("ingest reject source=qmt reason=ownership_invalid")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except QmtSubscriptionControlError as exc:
         raise HTTPException(status_code=422, detail=exc.reason) from exc

@@ -3,8 +3,13 @@
 import asyncio
 
 from fastapi import WebSocket
+from opentelemetry import trace
 
+from src.core.logging import get_logger
 from src.ws.protocol import WSMessage
+
+_log = get_logger(__name__)
+_tracer = trace.get_tracer("mist-datasource")
 
 
 class ConnectionManager:
@@ -63,34 +68,49 @@ class ConnectionManager:
         Args:
             message: The WSMessage to broadcast
         """
-        payload = message.to_json()
-        async with self._lock:
-            connections = list(self._connections.items())
-        semaphore = asyncio.Semaphore(self._max_concurrent_sends)
-
-        async def send(cid: str, ws: WebSocket) -> tuple[str, WebSocket] | None:
-            try:
-                async with semaphore:
-                    await asyncio.wait_for(
-                        ws.send_text(payload),
-                        timeout=self._send_timeout_seconds,
-                    )
-            except Exception:
-                return cid, ws
-            return None
-
-        failed = [
-            item
-            for item in await asyncio.gather(
-                *(send(cid, ws) for cid, ws in connections)
-            )
-            if item is not None
-        ]
-        if failed:
+        source = message.provider
+        with _tracer.start_as_current_span("ws.broadcast") as span:
+            payload = message.to_json()
             async with self._lock:
-                for cid, ws in failed:
-                    if self._connections.get(cid) is ws:
-                        self._connections.pop(cid, None)
+                connections = list(self._connections.items())
+            span.set_attribute("clients", len(connections))
+            semaphore = asyncio.Semaphore(self._max_concurrent_sends)
+
+            async def send(cid: str, ws: WebSocket) -> tuple[str, WebSocket] | None:
+                try:
+                    async with semaphore:
+                        await asyncio.wait_for(
+                            ws.send_text(payload),
+                            timeout=self._send_timeout_seconds,
+                        )
+                except Exception:
+                    return cid, ws
+                return None
+
+            failed = [
+                item
+                for item in await asyncio.gather(
+                    *(send(cid, ws) for cid, ws in connections)
+                )
+                if item is not None
+            ]
+            if failed:
+                span.set_attribute("send_failed", len(failed))
+                span.add_event(
+                    "send_failed",
+                    {"clients": [cid for cid, _ in failed]},
+                )
+                for cid, _ in failed:
+                    if source is not None:
+                        _log.warning(
+                            "send failed source=%s client=%s (evicted)",
+                            source,
+                            cid,
+                        )
+                async with self._lock:
+                    for cid, ws in failed:
+                        if self._connections.get(cid) is ws:
+                            self._connections.pop(cid, None)
 
     async def send_to_client(self, client_id: str, message: WSMessage) -> bool:
         """Send a message to a specific client.
