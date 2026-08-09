@@ -22,8 +22,9 @@ for tool in docker uv pnpm curl; do
 done
 [ -d "$BACKEND" ] || { echo "backend repo not found: $BACKEND"; exit 1; }
 
-# port conflict check
-for port in 6379 8001 9001 9002 5080; do
+# port conflict check (5080 is managed by the openobserve container below,
+# so it is excluded from the host-process precheck)
+for port in 6379 8001 9001 9002; do
   if lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "port $port already in use - stop it first (maybe run stop-mock.sh)"; exit 1
   fi

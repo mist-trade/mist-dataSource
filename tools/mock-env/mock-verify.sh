@@ -12,6 +12,7 @@
 set -euo pipefail
 OPENOBSERVE="http://127.0.0.1:5080"
 OO_CRED="root@example.com:Complexpass#123"
+OO_B64="cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM="
 BACKEND_HEALTH="http://127.0.0.1:8001/app/hello"
 
 # TODO(shrink-monitoring-to-blackbox-probe): /internal/realtime/candles/status
@@ -76,12 +77,62 @@ curl -fsS --max-time 5 "$BACKEND_HEALTH" >/dev/null && echo "  /app/hello 200 OK
 # fi
 
 echo "==> openobserve received telemetry"
-TRACE_COUNT=$(curl -fsS --max-time 5 -u "$OO_CRED" \
-  "$OPENOBSERVE/api/default/_search?type=traces&size=1&from=0" 2>/dev/null \
-  | grep -c '"hits"' || true)
-echo "  openobserve trace search hits: $TRACE_COUNT"
-# OTLP ingestion is verified by the search API returning a hits field (even
-# empty is a valid response); a hard fail only when the API is unreachable.
-curl -fsS --max-time 5 -u "$OO_CRED" "$OPENOBSERVE/api/default/_search?type=traces&size=1&from=0" >/dev/null \
-  || { echo "FAIL: openobserve search API unreachable"; exit 1; }
+
+# OpenObserve search API (researched 2026-08-09):
+#   POST /api/default/_search?type=traces
+#   body: {"query": {"sql": "select * from 'default' ...",
+#                    "start_time": <us>, "end_time": <us>}, "size": N}
+#   - ?type=traces is REQUIRED
+#   - time window is MICROSECONDS (_timestamp is us, not ms)
+#   - fields live on the hit top level (operation_name/service_name/span_status)
+#   - ingested data lands in stream/files/ via the ingester (seconds delay)
+query_oo_traces() {
+  local sql="$1"
+  local now_us start_us
+  now_us=$(python3 -c "import time; print(int(time.time()*1e6))")
+  start_us=$((now_us - 7200000000))  # last 2 hours in microseconds
+  OO_SQL="$sql" OO_URL="$OPENOBSERVE/api/default/_search?type=traces" OO_AUTH="$OO_B64" \
+    OO_START="$start_us" OO_END="$now_us" python3 -c "
+import json, os, sys, urllib.request
+payload = {
+    'query': {
+        'sql': os.environ['OO_SQL'],
+        'start_time': int(os.environ['OO_START']),
+        'end_time': int(os.environ['OO_END']),
+    },
+    'size': 10,
+}
+req = urllib.request.Request(
+    os.environ['OO_URL'],
+    method='POST',
+    data=json.dumps(payload).encode(),
+    headers={'Authorization': 'Basic ' + os.environ['OO_AUTH'], 'Content-Type': 'application/json'},
+)
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        d = json.load(resp)
+        hits = d.get('hits', [])
+        for h in hits:
+            print(h.get('operation_name') or h.get('name'), '|', h.get('service_name'), '|', h.get('span_status'))
+        print('TOTAL=' + str(d.get('total', 0)))
+except Exception as e:
+    print('ERR=' + str(e))
+    sys.exit(1)
+"
+}
+
+# 1. ingest spans must be observable in OpenObserve (root span OK status)
+echo "  querying tdx.snapshot.ingest spans..."
+OO_INGEST=$(query_oo_traces "select * from 'default' where operation_name = 'tdx.snapshot.ingest' order by _timestamp desc limit 5")
+echo "$OO_INGEST"
+INGEST_OK=$(echo "$OO_INGEST" | grep -c "tdx.snapshot.ingest | tdx-datasource | OK" || true)
+[ "$INGEST_OK" -ge 1 ] || { echo "FAIL: tdx.snapshot.ingest OK span not found in OpenObserve"; exit 1; }
+
+# 2. ws.broadcast child span must be present
+echo "  querying ws.broadcast spans..."
+OO_BC=$(query_oo_traces "select * from 'default' where operation_name = 'ws.broadcast' order by _timestamp desc limit 5")
+echo "$OO_BC"
+BC_COUNT=$(echo "$OO_BC" | grep -c "ws.broadcast | tdx-datasource" || true)
+[ "$BC_COUNT" -ge 1 ] || { echo "FAIL: ws.broadcast span not found in OpenObserve"; exit 1; }
+
 echo "OK"
