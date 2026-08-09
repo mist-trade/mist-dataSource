@@ -57,6 +57,9 @@ venv = ".venv"
 typeCheckingMode = "strict"
 include = ["src", "tdx", "qmt", "scripts"]
 exclude = ["tests", "qmt/builtin_bridge", "tdx/builtin_bridge", "tools/qmt_runtime_probe"]
+# opentelemetry-instrumentation-fastapi ships no type stubs; treat it as Any
+# like other third-party packages without stubs.
+reportMissingTypeStubs = false
 
 # Coverage (ratchet gate). Baseline anchored to the measured value; raise via
 # scripts/coverage-baseline.sh. Builtin bridges are non-importable scripts
