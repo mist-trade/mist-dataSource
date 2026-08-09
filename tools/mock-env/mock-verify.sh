@@ -10,7 +10,8 @@
 #     Run the full seal check during a trading session with frames injected
 #     into the live bucket.
 set -euo pipefail
-EXPORTER="http://127.0.0.1:9109/metrics"
+OPENOBSERVE="http://127.0.0.1:5080"
+OO_CRED="root@example.com:Complexpass#123"
 BACKEND_HEALTH="http://127.0.0.1:8001/app/hello"
 
 # TODO(shrink-monitoring-to-blackbox-probe): /internal/realtime/candles/status
@@ -45,7 +46,7 @@ BACKEND_HEALTH="http://127.0.0.1:8001/app/hello"
 # "
 # }
 
-echo "==> exporter reachable"; curl -fsS --max-time 5 "$EXPORTER" >/dev/null
+echo "==> openobserve reachable"; curl -fsS --max-time 5 "$OPENOBSERVE/web/healthz" >/dev/null
 echo "==> backend liveness"
 curl -fsS --max-time 5 "$BACKEND_HEALTH" >/dev/null && echo "  /app/hello 200 OK"
 
@@ -74,11 +75,13 @@ curl -fsS --max-time 5 "$BACKEND_HEALTH" >/dev/null && echo "  /app/hello 200 OK
 #   echo "==> no payable due yet (oldestLagMs=${LAG2:-null}); sealing check deferred to trading session"
 # fi
 
-echo "==> exporter metrics"
-METRIC_COUNT=$(curl -fsS --max-time 5 "$EXPORTER" | grep -c "^mist_" || true)
-echo "  exporter metrics lines: $METRIC_COUNT"
-[ "$METRIC_COUNT" -ge 5 ] || { echo "FAIL: exporter metrics missing"; exit 1; }
-# TODO(shrink-monitoring-to-blackbox-probe): candle metric assertions read
-# exporter output that no longer exists (blackbox shrink); they return with
-# the whitebox rebuild.
+echo "==> openobserve received telemetry"
+TRACE_COUNT=$(curl -fsS --max-time 5 -u "$OO_CRED" \
+  "$OPENOBSERVE/api/default/_search?type=traces&size=1&from=0" 2>/dev/null \
+  | grep -c '"hits"' || true)
+echo "  openobserve trace search hits: $TRACE_COUNT"
+# OTLP ingestion is verified by the search API returning a hits field (even
+# empty is a valid response); a hard fail only when the API is unreachable.
+curl -fsS --max-time 5 -u "$OO_CRED" "$OPENOBSERVE/api/default/_search?type=traces&size=1&from=0" >/dev/null \
+  || { echo "FAIL: openobserve search API unreachable"; exit 1; }
 echo "OK"

@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
 from src.core.logging import setup_logging
+from src.core.otel import configure_otel
 from src.datasource.tdx.provider import TdxDatasourceProvider
 from src.datasource.tdx.realtime.gateway import TdxRealtimeGateway
 from src.ws.health_contract import TdxDatasourceHealth
@@ -149,3 +150,4 @@ def create_tdx_app(
 
 
 app = create_tdx_app()
+configure_otel(app, "tdx-datasource")

@@ -1,7 +1,7 @@
 # Mock 环境（Phase 2：全链路本地验证）
 
 macOS 本地全链路验证环境：真实 datasource（本机 uv 进程）+ backend mock 模式
-（MIST_MOCK_MODE=true）+ monitoring exporter。`mock-drive.py` 扮演**终端**角色，
+（MIST_MOCK_MODE=true）+ OpenObserve（OTLP 后端）。`mock-drive.py` 扮演**终端**角色，
 通过 datasource 的 bridge HTTP 路由注入真实 fixture 数据——链路是真实的，
 只有终端是 mock 的。
 
@@ -17,7 +17,7 @@ macOS 本地全链路验证环境：真实 datasource（本机 uv 进程）+ bac
   redis 容器 (6379)  <- candle 封存
   tdx-datasource (9001) / qmt-datasource (9002)   uv run uvicorn（真实代码）
   mist-backend (8001)                              pnpm start:dev（MIST_MOCK_MODE=true）
-  monitoring exporter (9109)                       go run ./cmd/exporter
+  openobserve (5080)                              docker container（OTLP 后端）
 mock-drive.py -> bridge HTTP（扮演终端）
 ```
 
@@ -26,7 +26,6 @@ mock-drive.py -> bridge HTTP（扮演终端）
 - docker（仅 redis 容器，~50MB）
 - uv（mist-datasource 仓）
 - pnpm（mist 仓，需已 `pnpm install`）
-- go（mist-monitoring 仓）
 
 ## 使用
 
@@ -68,9 +67,9 @@ bash tools/mock-env/stop-mock.sh
 ## 调试
 
 - 日志：`tools/mock-env/.mock-pids/*.log`（tdx-datasource / qmt-datasource /
-  backend / monitoring）
+  backend / openobserve）
 - 三仓均可热重载/断点：backend 换 `pnpm start:debug`（node inspector），
-  datasource 换 `uv run uvicorn --reload`，monitoring 直接 go run
+  datasource 换 `uv run uvicorn --reload`，openobserve 是 docker 容器
 - 直接看 redis：`redis-cli`（容器内 `docker exec -it mist-mock-redis redis-cli`）
 
 ## 已知事项
@@ -79,23 +78,19 @@ bash tools/mock-env/stop-mock.sh
   `F:\quant\MistAPI\...`——run-mock.sh 已用 `MIST_QMT_SUBSCRIPTION_JOURNAL_PATH` 隔离到
   `.mock-pids/`（runtime 目录，gitignore）。早期版本未隔离时 journal 曾落到仓库根目录，
   已删除。
-- **exporter candle 契约漂移**：backend candle health 响应包含 exporter 未知字段，
-  exporter 报 `mist_realtime_candle_contract_violation_total{kind="unexpected_field"}`、
-  `mist_component_up{component="realtime-candles"}=0`。这是 monitoring 仓 schema
-  未同步（生产同样存在），需 monitoring 仓单独 change 修复；mock-env 不改 exporter 代码。
 - macOS Python 的 urllib 默认读系统代理设置——注入器/verify 已显式禁用代理，
   否则本地请求可能拿到过期响应。
 
 ## 验证闭环（跑通标准）
 
 1. 注入 → backend 收到帧（tdx/qmt 诊断 lastAcceptedAt 持续更新）
-2. `mock-verify.sh` 链路断言全绿（帧到达 + 聚合候选 + exporter 可达）
+2. `mock-verify.sh` 链路断言全绿（帧到达 + 聚合候选 + openobserve 可达）
 3. 交易时段：due 到期后 sealed 增长（verify 自动断言）
 4. 暂停注入 → sealed 停滞 → 恢复注入 → 自愈
 
 ## 边界
 
-- 不跑 prometheus（直接 curl exporter /metrics 验证）
+- 不跑 prometheus/exporter（直接 curl openobserve API 验证遥测）
 - 不做镜像 build、不做 compose、不碰 mist-deploy
 - 指标断言矩阵待指标梳理计划完成后扩展（本轮只锁链路级）
 - 订阅不模拟（终端/收敛/desired 管理都是真机行为；backend 订阅走真实 sync）

@@ -19,6 +19,7 @@ from qmt.routes.realtime import router as realtime_router
 from qmt.routes.v1 import router as v1_router
 from src.core.config import settings
 from src.core.logging import setup_logging
+from src.core.otel import configure_otel
 from src.datasource.qmt.provider import QmtDatasourceProvider
 from src.datasource.qmt.realtime.gateway import QmtCommandGateway
 from src.datasource.qmt.realtime.runtime import QmtRealtimeCollector
@@ -171,3 +172,4 @@ def create_qmt_app(
 
 
 app = create_qmt_app()
+configure_otel(app, "qmt-datasource")
