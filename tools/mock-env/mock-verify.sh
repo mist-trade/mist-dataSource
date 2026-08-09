@@ -135,4 +135,18 @@ echo "$OO_BC"
 BC_COUNT=$(echo "$OO_BC" | grep -c "ws.broadcast | tdx-datasource" || true)
 [ "$BC_COUNT" -ge 1 ] || { echo "FAIL: ws.broadcast span not found in OpenObserve"; exit 1; }
 
+# 3. backend candle pipeline spans (O1): snapshot process root span
+echo "  querying candle.snapshot.process spans..."
+OO_SNAP=$(query_oo_traces "select * from 'default' where operation_name = 'candle.snapshot.process' order by _timestamp desc limit 5")
+echo "$OO_SNAP"
+SNAP_OK=$(echo "$OO_SNAP" | grep -c "candle.snapshot.process | mist-backend | OK" || true)
+[ "$SNAP_OK" -ge 1 ] || { echo "FAIL: candle.snapshot.process OK span not found in OpenObserve"; exit 1; }
+
+# 4. backend pino logs must carry the active span's trace_id (pinoTraceMixin)
+echo "  checking backend.log trace_id on candle ingest logs..."
+PID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.mock-pids"
+TRACE_ID_LOGS=$(grep -c '"trace_id"' "$PID_DIR/backend.log" || true)
+[ "$TRACE_ID_LOGS" -ge 1 ] || { echo "FAIL: no trace_id on backend logs (pinoTraceMixin not active?)"; exit 1; }
+echo "  backend.log trace_id records: $TRACE_ID_LOGS"
+
 echo "OK"
