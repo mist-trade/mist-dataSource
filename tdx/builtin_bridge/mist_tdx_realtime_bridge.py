@@ -47,6 +47,22 @@ RETRY_MAX_SECONDS = 5.0
 RECONCILE_BATCH = 50
 DIRTY_QUEUE_MAX = 200
 
+# C2b event-driven snapshot pull: quote callbacks signal dirty, the quote
+# thread pulls immediately (no 3s polling for snapshots). Debounce merges
+# callback storms into one pull per symbol.
+SNAPSHOT_MIN_INTERVAL_SECONDS = float(
+    os.environ.get("MIST_TDX_SNAPSHOT_MIN_INTERVAL_SECONDS", "0.3")
+)
+OBSERVABILITY_INTERVAL_SECONDS = 30.0
+
+# E transport: persistent TCP (default) or legacy HTTP POST.
+MIST_TDX_TRANSPORT = os.environ.get("MIST_TDX_TRANSPORT", "tcp")  # tcp|http
+MIST_TDX_TCP_HOST = os.environ.get("MIST_TDX_TCP_HOST", "127.0.0.1")
+MIST_TDX_TCP_PORT = int(os.environ.get("MIST_TDX_TCP_PORT", "9003"))
+
+# Event-driven wake-up for snapshot pulls (C2b, no polling fallback).
+DIRTY_EVENT = threading.Event()
+
 # Contract tuple (must match gateway ACCEPTED_* constants).
 ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 SCHEMA_VERSION = 2
@@ -283,6 +299,74 @@ def _format_code(raw: str) -> str:
     return raw
 
 
+def _pull_and_push(
+    tq_wrapper: TqCenterWrapper,
+    owner: BridgeOwner,
+    dirty_queue: DirtySymbolQueue,
+    sender,
+    counters: dict,
+) -> None:
+    """C2b/E event-driven snapshot pull + push (single pass, no polling).
+
+    Called from the main loop when DIRTY_EVENT is set: pulls the authoritative
+    snapshot for every dirty symbol and pushes it over the active transport.
+    Missing/invalid snapshots and send failures are counted, never replayed —
+    latest-state semantics (intermediate frames are irrelevant downstream).
+    """
+    dirty = dirty_queue.swap_and_clear()
+    if not dirty:
+        return
+    for code in dirty:
+        counters["fetch_count"] += 1
+        start = time.monotonic()
+        native = tq_wrapper.get_market_snapshot(code)
+        counters["fetch_ms_total"] += (time.monotonic() - start) * 1000
+        if native is None:
+            counters["fetch_none"] += 1
+            continue
+        captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        captured_at += _tz_offset_suffix()
+        if MIST_TDX_TRANSPORT == "tcp":
+            frame = {
+                "type": "snapshot",
+                "symbol": code,
+                "capturedAt": captured_at,
+                "native": native,
+            }
+            if not sender.send(frame):
+                counters["send_dropped"] += 1
+        else:
+            snapshot_body = {
+                **owner.request_identity(),
+                "symbol": code,
+                "capturedAt": captured_at,
+                "native": native,
+            }
+            try:
+                _post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)
+            except urllib.error.URLError:
+                counters["send_dropped"] += 1
+
+
+def _send_observability(owner: BridgeOwner, sender, counters: dict) -> None:
+    """Push bridge-side counters to the datasource observability endpoint.
+
+    The bridge has no OTel SDK (terminal stdlib-only); counters ride the
+    existing HTTP path and become OTel metrics on the datasource side.
+    Observability loss is acceptable — never raise.
+    """
+    try:
+        body = {
+            **owner.request_identity(),
+            "intervalSeconds": OBSERVABILITY_INTERVAL_SECONDS,
+            "counters": dict(counters),
+            "sender": sender.snapshot() if sender is not None else None,
+        }
+        _post_json(BRIDGE_ENDPOINT + "/observability", body)
+    except Exception:
+        pass
+
+
 def run_bridge() -> None:
     """Main bridge loop. Registers, reconciles subscriptions, fetches snapshots."""
     tq_wrapper = TqCenterWrapper()
@@ -291,13 +375,16 @@ def run_bridge() -> None:
     dirty_queue = DirtySymbolQueue()
     owner = BridgeOwner()
 
-    # subscribe_hq callback: mark dirty ONLY.
+    # subscribe_hq callback: mark dirty ONLY (C0.1 invariant) + wake the
+    # quote worker. The callback payload carries no market data.
     def on_quote_update(data_str: str) -> None:
         try:
             data = json.loads(data_str)
             code = data.get("Code")
             if code:
                 dirty_queue.mark_dirty(_format_code(code))
+                DIRTY_EVENT.set()
+                counters["callback_count"] += 1
         except Exception:
             pass  # Never raise in callback.
 
@@ -310,9 +397,48 @@ def run_bridge() -> None:
             print(f"[mist-bridge] registration error: {e}")
         time.sleep(owner.registration_retry_seconds)
 
+    # E: persistent TCP transport (default) — register once, then push frames.
+    sender = None
+    if MIST_TDX_TRANSPORT == "tcp":
+        from socket_sender import SocketSender
+
+        sender = SocketSender(MIST_TDX_TCP_HOST, MIST_TDX_TCP_PORT)
+        register_frame = {
+            "type": "register",
+            "provider": "tdx",
+            **owner.request_identity(),
+            "bridgeBuildId": BRIDGE_BUILD_ID,
+            "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+            "acquisitionProfile": ACQUISITION_PROFILE,
+            "schemaVersion": SCHEMA_VERSION,
+        }
+        if not sender.connect(register_frame):
+            print("[mist-bridge] TCP connect failed; retrying on first send")
+
+    # C2b: event-driven snapshot pull (no polling fallback for snapshots).
+    counters = {
+        "callback_count": 0,
+        "fetch_count": 0,
+        "fetch_ms_total": 0,
+        "fetch_none": 0,
+        "send_dropped": 0,
+    }
+    last_obs_at = time.monotonic()
+
     print("[mist-bridge] starting main loop")
     while True:
         try:
+            # 0. Event-driven snapshot pull: quote callbacks set DIRTY_EVENT.
+            if DIRTY_EVENT.is_set():
+                DIRTY_EVENT.clear()
+                # Debounce merges callback storms into one pull per symbol.
+                time.sleep(SNAPSHOT_MIN_INTERVAL_SECONDS)
+                _pull_and_push(tq_wrapper, owner, dirty_queue, sender, counters)
+                now = time.monotonic()
+                if now - last_obs_at >= OBSERVABILITY_INTERVAL_SECONDS:
+                    _send_observability(owner, sender, counters)
+                    last_obs_at = now
+
             # 1. Poll desired state.
             poll_resp = _post_json(
                 BRIDGE_ENDPOINT + "/poll",
@@ -425,29 +551,11 @@ def run_bridge() -> None:
             elif result_resp.get("retryable"):
                 time.sleep(_retry_delay_seconds(result_resp, result_resp.get("retryAttempt", 1)))
 
-            # 4. Fetch dirty symbols and POST snapshots.
-            dirty = dirty_queue.swap_and_clear()
-            # Only fetch symbols that are in the converged set.
-            converged = set(desired_symbols) if result_resp.get("converged") else set()
-            to_fetch = dirty & converged
-            for code in to_fetch:
-                native = tq_wrapper.get_market_snapshot(code)
-                if native is None:
-                    continue
-                captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
-                captured_at += _tz_offset_suffix()
-                snapshot_body = {
-                    **owner.request_identity(),
-                    "symbol": code,
-                    "capturedAt": captured_at,
-                    "native": native,
-                }
-                try:
-                    _post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)
-                except urllib.error.URLError as e:
-                    print(f"[mist-bridge] snapshot POST dropped for {code}: {e}")
-
-            time.sleep(POLL_INTERVAL_SECONDS)
+            # Snapshot fetching is event-driven (step 0): quote callbacks set
+            # DIRTY_EVENT; the reconcile cadence below stays periodic because
+            # subscription control is not market-event driven. Wait for the
+            # next reconcile tick OR a quote event — never sleep blindly.
+            DIRTY_EVENT.wait(timeout=POLL_INTERVAL_SECONDS)
 
         except KeyboardInterrupt:
             print("[mist-bridge] shutting down...")

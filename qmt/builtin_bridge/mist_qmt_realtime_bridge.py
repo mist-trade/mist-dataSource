@@ -10,7 +10,6 @@ import datetime
 import hashlib
 import json
 import os
-import queue
 import time
 import traceback
 import urllib.error
@@ -69,21 +68,28 @@ class BridgeState:
     lease_token: str
     generation: int
     started_at: str
-    snapshot_queue: Any
-    pending_by_symbol: Dict[str, int]
-    pending_bytes: int
+    # E: per-symbol latest-value slots (no business queue — a new callback
+    # overwrites the pending slot for that symbol; the bridge never buffers).
+    latest: Dict[str, Any]
+    sender: Any
+    callback_count: int
+    merged_count: int
+    send_dropped: int
+    send_failures: int
     callback_holders: Dict[int, Dict[str, Any]]
 
 
-SNAPSHOT_QUEUE_MAX_ITEMS = 128
-SNAPSHOT_QUEUE_MAX_PER_SYMBOL = 16
-SNAPSHOT_QUEUE_MAX_BYTES = 4 * 1024 * 1024
 SNAPSHOT_ITEM_MAX_BYTES = 256 * 1024
-SNAPSHOT_ITEM_MAX_AGE_SECONDS = 5
 SNAPSHOT_MAX_DEPTH = 8
 SNAPSHOT_MAX_COLLECTION_ITEMS = 256
-SNAPSHOT_DRAIN_MAX_PER_TICK = 8
 BOUNDED_LOG_TEXT = 300
+
+# E transport: persistent TCP (default) or legacy HTTP POST.
+QMT_BRIDGE_TRANSPORT = os.environ.get("QMT_BRIDGE_TRANSPORT", "tcp")  # tcp|http
+QMT_TCP_HOST = os.environ.get("QMT_TCP_HOST", "127.0.0.1")
+QMT_TCP_PORT = int(os.environ.get("QMT_TCP_PORT", "9004"))
+# Observability frame every N ticks (1s tick -> every 30s).
+OBSERVABILITY_TICK_INTERVAL = 30
 
 STATE = BridgeState()
 STATE.owner_id = "bigqmt-" + str(os.getpid())
@@ -95,9 +101,12 @@ STATE.last_error = ""
 STATE.last_poll_at = ""
 STATE.lease_token = ""
 STATE.generation = 0
-STATE.snapshot_queue = queue.Queue(maxsize=SNAPSHOT_QUEUE_MAX_ITEMS)
-STATE.pending_by_symbol = {}
-STATE.pending_bytes = 0
+STATE.latest = {}
+STATE.sender = None
+STATE.callback_count = 0
+STATE.merged_count = 0
+STATE.send_dropped = 0
+STATE.send_failures = 0
 STATE.callback_holders = {}
 
 BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v2.0"
@@ -126,6 +135,7 @@ def init(ContextInfo: BridgeContextInfo) -> None:
         STATE.started_at = start_time
         ContextInfo.run_time("mist_qmt_realtime_bridge_tick", "1nSecond", start_time)
         _register_owner()
+        _init_sender()
         _log_control(
             "build",
             0,
@@ -141,8 +151,33 @@ def init(ContextInfo: BridgeContextInfo) -> None:
         print("mist_qmt_realtime_bridge schedule error " + STATE.last_error[:BOUNDED_LOG_TEXT])
 
 
+def _init_sender() -> None:
+    """E: open the persistent TCP connection and register (best effort)."""
+    if QMT_BRIDGE_TRANSPORT != "tcp":
+        return
+    try:
+        from socket_sender import SocketSender
+
+        STATE.sender = SocketSender(QMT_TCP_HOST, QMT_TCP_PORT)
+        STATE.sender.connect(
+            {
+                "type": "register",
+                "provider": "qmt",
+                "ownerId": STATE.owner_id,
+                "leaseToken": STATE.lease_token,
+                "generation": STATE.generation,
+                "bridgeBuildId": BRIDGE_BUILD_ID,
+                "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+            }
+        )
+    except Exception as exc:
+        # Sender is optional: a failure falls back to the HTTP transport.
+        # Not recorded in STATE.last_error (that is reserved for fatal paths).
+        print("mist_qmt_realtime_bridge sender init error " + str(exc))
+
+
 def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
-    """Poll history/control once and drain bounded callback observations."""
+    """Poll history/control once and flush pending latest snapshots."""
     try:
         STATE.tick_count += 1
         STATE.last_poll_at = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -150,11 +185,34 @@ def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
             _register_owner()
         history_count = _poll_history(ContextInfo)
         control_count = _poll_subscription_control(ContextInfo)
-        drained_count = _drain_snapshot_queue()
-        _log_tick(history_count, control_count, drained_count)
+        flushed_count = _flush_latest()
+        if STATE.tick_count % OBSERVABILITY_TICK_INTERVAL == 0:
+            _send_observability()
+        _log_tick(history_count, control_count, flushed_count)
     except Exception:
         STATE.last_error = traceback.format_exc()
         _log_tick(0, 0, 0)
+
+
+def _send_observability() -> None:
+    """Push bridge counters to the datasource observability endpoint (E-0)."""
+    try:
+        payload = {
+            "ownerId": STATE.owner_id,
+            "leaseToken": STATE.lease_token,
+            "generation": STATE.generation,
+            "intervalSeconds": float(OBSERVABILITY_TICK_INTERVAL),
+            "counters": {
+                "callback_count": STATE.callback_count,
+                "merged_count": STATE.merged_count,
+                "send_dropped": STATE.send_dropped,
+                "send_failures": STATE.send_failures,
+            },
+            "sender": STATE.sender.snapshot() if STATE.sender is not None else None,
+        }
+        _post_json(STATE.gateway_url + "/observability", payload)
+    except Exception:
+        pass  # observability loss is acceptable
 
 
 def _poll_history(ContextInfo: BridgeContextInfo) -> int:
@@ -356,6 +414,12 @@ def _make_subscription_callback(holder: Dict[str, Any]) -> Any:
 
 
 def _enqueue_callback_snapshot(subscription_id: int, native_value: Any) -> None:
+    """E: store the latest snapshot per symbol (single-slot overwrite).
+
+    No business queue — the bridge never buffers. A new callback replaces the
+    pending slot for its symbols; `merged_count` tracks replaced slots. The
+    1s tick flushes whatever is pending (latest-state semantics).
+    """
     if not isinstance(native_value, dict):
         _bounded_diagnostic("callback_invalid", "native callback is not an object")
         return
@@ -379,74 +443,65 @@ def _enqueue_callback_snapshot(subscription_id: int, native_value: Any) -> None:
             _bounded_diagnostic("callback_entry_dropped", symbol + ": " + str(exc))
     if not accepted:
         return
-    encoded = json.dumps(accepted, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    item_bytes = len(encoded)
-    if item_bytes > SNAPSHOT_ITEM_MAX_BYTES:
-        _bounded_diagnostic("callback_dropped", "callback map exceeds byte limit")
-        return
-    for symbol in accepted_symbols:
-        if STATE.pending_by_symbol.get(symbol, 0) >= SNAPSHOT_QUEUE_MAX_PER_SYMBOL:
-            _bounded_diagnostic("callback_dropped", "per-symbol queue limit")
-            return
-    if STATE.pending_bytes + item_bytes > SNAPSHOT_QUEUE_MAX_BYTES:
-        _bounded_diagnostic("callback_dropped", "global byte limit")
-        return
     item = {
         "subscriptionId": subscription_id,
         "capturedAt": datetime.datetime.now().astimezone().isoformat(),
         "native": accepted,
-        "_queuedAt": time.time(),
-        "_bytes": item_bytes,
-        "_symbols": accepted_symbols,
     }
-    try:
-        STATE.snapshot_queue.put_nowait(item)
-    except queue.Full:
-        _bounded_diagnostic("callback_dropped", "global item limit")
-        return
-    STATE.pending_bytes += item_bytes
+    # E: per-symbol latest slot — overwrite, never buffer. CPython dict
+    # writes are atomic under the GIL; a concurrent flush may defer one slot
+    # by one tick (latest-state semantics tolerate that).
     for symbol in accepted_symbols:
-        STATE.pending_by_symbol[symbol] = STATE.pending_by_symbol.get(symbol, 0) + 1
+        if symbol in STATE.latest:
+            STATE.merged_count += 1
+        STATE.latest[symbol] = item
+    STATE.callback_count += 1
 
 
-def _drain_snapshot_queue() -> int:
-    drained = 0
-    for _ in range(SNAPSHOT_DRAIN_MAX_PER_TICK):
-        try:
-            item = STATE.snapshot_queue.get_nowait()
-        except queue.Empty:
-            break
-        _release_queue_accounting(item)
-        if time.time() - float(item.get("_queuedAt", 0)) > SNAPSHOT_ITEM_MAX_AGE_SECONDS:
-            _bounded_diagnostic("snapshot_dropped", "snapshot exceeded age limit")
+def _flush_latest() -> int:
+    """E: send every pending latest slot (deduplicated by callback item).
+
+    Called from the 1s QMT runtime tick — the tick is the send cadence, not a
+    poll. Send failures drop the frame (latest-state; counted for the
+    observability frame).
+    """
+    items = list(STATE.latest.values())
+    STATE.latest = {}
+    sent = 0
+    seen = set()
+    for item in items:
+        if id(item) in seen:
             continue
-        payload = {
-            "ownerId": STATE.owner_id,
-            "leaseToken": STATE.lease_token,
-            "generation": STATE.generation,
-            "subscriptionId": item.get("subscriptionId"),
-            "capturedAt": item.get("capturedAt"),
-            "native": item.get("native"),
-        }
+        seen.add(id(item))
+        if _send_item(item):
+            sent += 1
+    return sent
+
+
+def _send_item(item: Mapping[str, Any]) -> bool:
+    payload = {
+        "ownerId": STATE.owner_id,
+        "leaseToken": STATE.lease_token,
+        "generation": STATE.generation,
+        "subscriptionId": item.get("subscriptionId"),
+        "capturedAt": item.get("capturedAt"),
+        "native": item.get("native"),
+    }
+    if QMT_BRIDGE_TRANSPORT == "tcp":
+        frame = {"type": "snapshot"}
+        frame.update(payload)
+        if STATE.sender is not None and STATE.sender.send(frame):
+            return True
+        STATE.send_dropped += 1
+        return False
+    try:
         response = _post_json(STATE.gateway_url + "/subscriptions/snapshot", payload)
         if _lease_rejected(response):
             STATE.lease_token = ""
-        drained += 1
-    return drained
-
-
-def _release_queue_accounting(item: Mapping[str, Any]) -> None:
-    STATE.pending_bytes = max(0, STATE.pending_bytes - int(item.get("_bytes", 0)))
-    symbols = item.get("_symbols", [])
-    if not isinstance(symbols, list):
-        return
-    for symbol_value in symbols:
-        symbol = str(symbol_value)
-        remaining = max(0, STATE.pending_by_symbol.get(symbol, 0) - 1)
-        if remaining:
-            STATE.pending_by_symbol[symbol] = remaining
-        else:
-            STATE.pending_by_symbol.pop(symbol, None)
+        return True
+    except Exception:
+        STATE.send_dropped += 1
+        return False
 
 
 def _bounded_copy(value: Any, depth: int) -> Any:

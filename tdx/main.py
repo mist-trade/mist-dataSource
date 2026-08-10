@@ -5,6 +5,7 @@ port 17709. Realtime defaults to ``builtin`` and is omitted only when an
 operator explicitly selects ``off`` for rollback.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from typing import Any, Literal, cast
@@ -61,9 +62,39 @@ def create_tdx_app(
 
     @asynccontextmanager
     async def lifespan(_target: FastAPI) -> AsyncGenerator[None]:
+        tcp_server: asyncio.AbstractServer | None = None
+        if mode == "builtin" and app_gateway is not None and app_manager is not None:
+            # E: persistent TCP ingestion for bridge frames (change E).
+            from src.datasource.realtime_tcp import serve as serve_realtime_tcp
+            from src.ws.protocol import ws_realtime_snapshot
+
+            async def ingest_tdx(frame: dict[str, Any]) -> None:
+                if app_gateway is None or app_manager is None:
+                    return
+                result = await app_gateway.post_snapshot(
+                    lease_token=frame["leaseToken"],
+                    stream_epoch=frame["streamEpoch"],
+                    symbol=frame["symbol"],
+                    captured_at=frame["capturedAt"],
+                    native=frame["native"],
+                )
+                if result.get("accepted"):
+                    await app_manager.broadcast(
+                        ws_realtime_snapshot("tdx", result["frame"])
+                    )
+
+            tcp_server = await serve_realtime_tcp(
+                host=settings.tdx.realtime_tcp_host,
+                port=settings.tdx.realtime_tcp_port,
+                provider="tdx",
+                ingest=ingest_tdx,
+            )
         try:
             yield
         finally:
+            if tcp_server is not None:
+                tcp_server.close()
+                await tcp_server.wait_closed()
             if owns_provider:
                 await app_provider.aclose()
 

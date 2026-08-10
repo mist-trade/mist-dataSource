@@ -5,6 +5,7 @@ memory-only realtime transport defaults to ``builtin`` and is mounted unless
 an operator explicitly selects ``off`` for rollback.
 """
 
+import asyncio
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -121,9 +122,36 @@ def create_qmt_app(
         )
         if active_collector is not None:
             await active_collector.start()
+        tcp_server: asyncio.AbstractServer | None = None
+        subscription_controller = getattr(
+            target_app.state, "qmt_subscription_controller", None
+        )
+        if mode == "builtin" and subscription_controller is not None:
+            # E: persistent TCP ingestion for bridge frames (change E).
+            from src.datasource.realtime_tcp import serve as serve_realtime_tcp
+
+            async def ingest_qmt(frame: dict[str, Any]) -> None:
+                await subscription_controller.accept_snapshot(
+                    frame["ownerId"],
+                    frame["leaseToken"],
+                    frame["generation"],
+                    frame["subscriptionId"],
+                    frame["capturedAt"],
+                    frame["native"],
+                )
+
+            tcp_server = await serve_realtime_tcp(
+                host=settings.qmt.realtime_tcp_host,
+                port=settings.qmt.realtime_tcp_port,
+                provider="qmt",
+                ingest=ingest_qmt,
+            )
         try:
             yield
         finally:
+            if tcp_server is not None:
+                tcp_server.close()
+                await tcp_server.wait_closed()
             if active_collector is not None:
                 await active_collector.stop()
 

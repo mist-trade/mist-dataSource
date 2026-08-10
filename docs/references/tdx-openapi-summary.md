@@ -41,6 +41,15 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Parameters: -
 - Responses: 200: TdxBridgeHealth
 
+## POST /tdx/bridge/observability
+
+- Operation ID: `post_observability_tdx_bridge_observability_post`
+- Tags: TDX Bridge
+- Summary: Post Observability
+- Request Body: `ObservabilityRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
 ## POST /tdx/bridge/owner
 
 - Operation ID: `register_owner_tdx_bridge_owner_post`
@@ -405,6 +414,7 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 
 - `FormulaCallRequest`
 - `HTTPValidationError`
+- `ObservabilityRequest`
 - `OwnerRegisterRequest`
 - `PollRequest`
 - `RawTdxCallRequest`

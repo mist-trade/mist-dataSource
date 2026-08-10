@@ -17,6 +17,9 @@ class TDXSettings(BaseSettings):
     max_subscriptions: int = 100
     formula_timeout_ms: int = 10000
     realtime_mode: Literal["off", "builtin"] = "builtin"
+    # E: persistent TCP ingestion endpoint for bridge frames.
+    realtime_tcp_host: str = "0.0.0.0"
+    realtime_tcp_port: int = 9003
 
 
 class QMTSettings(BaseSettings):
@@ -29,6 +32,9 @@ class QMTSettings(BaseSettings):
     port: int = 9002
     bridge_gateway_url: str = "http://127.0.0.1:9002/qmt/bridge"
     realtime_mode: Literal["off", "builtin"] = "builtin"
+    # E: persistent TCP ingestion endpoint for bridge frames.
+    realtime_tcp_host: str = "0.0.0.0"
+    realtime_tcp_port: int = 9004
 
 
 class AppSettings(BaseSettings):

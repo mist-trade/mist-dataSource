@@ -120,8 +120,9 @@ def test_runtime_introspection_reports_missing_active_subscription_inventory() -
     }
 
 
-def test_callback_only_enqueues_and_runtime_drain_posts_one_complete_map() -> None:
+def test_callback_stores_latest_slot_and_runtime_flush_posts_one_complete_map() -> None:
     namespace = _bridge_namespace()
+    namespace["QMT_BRIDGE_TRANSPORT"] = "http"
     posted: list[tuple[str, dict[str, Any]]] = []
     namespace["_post_json"] = lambda url, payload: posted.append((url, dict(payload))) or {}
 
@@ -150,10 +151,12 @@ def test_callback_only_enqueues_and_runtime_drain_posts_one_complete_map() -> No
             "600030.SH": {"lastPrice": 20.5, "bidPrice": [20.4]},
         }
     )
+    # E: single-slot latest per symbol — no business queue, nothing posted yet.
     assert posted == []
-    assert namespace["STATE"].snapshot_queue.qsize() == 1
+    assert set(namespace["STATE"].latest) == {"300502.SZ", "600030.SH"}
 
-    assert namespace["_drain_snapshot_queue"]() == 1
+    # Flush deduplicates the shared callback item into one POST.
+    assert namespace["_flush_latest"]() == 1
     assert len(posted) == 1
     url, payload = posted[0]
     assert url.endswith("/subscriptions/snapshot")
@@ -170,12 +173,14 @@ def test_callback_only_enqueues_and_runtime_drain_posts_one_complete_map() -> No
         "300502.SZ": {"lastPrice": 10.5, "bidPrice": [10.4]},
         "600030.SH": {"lastPrice": 20.5, "bidPrice": [20.4]},
     }
+    # Flushed: slots cleared, no second POST.
+    assert namespace["STATE"].latest == {}
+    assert namespace["_flush_latest"]() == 0
+    assert len(posted) == 1
 
 
-def test_callback_drops_only_unsafe_entry_and_contains_queue_overflow() -> None:
+def test_callback_drops_unsafe_entry_and_latest_slot_overwrites() -> None:
     namespace = _bridge_namespace()
-    namespace["STATE"].snapshot_queue = queue.Queue(maxsize=1)
-    namespace["STATE"].snapshot_queue.put_nowait({"already": "full"})
 
     class Unsafe:
         pass
@@ -187,19 +192,21 @@ def test_callback_drops_only_unsafe_entry_and_contains_queue_overflow() -> None:
             "600030.SH": Unsafe(),
         },
     )
+    # Unsafe entry rejected; safe symbol stored in its latest slot.
+    assert set(namespace["STATE"].latest) == {"300502.SZ"}
+    item = namespace["STATE"].latest["300502.SZ"]
+    assert item["native"] == {"300502.SZ": {"lastPrice": 10.5}}
 
-    assert namespace["STATE"].snapshot_queue.qsize() == 1
-
-    namespace["STATE"].snapshot_queue = queue.Queue(maxsize=2)
+    # A newer callback overwrites the slot (no queue growth) and counts a merge.
     namespace["_enqueue_callback_snapshot"](
         7,
-        {
-            "300502.SZ": {"lastPrice": 10.5},
-            "600030.SH": Unsafe(),
-        },
+        {"300502.SZ": {"lastPrice": 10.6}},
     )
-    item = namespace["STATE"].snapshot_queue.get_nowait()
-    assert item["native"] == {"300502.SZ": {"lastPrice": 10.5}}
+    assert set(namespace["STATE"].latest) == {"300502.SZ"}
+    assert namespace["STATE"].merged_count == 1
+    assert namespace["STATE"].latest["300502.SZ"]["native"] == {
+        "300502.SZ": {"lastPrice": 10.6}
+    }
 
 
 def test_bridge_contains_missing_method_exception_and_unknown_command_fields() -> None:

@@ -885,6 +885,20 @@ class TdxRealtimeGateway:
 
     # --- helpers -------------------------------------------------------
 
+    async def owner_matches(self, lease_token: str, stream_epoch: str) -> bool:
+        """Return whether the pair identifies the active owner (non-raising).
+
+        Used by auxiliary endpoints (e.g. observability) that must reject
+        stray peers without consuming the snapshot pipeline.
+        """
+        async with self._lock:
+            owner = self._owner
+            return bool(
+                owner is not None
+                and secrets.compare_digest(owner.lease_token, lease_token)
+                and secrets.compare_digest(owner.stream_epoch, stream_epoch)
+            )
+
     def _require_owner_locked(self, lease_token: str) -> BridgeOwner:
         """Validate lease — MUST be called while holding self._lock.
 

@@ -72,7 +72,7 @@ def test_builtin_bridge_uses_run_time_to_drain_native_subscription_callbacks() -
     assert "subscribe_quote" in source
     assert "subscribe_whole_quote" in source
     assert "unsubscribe_quote" in source
-    assert "_drain_snapshot_queue()" in source
+    assert "_flush_latest()" in source
 
 
 def test_builtin_bridge_loads_when_qmt_does_not_define_dunder_file() -> None:

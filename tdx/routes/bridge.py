@@ -9,6 +9,7 @@ Mounted only when ``TDX_REALTIME_MODE=builtin``.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -81,6 +82,16 @@ class SnapshotRequest(StrictRequestModel):
             "Amount keys must contain unsigned ASCII decimal strings with scale <= 8."
         )
     )
+
+
+class ObservabilityRequest(StrictRequestModel):
+    """Bridge-side counters for E-0 throughput observation (no OTel in terminal)."""
+
+    leaseToken: str
+    streamEpoch: str
+    intervalSeconds: float = 30.0
+    counters: dict[str, float]
+    sender: dict[str, Any] | None = None
 
 
 # --- helpers ------------------------------------------------------------
@@ -219,6 +230,38 @@ async def post_snapshot(body: SnapshotRequest, request: Request) -> dict[str, An
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "TDX_BRIDGE_DECODE_ERROR", "message": str(exc)},
         ) from exc
+
+
+@router.post("/tdx/bridge/observability")
+async def post_observability(
+    body: ObservabilityRequest, request: Request
+) -> dict[str, Any]:
+    """Accept bridge-side counters (E-0) and surface them as a log line.
+
+    The terminal bridge has no OTel SDK; this endpoint is its observability
+    channel into the datasource's OpenObserve log stream.
+    """
+    _require_loopback(request)
+    gateway = _get_gateway(request)
+    # Validate the owner identity so a stray peer cannot inject counters.
+    if not await gateway.owner_matches(body.leaseToken, body.streamEpoch):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_gateway_error(
+                GatewayError(
+                    "TDX_BRIDGE_OWNER_MISMATCH",
+                    "observability lease/epoch does not match the active owner",
+                    retryable=False,
+                )
+            ),
+        )
+    _log.info(
+        "bridge observability source=tdx interval=%s counters=%s sender=%s",
+        body.intervalSeconds,
+        json.dumps(body.counters, sort_keys=True),
+        json.dumps(body.sender, sort_keys=True) if body.sender else "none",
+    )
+    return {"accepted": True}
 
 
 @router.get("/tdx/bridge/health", response_model=TdxBridgeHealth)

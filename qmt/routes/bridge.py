@@ -1,5 +1,6 @@
 """Full-QMT command bridge routes."""
 
+import json
 import math
 from typing import Annotated, Any, Literal, cast
 
@@ -111,6 +112,14 @@ class SubscriptionSnapshotRequest(SubscriptionLeaseRequest):
     subscription_id: StrictInt = Field(alias="subscriptionId")
     captured_at: str = Field(alias="capturedAt")
     native: dict[str, Any]
+
+
+class ObservabilityRequest(BridgeModel):
+    """Bridge-side counters for E-0 throughput observation (no OTel in terminal)."""
+
+    interval_seconds: float = Field(default=30.0, alias="intervalSeconds")
+    counters: dict[str, float]
+    sender: dict[str, Any] | None = None
 
 
 def _get_gateway_from_state(state: Any) -> QmtCommandGateway:
@@ -365,6 +374,30 @@ async def post_subscription_snapshot(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except QmtSubscriptionControlError as exc:
         raise HTTPException(status_code=422, detail=exc.reason) from exc
+
+
+@router.post("/observability")
+async def post_observability(
+    payload: ObservabilityRequest, request: Request
+) -> dict[str, Any]:
+    """Accept bridge-side counters (E-0) and surface them as a log line.
+
+    Loopback-only; the counters carry no sensitive data, so owner validation
+    is intentionally omitted (unlike TDX, the QMT controller exposes no public
+    identity check for auxiliary endpoints).
+    """
+    try:
+        _require_loopback(request)
+    except HTTPException:
+        _log.warning("observability reject source=qmt reason=not_loopback")
+        raise
+    _log.info(
+        "bridge observability source=qmt interval=%s counters=%s sender=%s",
+        payload.interval_seconds,
+        payload.counters,
+        json.dumps(payload.sender, sort_keys=True) if payload.sender else "none",
+    )
+    return {"accepted": True}
 
 
 @router.get("/health", response_model=QmtBridgeHealth)
