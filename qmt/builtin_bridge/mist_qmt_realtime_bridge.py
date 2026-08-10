@@ -6,10 +6,13 @@ poll/result transport. Realtime observations come only from native subscription
 callbacks and are drained by the scheduled QMT runtime function.
 """
 
+import contextlib
 import datetime
 import hashlib
 import json
 import os
+import socket
+import struct
 import time
 import traceback
 import urllib.error
@@ -91,9 +94,7 @@ OBSERVABILITY_TICK_INTERVAL = 30
 
 STATE = BridgeState()
 STATE.owner_id = "bigqmt-" + str(os.getpid())
-STATE.gateway_url = os.environ.get(
-    "QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge"
-)
+STATE.gateway_url = os.environ.get("QMT_BRIDGE_GATEWAY_URL", "http://127.0.0.1:9002/qmt/bridge")
 STATE.tick_count = 0
 STATE.last_error = ""
 STATE.last_poll_at = ""
@@ -148,13 +149,109 @@ def init(ContextInfo: BridgeContextInfo) -> None:
         print("mist_qmt_realtime_bridge schedule error " + STATE.last_error[:BOUNDED_LOG_TEXT])
 
 
+# --- persistent TCP sender (inlined: the terminal loads a single script) ---
+
+FRAME_MAX_BYTES = 64 * 1024  # gateway native safety cap (64KiB)
+RECONNECT_BACKOFF_BASE_SECONDS = 0.5
+RECONNECT_BACKOFF_MAX_SECONDS = 5.0
+CONNECT_TIMEOUT_SECONDS = 3.0
+
+
+class SocketSender:
+    """One persistent TCP connection to the datasource realtime gateway.
+
+    Lock-free by design (owner decision, 2026-08-10): the callback context and
+    the main loop / tick may race on `_sock`, but every mutation is a GIL-
+    atomic attribute/dict write and a torn send surfaces as a caught OSError
+    -> dropped-frame counter. latest-state semantics tolerate the loss.
+    """
+
+    def __init__(self, host: str, port: int) -> None:
+        self._host = host
+        self._port = port
+        self._sock = None
+        self._register_payload = None
+        self.reconnects = 0
+        self.send_failures = 0
+        self.dropped_frames = 0
+
+    def connect(self, register_payload: dict) -> bool:
+        """Open the persistent connection and send the register frame."""
+        self._register_payload = register_payload
+        return self._connect()
+
+    def _connect(self) -> bool:
+        self._close()
+        try:
+            sock = socket.create_connection(
+                (self._host, self._port), timeout=CONNECT_TIMEOUT_SECONDS
+            )
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._sock = sock
+            if self._register_payload is not None:
+                self._send_frame(self._register_payload)
+            self.reconnects += 1
+            return True
+        except Exception:
+            self._close()
+            return False
+
+    def close(self) -> None:
+        self._close()
+
+    def _close(self) -> None:
+        if self._sock is not None:
+            with contextlib.suppress(Exception):
+                self._sock.close()
+            self._sock = None
+
+    def send(self, frame: dict) -> bool:
+        """Write one frame — non-blocking semantics for callback contexts.
+
+        A broken connection (or a race with a reconnect) drops the frame with
+        a counter; the main loop / tick reconnects. Never blocks on connect.
+        """
+        if self._sock is None:
+            self.dropped_frames += 1
+            return False
+        try:
+            self._send_frame(frame)
+            return True
+        except Exception:
+            self.send_failures += 1
+            self._close()
+            self.dropped_frames += 1
+            return False
+
+    def reconnect_if_needed(self, _register_payload: dict) -> bool:
+        """Reconnect when the socket is gone. Main-loop/tick context only."""
+        if self._sock is None:
+            return self._connect()
+        return True
+
+    def snapshot(self) -> dict:
+        return {
+            "connected": self._sock is not None,
+            "reconnects": self.reconnects,
+            "sendFailures": self.send_failures,
+            "droppedFrames": self.dropped_frames,
+        }
+
+    def _send_frame(self, frame: dict) -> None:
+        data = json.dumps(frame, separators=(",", ":")).encode("utf-8")
+        if len(data) > FRAME_MAX_BYTES:
+            raise ValueError(f"frame exceeds {FRAME_MAX_BYTES} bytes")
+        header = struct.pack(">I", len(data))
+        if self._sock is None:
+            raise OSError("not connected")
+        self._sock.sendall(header + data)
+
+
 def _init_sender() -> None:
     """E: open the persistent TCP connection and register (best effort)."""
     if QMT_BRIDGE_TRANSPORT != "tcp":
         return
     try:
-        from socket_sender import SocketSender
-
         STATE.sender = SocketSender(QMT_TCP_HOST, QMT_TCP_PORT)
         STATE.register_frame = {
             "type": "register",
@@ -184,27 +281,31 @@ def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
         if STATE.sender is not None and STATE.register_frame is not None:
             STATE.sender.reconnect_if_needed(STATE.register_frame)
         if STATE.tick_count % OBSERVABILITY_TICK_INTERVAL == 0:
-            _send_observability()
+            _send_observability(STATE.owner_id, STATE.lease_token, STATE.generation, STATE.sender)
         _log_tick(history_count, control_count, 0)
     except Exception:
         STATE.last_error = traceback.format_exc()
         _log_tick(0, 0, 0)
 
 
-def _send_observability() -> None:
-    """Push bridge counters to the datasource observability endpoint (E-0)."""
+def _send_observability(owner_id: str, lease_token: str, generation: int, sender: Any) -> None:
+    """Push bridge counters to the datasource observability endpoint (E-0).
+
+    Parameter-style signature mirrors the TDX bridge. Observability loss is
+    acceptable — never raise.
+    """
     try:
         payload = {
-            "ownerId": STATE.owner_id,
-            "leaseToken": STATE.lease_token,
-            "generation": STATE.generation,
+            "ownerId": owner_id,
+            "leaseToken": lease_token,
+            "generation": generation,
             "intervalSeconds": float(OBSERVABILITY_TICK_INTERVAL),
             "counters": {
                 "callback_count": STATE.callback_count,
                 "send_dropped": STATE.send_dropped,
                 "send_failures": STATE.send_failures,
             },
-            "sender": STATE.sender.snapshot() if STATE.sender is not None else None,
+            "sender": sender.snapshot() if sender is not None else None,
         }
         _post_json(STATE.gateway_url + "/observability", payload)
     except Exception:
@@ -345,9 +446,7 @@ def _execute_subscription_command(
             _activate_callback_holder(holder, raw_result)
         elif method == "subscribe_whole_quote":
             symbols = command.get("symbols")
-            if not isinstance(symbols, list) or not all(
-                isinstance(item, str) for item in symbols
-            ):
+            if not isinstance(symbols, list) or not all(isinstance(item, str) for item in symbols):
                 return _native_failure(None, "QMT_NATIVE_COMMAND_INVALID")
             holder = _new_callback_holder()
             callback = _make_subscription_callback(holder)
@@ -402,24 +501,27 @@ def _make_subscription_callback(holder: Dict[str, Any]) -> Any:
             subscription_id = holder.get("subscriptionId")
             if type(subscription_id) is not int:
                 return
-            _push_callback_snapshot(subscription_id, native_value)
+            accepted = _prepare_callback_native(native_value)
+            if accepted is not None:
+                _push_snapshot(
+                    subscription_id,
+                    datetime.datetime.now().astimezone().isoformat(),
+                    accepted,
+                )
         except Exception as exc:
             _bounded_diagnostic("callback_error", str(exc))
 
     return callback
 
 
-def _push_callback_snapshot(subscription_id: int, native_value: Any) -> None:
-    """E: push directly from the callback over the persistent connection.
+def _prepare_callback_native(native_value: Any) -> Any:
+    """Validate/bound a callback payload (provider-specific: QMT carries data).
 
-    Official QMT example pattern: callbacks run in the runtime context and
-    may do the full work inline. send() is non-blocking — a broken connection
-    drops the frame with a counter; the 1s tick reconnects. HTTP fallback
-    posts inline (keep-alive-free urllib; acceptable for the fallback path).
+    Returns the accepted multi-symbol map, or None when nothing is usable.
     """
     if not isinstance(native_value, dict):
         _bounded_diagnostic("callback_invalid", "native callback is not an object")
-        return
+        return None
     accepted = {}  # type: Dict[str, Any]
     native_map = cast(Mapping[Any, Any], native_value)
     for raw_symbol, raw_entry in list(native_map.items())[:SNAPSHOT_MAX_COLLECTION_ITEMS]:
@@ -437,14 +539,24 @@ def _push_callback_snapshot(subscription_id: int, native_value: Any) -> None:
         except Exception as exc:
             _bounded_diagnostic("callback_entry_dropped", symbol + ": " + str(exc))
     if not accepted:
-        return
+        return None
+    return accepted
+
+
+def _push_snapshot(subscription_id: int, captured_at: str, native: Any) -> None:
+    """Push one snapshot over the active transport (mirrors the TDX bridge).
+
+    send() is non-blocking in callback contexts; a broken connection drops
+    the frame with a counter and the 1s tick reconnects. HTTP fallback posts
+    inline (keep-alive-free urllib; acceptable for the fallback path).
+    """
     payload = {
         "ownerId": STATE.owner_id,
         "leaseToken": STATE.lease_token,
         "generation": STATE.generation,
         "subscriptionId": subscription_id,
-        "capturedAt": datetime.datetime.now().astimezone().isoformat(),
-        "native": accepted,
+        "capturedAt": captured_at,
+        "native": native,
     }
     STATE.callback_count += 1
     if QMT_BRIDGE_TRANSPORT == "tcp":
@@ -551,9 +663,7 @@ def _execute_history_command(
             return {"ok": True, "result": _history_json_safe(data)}
         if method == "get_stock_list_in_sector":
             _log_call_start("get_stock_list_in_sector", command, params)
-            data = ContextInfo.get_stock_list_in_sector(
-                params.get("sector", "\u6caa\u6df1A\u80a1")
-            )
+            data = ContextInfo.get_stock_list_in_sector(params.get("sector", "\u6caa\u6df1A\u80a1"))
             _log_call_ok("get_stock_list_in_sector", command)
             return {"ok": True, "result": _history_json_safe(data)}
         return {
@@ -630,16 +740,12 @@ def _runtime_introspection(ContextInfo: BridgeContextInfo) -> Dict[str, Any]:
         active_subscription_observation["available"] = True
         try:
             raw_active_subscriptions = active_subscription_method()
-            safe, copied = _safe_native_result(
-                _history_json_safe(raw_active_subscriptions)
-            )
+            safe, copied = _safe_native_result(_history_json_safe(raw_active_subscriptions))
             if safe:
                 active_subscription_observation["ok"] = True
                 active_subscription_observation["result"] = copied
             else:
-                active_subscription_observation["error"] = (
-                    "QMT_ACTIVE_SUBSCRIPTIONS_UNSAFE"
-                )
+                active_subscription_observation["error"] = "QMT_ACTIVE_SUBSCRIPTIONS_UNSAFE"
         except Exception as exc:
             active_subscription_observation["error"] = str(exc)[:BOUNDED_LOG_TEXT]
     return {
@@ -761,12 +867,7 @@ def _log_control(
 
 
 def _bounded_diagnostic(event: str, reason: str) -> None:
-    print(
-        "mist_qmt_realtime_bridge "
-        + event[:80]
-        + " reason="
-        + str(reason)[:BOUNDED_LOG_TEXT]
-    )
+    print("mist_qmt_realtime_bridge " + event[:80] + " reason=" + str(reason)[:BOUNDED_LOG_TEXT])
 
 
 def _history_json_safe(value: Any) -> Any:

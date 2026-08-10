@@ -72,19 +72,7 @@ def test_builtin_bridge_uses_run_time_to_drain_native_subscription_callbacks() -
     assert "subscribe_quote" in source
     assert "subscribe_whole_quote" in source
     assert "unsubscribe_quote" in source
-    assert "_push_callback_snapshot(" in source
-
-
-def test_socket_sender_scripts_stay_identical_across_bridges() -> None:
-    """The terminal deployment units are independent directories; keep the
-    shared realtime sender bit-identical so fixes never drift apart."""
-    tdx = (PROJECT_ROOT / "tdx" / "builtin_bridge" / "socket_sender.py").read_text(
-        encoding="utf-8"
-    )
-    qmt = (PROJECT_ROOT / "qmt" / "builtin_bridge" / "socket_sender.py").read_text(
-        encoding="utf-8"
-    )
-    assert tdx == qmt
+    assert "_push_snapshot(" in source
 
 
 def test_builtin_bridge_loads_when_qmt_does_not_define_dunder_file() -> None:

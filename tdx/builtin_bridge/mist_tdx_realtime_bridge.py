@@ -27,9 +27,12 @@ to the gateway at registration time and surfaced in health.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import socket
+import struct
 import threading
 import time
 import urllib.error
@@ -207,8 +210,7 @@ class BridgeOwner:
             if error_code != self._last_registration_error_code:
                 if error_code == "TDX_BRIDGE_OWNER_ACTIVE":
                     print(
-                        "[mist-bridge] previous owner is still active; "
-                        "waiting for bounded takeover"
+                        "[mist-bridge] previous owner is still active; waiting for bounded takeover"
                     )
                 else:
                     print(f"[mist-bridge] registration failed: {resp}")
@@ -310,6 +312,151 @@ def _format_code(raw: str) -> str:
     return raw
 
 
+# --- persistent TCP sender (inlined: the terminal loads a single script) ---
+
+FRAME_MAX_BYTES = 64 * 1024  # gateway native safety cap (64KiB)
+RECONNECT_BACKOFF_BASE_SECONDS = 0.5
+RECONNECT_BACKOFF_MAX_SECONDS = 5.0
+CONNECT_TIMEOUT_SECONDS = 3.0
+
+
+class SocketSender:
+    """One persistent TCP connection to the datasource realtime gateway.
+
+    Lock-free by design (owner decision, 2026-08-10): the callback context and
+    the main loop / tick may race on `_sock`, but every mutation is a GIL-
+    atomic attribute/dict write and a torn send surfaces as a caught OSError
+    -> dropped-frame counter. latest-state semantics tolerate the loss.
+    """
+
+    def __init__(self, host: str, port: int) -> None:
+        self._host = host
+        self._port = port
+        self._sock = None
+        self._register_payload = None
+        self.reconnects = 0
+        self.send_failures = 0
+        self.dropped_frames = 0
+
+    def connect(self, register_payload: dict) -> bool:
+        """Open the persistent connection and send the register frame."""
+        self._register_payload = register_payload
+        return self._connect()
+
+    def _connect(self) -> bool:
+        self._close()
+        try:
+            sock = socket.create_connection(
+                (self._host, self._port), timeout=CONNECT_TIMEOUT_SECONDS
+            )
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._sock = sock
+            if self._register_payload is not None:
+                self._send_frame(self._register_payload)
+            self.reconnects += 1
+            return True
+        except Exception:
+            self._close()
+            return False
+
+    def close(self) -> None:
+        self._close()
+
+    def _close(self) -> None:
+        if self._sock is not None:
+            with contextlib.suppress(Exception):
+                self._sock.close()
+            self._sock = None
+
+    def send(self, frame: dict) -> bool:
+        """Write one frame — non-blocking semantics for callback contexts.
+
+        A broken connection (or a race with a reconnect) drops the frame with
+        a counter; the main loop / tick reconnects. Never blocks on connect.
+        """
+        if self._sock is None:
+            self.dropped_frames += 1
+            return False
+        try:
+            self._send_frame(frame)
+            return True
+        except Exception:
+            self.send_failures += 1
+            self._close()
+            self.dropped_frames += 1
+            return False
+
+    def reconnect_if_needed(self, _register_payload: dict) -> bool:
+        """Reconnect when the socket is gone. Main-loop/tick context only."""
+        if self._sock is None:
+            return self._connect()
+        return True
+
+    def snapshot(self) -> dict:
+        return {
+            "connected": self._sock is not None,
+            "reconnects": self.reconnects,
+            "sendFailures": self.send_failures,
+            "droppedFrames": self.dropped_frames,
+        }
+
+    def _send_frame(self, frame: dict) -> None:
+        data = json.dumps(frame, separators=(",", ":")).encode("utf-8")
+        if len(data) > FRAME_MAX_BYTES:
+            raise ValueError(f"frame exceeds {FRAME_MAX_BYTES} bytes")
+        header = struct.pack(">I", len(data))
+        if self._sock is None:
+            raise OSError("not connected")
+        self._sock.sendall(header + data)
+
+
+def _init_sender(owner: BridgeOwner):
+    """E: open the persistent TCP connection and register (best effort)."""
+    if MIST_TDX_TRANSPORT != "tcp":
+        return None, None
+    sender = SocketSender(MIST_TDX_TCP_HOST, MIST_TDX_TCP_PORT)
+    register_frame = {
+        "type": "register",
+        "provider": "tdx",
+        **owner.request_identity(),
+        "bridgeBuildId": BRIDGE_BUILD_ID,
+        "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+        "acquisitionProfile": ACQUISITION_PROFILE,
+        "schemaVersion": SCHEMA_VERSION,
+    }
+    if not sender.connect(register_frame):
+        print("[mist-bridge] TCP connect failed; reconnecting in main loop")
+    return sender, register_frame
+
+
+def _make_quote_callback(tq_wrapper: TqCenterWrapper, owner: BridgeOwner, sender, counters: dict):
+    """Subscribe callback: pull the authoritative quote and push inline.
+
+    Official TDX example pattern: the terminal supports SDK calls inside the
+    subscribe_hq callback. send() is non-blocking; the main loop reconnects.
+    """
+
+    def on_quote_update(data_str: str) -> None:
+        try:
+            data = json.loads(data_str)
+            code = data.get("Code")
+            if code:
+                code = _format_code(code)
+                counters["callback_count"] += 1
+                native = tq_wrapper.get_quote(code)
+                if native is None:
+                    counters["fetch_none"] += 1
+                    return
+                counters["fetch_count"] += 1
+                captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+                captured_at += _tz_offset_suffix()
+                _push_snapshot(owner, sender, counters, code, captured_at, native)
+        except Exception:
+            pass  # Never raise in callback.
+
+    return on_quote_update
+
+
 def _push_snapshot(
     owner: BridgeOwner, sender, counters: dict, code: str, captured_at: str, native: dict
 ) -> None:
@@ -369,29 +516,6 @@ def run_bridge() -> None:
 
     owner = BridgeOwner()
 
-    # Callback does the full work inline (official TDX example pattern: the
-    # terminal supports SDK calls inside the subscribe_hq callback): pull the
-    # authoritative quote via get_full_tick (or get_market_snapshot) and push
-    # it over the persistent connection. send() is non-blocking — a broken
-    # connection drops the frame with a counter; the main loop reconnects.
-    def on_quote_update(data_str: str) -> None:
-        try:
-            data = json.loads(data_str)
-            code = data.get("Code")
-            if code:
-                code = _format_code(code)
-                counters["callback_count"] += 1
-                native = tq_wrapper.get_quote(code)
-                if native is None:
-                    counters["fetch_none"] += 1
-                    return
-                counters["fetch_count"] += 1
-                captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
-                captured_at += _tz_offset_suffix()
-                _push_snapshot(owner, sender, counters, code, captured_at, native)
-        except Exception:
-            pass  # Never raise in callback.
-
     # Register with gateway (retry on network error).
     while True:
         try:
@@ -401,23 +525,7 @@ def run_bridge() -> None:
             print(f"[mist-bridge] registration error: {e}")
         time.sleep(owner.registration_retry_seconds)
 
-    # E: persistent TCP transport (default) — register once, then push frames.
-    sender = None
-    if MIST_TDX_TRANSPORT == "tcp":
-        from socket_sender import SocketSender
-
-        sender = SocketSender(MIST_TDX_TCP_HOST, MIST_TDX_TCP_PORT)
-        register_frame = {
-            "type": "register",
-            "provider": "tdx",
-            **owner.request_identity(),
-            "bridgeBuildId": BRIDGE_BUILD_ID,
-            "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
-            "acquisitionProfile": ACQUISITION_PROFILE,
-            "schemaVersion": SCHEMA_VERSION,
-        }
-        if not sender.connect(register_frame):
-            print("[mist-bridge] TCP connect failed; reconnecting in main loop")
+    sender, register_frame = _init_sender(owner)
 
     counters = {
         "callback_count": 0,
@@ -426,6 +534,7 @@ def run_bridge() -> None:
         "send_dropped": 0,
     }
     last_obs_at = time.monotonic()
+    quote_callback = _make_quote_callback(tq_wrapper, owner, sender, counters)
 
     print("[mist-bridge] starting main loop")
     while True:
@@ -497,7 +606,7 @@ def run_bridge() -> None:
             if to_subscribe:
                 for i in range(0, len(to_subscribe), RECONCILE_BATCH):
                     batch = to_subscribe[i : i + RECONCILE_BATCH]
-                    tq_wrapper.subscribe_hq(batch, on_quote_update)
+                    tq_wrapper.subscribe_hq(batch, quote_callback)
                     owner._active_native.update(batch)
                     print(f"[mist-bridge] subscribed: {batch}")
 

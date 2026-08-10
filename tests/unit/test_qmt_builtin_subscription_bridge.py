@@ -179,13 +179,14 @@ def test_callback_drops_unsafe_entry_and_pushes_safe_symbol() -> None:
     class Unsafe:
         pass
 
-    namespace["_push_callback_snapshot"](
-        7,
+    accepted = namespace["_prepare_callback_native"](
         {
             "300502.SZ": {"lastPrice": 10.5},
             "600030.SH": Unsafe(),
-        },
+        }
     )
+    assert accepted is not None
+    namespace["_push_snapshot"](7, "2026-08-10T10:00:01+08:00", accepted)
     # Unsafe entry rejected; the safe symbol is pushed directly.
     assert len(posted) == 1
     assert posted[0][1]["native"] == {"300502.SZ": {"lastPrice": 10.5}}
