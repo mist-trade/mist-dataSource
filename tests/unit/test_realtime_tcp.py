@@ -13,7 +13,6 @@ from src.datasource.realtime_tcp import (
     FRAME_MAX_BYTES,
     encode_frame,
     handle_connection,
-    read_frame,
 )
 
 
@@ -32,8 +31,6 @@ def test_frame_too_large_rejected() -> None:
 
 async def _run_connection(
     frames: list[dict[str, Any]],
-    *,
-    ingest: Any,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Drive handle_connection over an in-memory reader/writer pair."""
     calls: list[dict[str, Any]] = []
@@ -82,14 +79,13 @@ async def _run_connection(
 
 async def test_connection_requires_register_first() -> None:
     calls, written = await _run_connection(
-        [{"type": "snapshot", "symbol": "600519.SH"}], ingest=AsyncNoop()
+        [{"type": "snapshot", "symbol": "600519.SH"}]
     )
     assert calls == []
     assert any("register_required" in w for w in written)
 
 
 async def test_snapshot_frames_invoke_ingest() -> None:
-    ingest = AsyncNoop()
     calls, _ = await _run_connection(
         [
             {"type": "register", "provider": "tdx", "bridgeBuildId": "b1"},
@@ -103,7 +99,6 @@ async def test_snapshot_frames_invoke_ingest() -> None:
             },
             {"type": "observability", "counters": {"callback_count": 3}},
         ],
-        ingest=ingest,
     )
     assert len(calls) == 1
     assert calls[0]["symbol"] == "600519.SH"
@@ -111,17 +106,15 @@ async def test_snapshot_frames_invoke_ingest() -> None:
 
 
 async def test_unknown_frame_type_warned_without_ingest() -> None:
-    ingest = AsyncNoop()
     calls, _ = await _run_connection(
         [
             {"type": "register", "provider": "tdx"},
             {"type": "mystery", "x": 1},
         ],
-        ingest=ingest,
     )
     assert calls == []
 
 
 class AsyncNoop:
-    async def __call__(self, frame: dict[str, Any]) -> None:
+    async def __call__(self, _frame: dict[str, Any]) -> None:
         return None
