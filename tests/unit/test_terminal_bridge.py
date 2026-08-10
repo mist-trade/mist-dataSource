@@ -17,25 +17,6 @@ import importlib  # noqa: E402
 _bridge_mod = importlib.import_module("mist_tdx_realtime_bridge")
 
 
-class TestDirtySymbolQueue:
-    def test_mark_dirty_and_swap(self) -> None:
-        q = _bridge_mod.DirtySymbolQueue()
-        q.mark_dirty("600519.SH")
-        q.mark_dirty("000001.SZ")
-        result = q.swap_and_clear()
-        assert result == {"600519.SH", "000001.SZ"}
-        # Second swap is empty (cleared).
-        assert q.swap_and_clear() == set()
-
-    def test_max_queue_size(self) -> None:
-        q = _bridge_mod.DirtySymbolQueue()
-        q._symbols  # noqa: B018
-        # Fill beyond max.
-        for i in range(300):
-            q.mark_dirty(f"{i:06d}.SH")
-        result = q.swap_and_clear()
-        assert len(result) == _bridge_mod.DIRTY_QUEUE_MAX  # 200
-
 
 class TestTqCenterWrapper:
     def test_real_sdk_import_error_preserves_dependency_name(self) -> None:
@@ -115,27 +96,12 @@ class TestRetryClassification:
         assert _bridge_mod._retry_delay_seconds(None, 99) == 5.0
 
 
-class TestCallbackDirtyOnly:
-    """Verify that subscribe_hq callback only marks dirty — no SDK/HTTP calls."""
-
-    def test_callback_does_not_call_sdk(self) -> None:
-        """The callback should only call dirty_queue.mark_dirty, not get_market_snapshot."""
-        q = _bridge_mod.DirtySymbolQueue()
-
-        # Patch mark_dirty to track it was called.
-        with patch.object(q, "mark_dirty", wraps=q.mark_dirty) as mock_mark:
-            # The on_quote_update closure is defined inside run_bridge; test
-            # the DirtySymbolQueue directly.
-            q.mark_dirty(_bridge_mod._format_code("SH600519"))
-            mock_mark.assert_called_once_with("600519.SH")
-
 
 def test_terminal_bridge_threading_guardrail() -> None:
     """A callback lock is allowed; background thread ownership is not."""
     source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text(
         encoding="utf-8"
     )
-    assert "threading.Lock()" in source
     assert "threading.Thread(" not in source
     assert "MIST_BRIDGE_USE_FAKE_TQ" not in source
     assert "class _FakeTq" not in source

@@ -33,7 +33,6 @@ import json
 import os
 import socket
 import struct
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -80,7 +79,7 @@ def _resolve_script_path():
 BRIDGE_SCRIPT_PATH = _resolve_script_path()
 
 
-def _compute_artifact_sha() -> str:
+def _compute_artifact_sha256() -> str:
     """Compute SHA256 when the terminal exposes a file-backed script."""
     if BRIDGE_SCRIPT_PATH is None:
         return "unavailable"
@@ -91,7 +90,7 @@ def _compute_artifact_sha() -> str:
         return "unavailable"
 
 
-BRIDGE_ARTIFACT_SHA256 = _compute_artifact_sha()
+BRIDGE_ARTIFACT_SHA256 = _compute_artifact_sha256()
 
 OWNER_FENCE_CODES = {
     "TDX_BRIDGE_NO_OWNER",
@@ -133,34 +132,6 @@ def _owner_was_replaced(error: dict) -> bool:
 
 
 # --- Dirty symbol queue (thread-safe) ---------------------------------
-
-
-class DirtySymbolQueue:
-    """Bounded, coalescing set of symbols needing snapshot fetch.
-
-    Thread-safe: subscribe_hq callback acquires lock to add; worker loop
-    acquires lock to swap+clear. No SDK/HTTP calls under lock.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._symbols: set[str] = set()
-
-    def mark_dirty(self, code: str) -> None:
-        """Called from subscribe_hq callback. Lock-protected, returns immediately."""
-        with self._lock:
-            if len(self._symbols) < DIRTY_QUEUE_MAX:
-                self._symbols.add(code)
-
-    def swap_and_clear(self) -> set[str]:
-        """Called from worker loop. Returns current dirty set and clears it."""
-        with self._lock:
-            result = self._symbols
-            self._symbols = set()
-            return result
-
-
-# --- Bridge owner state -----------------------------------------------
 
 
 class BridgeOwner:
@@ -429,7 +400,7 @@ def _init_sender(owner: BridgeOwner):
     return sender, register_frame
 
 
-def _make_quote_callback(tq_wrapper: TqCenterWrapper, owner: BridgeOwner, sender, counters: dict):
+def _make_subscription_callback(tq_wrapper: TqCenterWrapper, owner: BridgeOwner, sender, counters: dict):
     """Subscribe callback: pull the authoritative quote and push inline.
 
     Official TDX example pattern: the terminal supports SDK calls inside the
@@ -509,21 +480,24 @@ def _send_observability(owner: BridgeOwner, sender, counters: dict) -> None:
         pass
 
 
+def _register_owner(owner: BridgeOwner) -> None:
+    """Register with gateway (retry on network error)."""
+    while True:
+        try:
+            if owner.register():
+                return
+        except Exception as e:
+            print(f"[mist-bridge] registration error: {e}")
+        time.sleep(owner.registration_retry_seconds)
+
+
 def run_bridge() -> None:
     """Main bridge loop. Registers, reconciles subscriptions, pushes quotes."""
     tq_wrapper = TqCenterWrapper()
     tq_wrapper.initialize()
 
     owner = BridgeOwner()
-
-    # Register with gateway (retry on network error).
-    while True:
-        try:
-            if owner.register():
-                break
-        except Exception as e:
-            print(f"[mist-bridge] registration error: {e}")
-        time.sleep(owner.registration_retry_seconds)
+    _register_owner(owner)
 
     sender, register_frame = _init_sender(owner)
 
@@ -534,7 +508,7 @@ def run_bridge() -> None:
         "send_dropped": 0,
     }
     last_obs_at = time.monotonic()
-    quote_callback = _make_quote_callback(tq_wrapper, owner, sender, counters)
+    quote_callback = _make_subscription_callback(tq_wrapper, owner, sender, counters)
 
     print("[mist-bridge] starting main loop")
     while True:
