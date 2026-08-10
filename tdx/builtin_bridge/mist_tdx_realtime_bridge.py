@@ -310,6 +310,39 @@ def _format_code(raw: str) -> str:
     return raw
 
 
+def _push_snapshot(
+    owner: BridgeOwner, sender, counters: dict, code: str, captured_at: str, native: dict
+) -> None:
+    """Push one snapshot over the active transport (mirrors the QMT bridge).
+
+    send() is non-blocking in callback contexts; a broken connection drops
+    the frame with a counter and the main loop reconnects.
+    """
+    if MIST_TDX_TRANSPORT == "tcp":
+        if not sender.send(
+            {
+                "type": "snapshot",
+                "symbol": code,
+                "capturedAt": captured_at,
+                "native": native,
+            }
+        ):
+            counters["send_dropped"] += 1
+    else:
+        try:
+            _post_json(
+                BRIDGE_ENDPOINT + "/snapshot",
+                {
+                    **owner.request_identity(),
+                    "symbol": code,
+                    "capturedAt": captured_at,
+                    "native": native,
+                },
+            )
+        except urllib.error.URLError:
+            counters["send_dropped"] += 1
+
+
 def _send_observability(owner: BridgeOwner, sender, counters: dict) -> None:
     """Push bridge-side counters to the datasource observability endpoint.
 
@@ -355,29 +388,7 @@ def run_bridge() -> None:
                 counters["fetch_count"] += 1
                 captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
                 captured_at += _tz_offset_suffix()
-                if MIST_TDX_TRANSPORT == "tcp":
-                    if not sender.send(
-                        {
-                            "type": "snapshot",
-                            "symbol": code,
-                            "capturedAt": captured_at,
-                            "native": native,
-                        }
-                    ):
-                        counters["send_dropped"] += 1
-                else:
-                    try:
-                        _post_json(
-                            BRIDGE_ENDPOINT + "/snapshot",
-                            {
-                                **owner.request_identity(),
-                                "symbol": code,
-                                "capturedAt": captured_at,
-                                "native": native,
-                            },
-                        )
-                    except urllib.error.URLError:
-                        counters["send_dropped"] += 1
+                _push_snapshot(owner, sender, counters, code, captured_at, native)
         except Exception:
             pass  # Never raise in callback.
 
