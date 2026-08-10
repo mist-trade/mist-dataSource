@@ -120,7 +120,7 @@ def test_runtime_introspection_reports_missing_active_subscription_inventory() -
     }
 
 
-def test_callback_stores_latest_slot_and_runtime_flush_posts_one_complete_map() -> None:
+def test_callback_pushes_one_complete_map_directly() -> None:
     namespace = _bridge_namespace()
     namespace["QMT_BRIDGE_TRANSPORT"] = "http"
     posted: list[tuple[str, dict[str, Any]]] = []
@@ -145,18 +145,14 @@ def test_callback_stores_latest_slot_and_runtime_flush_posts_one_complete_map() 
     )
     assert result == {"success": 12}
 
+    # Direct push from the callback (official QMT example pattern): one POST
+    # with the complete multi-symbol map; nothing is buffered.
     context.callback(
         {
             "300502.SZ": {"lastPrice": 10.5, "bidPrice": [10.4]},
             "600030.SH": {"lastPrice": 20.5, "bidPrice": [20.4]},
         }
     )
-    # E: single-slot latest per symbol — no business queue, nothing posted yet.
-    assert posted == []
-    assert set(namespace["STATE"].latest) == {"300502.SZ", "600030.SH"}
-
-    # Flush deduplicates the shared callback item into one POST.
-    assert namespace["_flush_latest"]() == 1
     assert len(posted) == 1
     url, payload = posted[0]
     assert url.endswith("/subscriptions/snapshot")
@@ -173,40 +169,27 @@ def test_callback_stores_latest_slot_and_runtime_flush_posts_one_complete_map() 
         "300502.SZ": {"lastPrice": 10.5, "bidPrice": [10.4]},
         "600030.SH": {"lastPrice": 20.5, "bidPrice": [20.4]},
     }
-    # Flushed: slots cleared, no second POST.
-    assert namespace["STATE"].latest == {}
-    assert namespace["_flush_latest"]() == 0
-    assert len(posted) == 1
 
 
-def test_callback_drops_unsafe_entry_and_latest_slot_overwrites() -> None:
+def test_callback_drops_unsafe_entry_and_pushes_safe_symbol() -> None:
     namespace = _bridge_namespace()
+    namespace["QMT_BRIDGE_TRANSPORT"] = "http"
+    posted: list[tuple[str, dict[str, Any]]] = []
+    namespace["_post_json"] = lambda url, payload: posted.append((url, dict(payload))) or {}
 
     class Unsafe:
         pass
 
-    namespace["_enqueue_callback_snapshot"](
+    namespace["_push_callback_snapshot"](
         7,
         {
             "300502.SZ": {"lastPrice": 10.5},
             "600030.SH": Unsafe(),
         },
     )
-    # Unsafe entry rejected; safe symbol stored in its latest slot.
-    assert set(namespace["STATE"].latest) == {"300502.SZ"}
-    item = namespace["STATE"].latest["300502.SZ"]
-    assert item["native"] == {"300502.SZ": {"lastPrice": 10.5}}
-
-    # A newer callback overwrites the slot (no queue growth) and counts a merge.
-    namespace["_enqueue_callback_snapshot"](
-        7,
-        {"300502.SZ": {"lastPrice": 10.6}},
-    )
-    assert set(namespace["STATE"].latest) == {"300502.SZ"}
-    assert namespace["STATE"].merged_count == 1
-    assert namespace["STATE"].latest["300502.SZ"]["native"] == {
-        "300502.SZ": {"lastPrice": 10.6}
-    }
+    # Unsafe entry rejected; the safe symbol is pushed directly.
+    assert len(posted) == 1
+    assert posted[0][1]["native"] == {"300502.SZ": {"lastPrice": 10.5}}
 
 
 def test_bridge_contains_missing_method_exception_and_unknown_command_fields() -> None:

@@ -68,12 +68,10 @@ class BridgeState:
     lease_token: str
     generation: int
     started_at: str
-    # E: per-symbol latest-value slots (no business queue — a new callback
-    # overwrites the pending slot for that symbol; the bridge never buffers).
-    latest: Dict[str, Any]
+    # E: persistent TCP sender + register frame (for reconnect) + counters.
     sender: Any
+    register_frame: Any  # Optional[Dict] — Python 3.6 compatible
     callback_count: int
-    merged_count: int
     send_dropped: int
     send_failures: int
     callback_holders: Dict[int, Dict[str, Any]]
@@ -101,10 +99,9 @@ STATE.last_error = ""
 STATE.last_poll_at = ""
 STATE.lease_token = ""
 STATE.generation = 0
-STATE.latest = {}
 STATE.sender = None
+STATE.register_frame = None
 STATE.callback_count = 0
-STATE.merged_count = 0
 STATE.send_dropped = 0
 STATE.send_failures = 0
 STATE.callback_holders = {}
@@ -159,17 +156,16 @@ def _init_sender() -> None:
         from socket_sender import SocketSender
 
         STATE.sender = SocketSender(QMT_TCP_HOST, QMT_TCP_PORT)
-        STATE.sender.connect(
-            {
-                "type": "register",
-                "provider": "qmt",
-                "ownerId": STATE.owner_id,
-                "leaseToken": STATE.lease_token,
-                "generation": STATE.generation,
-                "bridgeBuildId": BRIDGE_BUILD_ID,
-                "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
-            }
-        )
+        STATE.register_frame = {
+            "type": "register",
+            "provider": "qmt",
+            "ownerId": STATE.owner_id,
+            "leaseToken": STATE.lease_token,
+            "generation": STATE.generation,
+            "bridgeBuildId": BRIDGE_BUILD_ID,
+            "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+        }
+        STATE.sender.connect(STATE.register_frame)
     except Exception as exc:
         # Sender is optional: a failure falls back to the HTTP transport.
         # Not recorded in STATE.last_error (that is reserved for fatal paths).
@@ -177,7 +173,7 @@ def _init_sender() -> None:
 
 
 def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
-    """Poll history/control once and flush pending latest snapshots."""
+    """Poll history/control once and reconnect/push via the sender."""
     try:
         STATE.tick_count += 1
         STATE.last_poll_at = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -185,10 +181,11 @@ def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
             _register_owner()
         history_count = _poll_history(ContextInfo)
         control_count = _poll_subscription_control(ContextInfo)
-        flushed_count = _flush_latest()
+        if STATE.sender is not None and STATE.register_frame is not None:
+            STATE.sender.reconnect_if_needed(STATE.register_frame)
         if STATE.tick_count % OBSERVABILITY_TICK_INTERVAL == 0:
             _send_observability()
-        _log_tick(history_count, control_count, flushed_count)
+        _log_tick(history_count, control_count, 0)
     except Exception:
         STATE.last_error = traceback.format_exc()
         _log_tick(0, 0, 0)
@@ -204,7 +201,6 @@ def _send_observability() -> None:
             "intervalSeconds": float(OBSERVABILITY_TICK_INTERVAL),
             "counters": {
                 "callback_count": STATE.callback_count,
-                "merged_count": STATE.merged_count,
                 "send_dropped": STATE.send_dropped,
                 "send_failures": STATE.send_failures,
             },
@@ -406,25 +402,25 @@ def _make_subscription_callback(holder: Dict[str, Any]) -> Any:
             subscription_id = holder.get("subscriptionId")
             if type(subscription_id) is not int:
                 return
-            _enqueue_callback_snapshot(subscription_id, native_value)
+            _push_callback_snapshot(subscription_id, native_value)
         except Exception as exc:
             _bounded_diagnostic("callback_error", str(exc))
 
     return callback
 
 
-def _enqueue_callback_snapshot(subscription_id: int, native_value: Any) -> None:
-    """E: store the latest snapshot per symbol (single-slot overwrite).
+def _push_callback_snapshot(subscription_id: int, native_value: Any) -> None:
+    """E: push directly from the callback over the persistent connection.
 
-    No business queue — the bridge never buffers. A new callback replaces the
-    pending slot for its symbols; `merged_count` tracks replaced slots. The
-    1s tick flushes whatever is pending (latest-state semantics).
+    Official QMT example pattern: callbacks run in the runtime context and
+    may do the full work inline. send() is non-blocking — a broken connection
+    drops the frame with a counter; the 1s tick reconnects. HTTP fallback
+    posts inline (keep-alive-free urllib; acceptable for the fallback path).
     """
     if not isinstance(native_value, dict):
         _bounded_diagnostic("callback_invalid", "native callback is not an object")
         return
     accepted = {}  # type: Dict[str, Any]
-    accepted_symbols = []  # type: List[str]
     native_map = cast(Mapping[Any, Any], native_value)
     for raw_symbol, raw_entry in list(native_map.items())[:SNAPSHOT_MAX_COLLECTION_ITEMS]:
         symbol = str(raw_symbol).strip().upper()
@@ -438,70 +434,34 @@ def _enqueue_callback_snapshot(subscription_id: int, native_value: Any) -> None:
             if len(encoded_entry) > SNAPSHOT_ITEM_MAX_BYTES:
                 raise ValueError("callback entry exceeds byte limit")
             accepted[symbol] = copied
-            accepted_symbols.append(symbol)
         except Exception as exc:
             _bounded_diagnostic("callback_entry_dropped", symbol + ": " + str(exc))
     if not accepted:
         return
-    item = {
-        "subscriptionId": subscription_id,
-        "capturedAt": datetime.datetime.now().astimezone().isoformat(),
-        "native": accepted,
-    }
-    # E: per-symbol latest slot — overwrite, never buffer. CPython dict
-    # writes are atomic under the GIL; a concurrent flush may defer one slot
-    # by one tick (latest-state semantics tolerate that).
-    for symbol in accepted_symbols:
-        if symbol in STATE.latest:
-            STATE.merged_count += 1
-        STATE.latest[symbol] = item
-    STATE.callback_count += 1
-
-
-def _flush_latest() -> int:
-    """E: send every pending latest slot (deduplicated by callback item).
-
-    Called from the 1s QMT runtime tick — the tick is the send cadence, not a
-    poll. Send failures drop the frame (latest-state; counted for the
-    observability frame).
-    """
-    items = list(STATE.latest.values())
-    STATE.latest = {}
-    sent = 0
-    seen = set()
-    for item in items:
-        if id(item) in seen:
-            continue
-        seen.add(id(item))
-        if _send_item(item):
-            sent += 1
-    return sent
-
-
-def _send_item(item: Mapping[str, Any]) -> bool:
     payload = {
         "ownerId": STATE.owner_id,
         "leaseToken": STATE.lease_token,
         "generation": STATE.generation,
-        "subscriptionId": item.get("subscriptionId"),
-        "capturedAt": item.get("capturedAt"),
-        "native": item.get("native"),
+        "subscriptionId": subscription_id,
+        "capturedAt": datetime.datetime.now().astimezone().isoformat(),
+        "native": accepted,
     }
+    STATE.callback_count += 1
     if QMT_BRIDGE_TRANSPORT == "tcp":
-        frame = {"type": "snapshot"}
-        frame.update(payload)
-        if STATE.sender is not None and STATE.sender.send(frame):
-            return True
-        STATE.send_dropped += 1
-        return False
-    try:
-        response = _post_json(STATE.gateway_url + "/subscriptions/snapshot", payload)
-        if _lease_rejected(response):
-            STATE.lease_token = ""
-        return True
-    except Exception:
-        STATE.send_dropped += 1
-        return False
+        if STATE.sender is not None:
+            frame = {"type": "snapshot"}
+            frame.update(payload)
+            if not STATE.sender.send(frame):
+                STATE.send_dropped += 1
+        else:
+            STATE.send_dropped += 1
+    else:
+        try:
+            response = _post_json(STATE.gateway_url + "/subscriptions/snapshot", payload)
+            if _lease_rejected(response):
+                STATE.lease_token = ""
+        except Exception:
+            STATE.send_dropped += 1
 
 
 def _bounded_copy(value: Any, depth: int) -> Any:

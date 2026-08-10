@@ -92,14 +92,15 @@ class SocketSender:
     # --- sending --------------------------------------------------------
 
     def send(self, frame: dict) -> bool:
-        """Write one frame. Reconnects once on a broken connection.
+        """Write one frame — non-blocking semantics for callback contexts.
 
-        Returns True when the frame was handed to the OS socket buffer.
-        False means dropped (counted) — the caller may re-push the latest
-        snapshot on the next quote event (latest-state semantics).
+        Never reconnects here (a connect can block for the timeout window).
+        A broken connection drops the frame with a counter; the main loop /
+        tick calls `reconnect_if_needed` to restore the connection. Returns
+        True when the frame was handed to the OS socket buffer.
         """
         with self._lock:
-            if self._sock is None and not self._connect_locked():
+            if self._sock is None:
                 self.dropped_frames += 1
                 return False
             try:
@@ -110,6 +111,13 @@ class SocketSender:
                 self._close_locked()
                 self.dropped_frames += 1
                 return False
+
+    def reconnect_if_needed(self, _register_payload: dict) -> bool:
+        """Reconnect when the socket is gone. Main-loop/tick context only."""
+        with self._lock:
+            if self._sock is None:
+                return self._connect_locked()
+            return True
 
     def snapshot(self) -> dict:
         with self._lock:

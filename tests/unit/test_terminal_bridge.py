@@ -149,4 +149,4 @@ def test_snapshot_delivery_has_no_producer_identity_or_retry_loop() -> None:
     assert "producer_sequence" not in source
     assert "next_producer_sequence" not in source
     assert "max_retries" not in source
-    assert source.count('_post_json(BRIDGE_ENDPOINT + "/snapshot", snapshot_body)') == 1
+    assert source.count('BRIDGE_ENDPOINT + "/snapshot"') == 1
