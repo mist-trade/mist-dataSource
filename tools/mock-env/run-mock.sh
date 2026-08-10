@@ -62,10 +62,10 @@ nohup bash -c "cd '$ROOT' && export MIST_QMT_SUBSCRIPTION_JOURNAL_PATH='$PIDS_DI
 
 # 4. backend (mock mode; start:dev watches src, swap to start:debug for breakpoints)
 # OTel SDK must init BEFORE the webpack bundle loads http/express/pino (RITM
-# skips cached modules), so it runs via node -r otel-preload.js. NODE_OPTIONS
+# skips cached modules), so it runs via the official node -r register entry. NODE_OPTIONS
 # is inherited by the node process nest watch spawns, so it survives rebuilds.
 set -a; source "$SCRIPT_DIR/.env.mock"; set +a
-nohup bash -c "cd '$BACKEND' && export $OTEL_COMMON && export NODE_OPTIONS=\"--require $BACKEND/otel-preload.js\" && exec pnpm start:dev" \
+nohup bash -c "cd '$BACKEND' && export $OTEL_COMMON && export NODE_OPTIONS=\"--require @opentelemetry/auto-instrumentations-node/register\" && exec pnpm start:dev" \
   >"$PIDS_DIR/backend.log" 2>&1 & echo $! >"$PIDS_DIR/backend.pid"
 
 # 4. wait healthy
