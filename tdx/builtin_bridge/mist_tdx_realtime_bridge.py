@@ -53,15 +53,13 @@ OBSERVABILITY_INTERVAL_SECONDS = 30.0
 
 # E transport: persistent TCP (default) or legacy HTTP POST.
 MIST_TDX_TRANSPORT = os.environ.get("MIST_TDX_TRANSPORT", "tcp")  # tcp|http
-# Quote API used inside the callback. Default full_tick: the official example
-# pattern calls get_full_tick inside the subscribe_hq callback (reentry-safe
-# per plan-B decision 2026-08-10), whereas calling get_market_snapshot from
-# the callback carries a reentry concern. The SDK method-list capture does not
-# enumerate get_full_tick, so 2026-08-11 switched the default to
-# market_snapshot to restore data flow; the 13:00 session re-tests full_tick
-# via the observability fetch_none counter — if it stays 0, full_tick is the
-# production path. Keep the env switch for either side.
-MIST_TDX_QUOTE_API = os.environ.get("MIST_TDX_QUOTE_API", "full_tick")  # full_tick|market_snapshot
+# Quote API used inside the callback. Default market_snapshot: terminal-tested
+# 2026-08-11 — full_tick returned fetch_none on 10/10 callbacks (the tdxquant
+# SDK has no get_full_tick; the plan-B example that used it is a QMT example),
+# while market_snapshot fetch succeeded on every callback (fetch_none=0) and
+# restored the full pipeline. The reentry concern discussed 08-10 did not
+# manifest in production observation. Keep the env switch for experiments.
+MIST_TDX_QUOTE_API = os.environ.get("MIST_TDX_QUOTE_API", "market_snapshot")  # market_snapshot|full_tick
 MIST_TDX_TCP_HOST = os.environ.get("MIST_TDX_TCP_HOST", "127.0.0.1")
 MIST_TDX_TCP_PORT = int(os.environ.get("MIST_TDX_TCP_PORT", "9003"))
 
