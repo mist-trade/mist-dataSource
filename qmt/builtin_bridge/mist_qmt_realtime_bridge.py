@@ -87,8 +87,12 @@ BOUNDED_LOG_TEXT = 300
 
 # E transport: persistent TCP (default) or legacy HTTP POST.
 QMT_BRIDGE_TRANSPORT = os.environ.get("QMT_BRIDGE_TRANSPORT", "tcp")  # tcp|http
+# Host 9004 is owned by XtItClient.exe (the QMT terminal's own local channel,
+# verified 2026-08-11 via netstat on the production box), so the bridge TCP
+# direct-push port defaults to 9014 (mapped to the datasource container's
+# internal 9004). env override kept for experiments.
 QMT_TCP_HOST = os.environ.get("QMT_TCP_HOST", "127.0.0.1")
-QMT_TCP_PORT = int(os.environ.get("QMT_TCP_PORT", "9004"))
+QMT_TCP_PORT = int(os.environ.get("QMT_TCP_PORT", "9014"))
 # Observability frame every N ticks (1s tick -> every 30s).
 OBSERVABILITY_TICK_INTERVAL = 30
 
