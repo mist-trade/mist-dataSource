@@ -21,7 +21,9 @@ class TraceContextFormatter(logging.Formatter):
         span = trace.get_current_span()
         ctx = span.get_span_context()
         if ctx.is_valid:
-            record.trace_id = f"{ctx.trace_id:032x}"[:16]
+            # full 32-hex trace id, matching the OTLP LogRecord top-level
+            # field (and backend pino) so both channels correlate by trace_id
+            record.trace_id = f"{ctx.trace_id:032x}"
             record.span_id = f"{ctx.span_id:016x}"
         else:
             record.trace_id = "-"

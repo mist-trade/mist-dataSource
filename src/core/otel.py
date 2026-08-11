@@ -20,13 +20,17 @@ Design:
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import FastAPI
 from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -35,16 +39,19 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 _configured = False
 _tracer_provider: TracerProvider | None = None
+_logger_provider: LoggerProvider | None = None
+_logging_handler: LoggingHandler | None = None
 
 
 def init_otel(service_name: str) -> None:
-    """Initialize providers (traces + metrics) without instrumenting the app.
+    """Initialize providers (traces + metrics + logs) without instrumenting
+    the app.
 
     Call at module top after ``setup_logging()`` and BEFORE app creation, so
     startup failures can still emit an errored span. No-op when the OTLP
     endpoint is not configured. Idempotent.
     """
-    global _configured, _tracer_provider
+    global _configured, _tracer_provider, _logger_provider, _logging_handler
     if _configured:
         return
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -62,6 +69,13 @@ def init_otel(service_name: str) -> None:
     meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
     metrics.set_meter_provider(meter_provider)
 
+    logs_provider = LoggerProvider(resource=resource)
+    logs_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
+    handler = LoggingHandler(logger_provider=logs_provider)
+    logging.getLogger().addHandler(handler)
+    _logging_handler = handler
+    _logger_provider = logs_provider
+
     _configured = True
 
 
@@ -74,15 +88,22 @@ def instrument_app(app: FastAPI) -> None:
 
 
 def force_flush() -> None:
-    """Synchronously export pending spans. Call on the startup-failure path
-    BEFORE re-raising, so the errored span reaches the backend before the
-    process exits (BatchSpanProcessor alone would lose it on crash).
+    """Synchronously export pending spans and logs. Call on the startup-failure
+    path BEFORE re-raising, so the errored span and error log reach the backend
+    before the process exits (Batch processors alone would lose them on crash).
     """
     if _tracer_provider is not None:
         _tracer_provider.force_flush()
+    if _logger_provider is not None:
+        _logger_provider.force_flush()
 
 
 def shutdown_otel() -> None:
-    """Reset the configured flag (used by lifespan shutdown)."""
-    global _configured
+    """Reset the configured flag and detach the OTLP logging handler
+    (used by lifespan shutdown)."""
+    global _configured, _logger_provider, _logging_handler
+    if _logging_handler is not None:
+        logging.getLogger().removeHandler(_logging_handler)
+        _logging_handler = None
+    _logger_provider = None
     _configured = False

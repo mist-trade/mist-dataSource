@@ -28,5 +28,6 @@ def test_formatter_with_active_span_injects_trace_id(otel_exporter) -> None:
     with trace.get_tracer("test").start_as_current_span("s") as span:
         out = formatter.format(record)
         ctx = span.get_span_context()
-        assert f"trace={ctx.trace_id:032x}"[:16] in out
+        # full 32-hex trace id (matches OTLP LogRecord top-level / backend pino)
+        assert f"trace={ctx.trace_id:032x}" in out
         assert f"span={ctx.span_id:016x}" in out

@@ -5,6 +5,8 @@ from collections.abc import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
 from opentelemetry import trace
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import InMemoryLogExporter, SimpleLogRecordProcessor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -25,6 +27,20 @@ def otel_exporter():
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
     yield exporter
+
+
+@pytest.fixture(scope="session")
+def log_exporter():
+    """In-memory logs provider for LoggingHandler assertion tests.
+
+    Unlike the tracer fixture this is passed explicitly to LoggingHandler
+    (no global logger-provider set needed), so it is isolated from the
+    application's stdout/OTLP handlers.
+    """
+    exporter = InMemoryLogExporter()
+    provider = LoggerProvider()
+    provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+    yield exporter, provider
 
 
 @pytest.fixture

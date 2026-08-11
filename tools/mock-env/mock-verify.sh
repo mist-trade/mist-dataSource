@@ -121,6 +121,42 @@ except Exception as e:
 "
 }
 
+query_oo_logs() {
+  local sql="$1"
+  local now_us start_us
+  now_us=$(python3 -c "import time; print(int(time.time()*1e6))")
+  start_us=$((now_us - 7200000000))  # last 2 hours in microseconds
+  OO_SQL="$sql" OO_URL="$OPENOBSERVE/api/default/_search?type=logs" OO_AUTH="$OO_B64" \
+    OO_START="$start_us" OO_END="$now_us" python3 -c "
+import json, os, sys, urllib.request
+payload = {
+    'query': {
+        'sql': os.environ['OO_SQL'],
+        'start_time': int(os.environ['OO_START']),
+        'end_time': int(os.environ['OO_END']),
+    },
+    'size': 10,
+}
+req = urllib.request.Request(
+    os.environ['OO_URL'],
+    method='POST',
+    data=json.dumps(payload).encode(),
+    headers={'Authorization': 'Basic ' + os.environ['OO_AUTH'], 'Content-Type': 'application/json'},
+)
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        d = json.load(resp)
+        hits = d.get('hits', [])
+        for h in hits:
+            # OO log fields: body (not msg), service_name, trace_id on top level
+            print(h.get('service_name'), '|', str(h.get('body'))[:80], '|', h.get('trace_id'))
+        print('TOTAL=' + str(d.get('total', 0)))
+except Exception as e:
+    print('ERR=' + str(e))
+    sys.exit(1)
+"
+}
+
 # 1. ingest spans must be observable in OpenObserve (root span OK status)
 echo "  querying tdx.snapshot.ingest spans..."
 OO_INGEST=$(query_oo_traces "select * from 'default' where operation_name = 'tdx.snapshot.ingest' order by _timestamp desc limit 5")
@@ -148,5 +184,17 @@ PID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.mock-pids"
 TRACE_ID_LOGS=$(grep -c '"trace_id"' "$PID_DIR/backend.log" || true)
 [ "$TRACE_ID_LOGS" -ge 1 ] || { echo "FAIL: no trace_id on backend logs (pinoTraceMixin not active?)"; exit 1; }
 echo "  backend.log trace_id records: $TRACE_ID_LOGS"
+
+# 5. datasource logs must be exported to OpenObserve (O2b): service_name +
+#    top-level trace_id queryable, single delivery
+echo "  querying tdx-datasource logs..."
+OO_LOGS=$(query_oo_logs "select * from 'default' where service_name = 'tdx-datasource' order by _timestamp desc limit 5")
+echo "$OO_LOGS"
+LOG_COUNT=$(echo "$OO_LOGS" | grep -c "tdx-datasource" || true)
+[ "$LOG_COUNT" -ge 1 ] || { echo "FAIL: tdx-datasource logs not found in OpenObserve"; exit 1; }
+# single delivery: each log line appears exactly once (no cnt=2 regression)
+DUPE=$(echo "$OO_LOGS" | grep -E "tdx-datasource" | awk -F'|' '{print $3}' | sort | uniq -d | wc -l | tr -d ' ')
+[ "$DUPE" -eq 0 ] || { echo "FAIL: duplicated log delivery detected in OpenObserve"; exit 1; }
+echo "  tdx-datasource log records (dedup check OK): $LOG_COUNT"
 
 echo "OK"
