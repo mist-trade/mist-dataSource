@@ -124,6 +124,7 @@ def test_callback_pushes_one_complete_map_directly() -> None:
     namespace["QMT_BRIDGE_TRANSPORT"] = "http"
     posted: list[tuple[str, dict[str, Any]]] = []
     namespace["_post_json"] = lambda url, payload: posted.append((url, dict(payload))) or {}
+    namespace["BRIDGE_QUEUE"].clear()  # reset module-level queue
 
     class Context:
         def __init__(self) -> None:
@@ -144,14 +145,20 @@ def test_callback_pushes_one_complete_map_directly() -> None:
     )
     assert result == {"success": 12}
 
-    # Direct push from the callback (official QMT example pattern): one POST
-    # with the complete multi-symbol map; nothing is buffered.
+    # Thin callback: appends one payload to BRIDGE_QUEUE (no direct POST).
     context.callback(
         {
             "300502.SZ": {"lastPrice": 10.5, "bidPrice": [10.4]},
             "600030.SH": {"lastPrice": 20.5, "bidPrice": [20.4]},
         }
     )
+    assert len(posted) == 0  # thin: nothing pushed yet
+    assert len(namespace["BRIDGE_QUEUE"]) == 1
+
+    # Main-thread drain owns the push.
+    drained = namespace["_drain_bridge_queue"]()
+    assert drained == 1
+    assert len(namespace["BRIDGE_QUEUE"]) == 0
     assert len(posted) == 1
     url, payload = posted[0]
     assert url.endswith("/subscriptions/snapshot")

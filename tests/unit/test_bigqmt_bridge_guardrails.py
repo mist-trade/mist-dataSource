@@ -151,7 +151,7 @@ def test_builtin_bridge_exposes_read_only_runtime_introspection() -> None:
     )
 
     assert result["ok"] is True
-    assert result["result"]["bridgeBuildId"] == "mist-qmt-realtime-bridge-v2.0"
+    assert result["result"]["bridgeBuildId"] == "mist-qmt-realtime-bridge-v3.0"
     assert len(result["result"]["bridgeRuntimeFingerprint"]) == 64
     assert result["result"]["methods"]["subscribe_quote"]["available"] is True
 
