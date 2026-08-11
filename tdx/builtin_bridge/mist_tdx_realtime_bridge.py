@@ -384,12 +384,14 @@ class SocketSender:
         self._sock.sendall(header + data)
 
 
-def _init_sender(owner: BridgeOwner):
-    """E: open the persistent TCP connection and register (best effort)."""
-    if MIST_TDX_TRANSPORT != "tcp":
-        return None, None
-    sender = SocketSender(MIST_TDX_TCP_HOST, MIST_TDX_TCP_PORT)
-    register_frame = {
+def _make_register_frame(owner: BridgeOwner) -> dict:
+    """Build the TCP register frame with the owner's CURRENT lease identity.
+
+    The lease/epoch pair is refreshed on every reconnect: a re-registration
+    (lease lost / datasource restart) issues a new lease, and a stale frame
+    would be rejected by the gateway's owner validator forever.
+    """
+    return {
         "type": "register",
         "provider": "tdx",
         **owner.request_identity(),
@@ -398,6 +400,14 @@ def _init_sender(owner: BridgeOwner):
         "acquisitionProfile": ACQUISITION_PROFILE,
         "schemaVersion": SCHEMA_VERSION,
     }
+
+
+def _init_sender(owner: BridgeOwner):
+    """E: open the persistent TCP connection and register (best effort)."""
+    if MIST_TDX_TRANSPORT != "tcp":
+        return None, None
+    sender = SocketSender(MIST_TDX_TCP_HOST, MIST_TDX_TCP_PORT)
+    register_frame = _make_register_frame(owner)
     if not sender.connect(register_frame):
         print("[mist-bridge] TCP connect failed; reconnecting in main loop")
     return sender, register_frame
@@ -517,7 +527,11 @@ def run_bridge() -> None:
     while True:
         try:
             # 0. Reconnect a broken TCP connection (never inside a callback).
+            #    Refresh the register frame from the CURRENT lease: after a
+            #    datasource restart or a lease re-registration the gateway
+            #    owner changes, and a stale frame is rejected forever.
             if MIST_TDX_TRANSPORT == "tcp":
+                register_frame = _make_register_frame(owner)
                 sender.reconnect_if_needed(register_frame)
                 now = time.monotonic()
                 if now - last_obs_at >= OBSERVABILITY_INTERVAL_SECONDS:
