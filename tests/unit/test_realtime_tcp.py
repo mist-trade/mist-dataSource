@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -31,6 +32,8 @@ def test_frame_too_large_rejected() -> None:
 
 async def _run_connection(
     frames: list[dict[str, Any]],
+    *,
+    validate_owner: Callable[[str | None, str | None], Awaitable[bool]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Drive handle_connection over an in-memory reader/writer pair."""
     calls: list[dict[str, Any]] = []
@@ -73,7 +76,13 @@ async def _run_connection(
             return None
 
     writer = FakeWriter()
-    await handle_connection(FakeReader(raw), writer, provider="tdx", ingest=fake_ingest)
+    await handle_connection(
+        FakeReader(raw),
+        writer,
+        provider="tdx",
+        ingest=fake_ingest,
+        validate_owner=validate_owner,
+    )
     return calls, [w.decode("utf-8", "replace") for w in writer.written]
 
 
@@ -113,6 +122,52 @@ async def test_unknown_frame_type_warned_without_ingest() -> None:
         ],
     )
     assert calls == []
+
+
+async def test_register_owner_mismatch_rejects_connection() -> None:
+    async def validate_owner(lease_token, stream_epoch) -> bool:
+        return lease_token == "tok" and stream_epoch == "ep"
+
+    calls, written = await _run_connection(
+        [
+            {"type": "register", "provider": "tdx", "leaseToken": "old", "streamEpoch": "old"},
+            {"type": "snapshot", "symbol": "600519.SH", "native": {"Now": 1350.5}},
+        ],
+        validate_owner=validate_owner,
+    )
+    assert calls == []
+    assert any("owner_mismatch" in w for w in written)
+
+
+async def test_register_binds_identity_and_injects_into_snapshots() -> None:
+    async def validate_owner(lease_token, stream_epoch) -> bool:
+        return lease_token == "tok" and stream_epoch == "ep"
+
+    calls, written = await _run_connection(
+        [
+            {"type": "register", "provider": "tdx", "leaseToken": "tok", "streamEpoch": "ep"},
+            # Bridge snapshot frames carry no lease/epoch (connection-level
+            # identity); the protocol layer must inject the bound identity.
+            {"type": "snapshot", "symbol": "600519.SH", "native": {"Now": 1350.5}},
+        ],
+        validate_owner=validate_owner,
+    )
+    assert len(calls) == 1
+    assert calls[0]["leaseToken"] == "tok"
+    assert calls[0]["streamEpoch"] == "ep"
+    assert "owner_mismatch" not in "\n".join(written)
+
+
+async def test_register_without_validator_still_allows_snapshots() -> None:
+    calls, _ = await _run_connection(
+        [
+            {"type": "register", "provider": "tdx"},
+            {"type": "snapshot", "symbol": "600519.SH", "native": {"Now": 1350.5}},
+        ],
+    )
+    assert len(calls) == 1
+    # No bound identity: nothing to inject, frame passes through untouched.
+    assert "leaseToken" not in calls[0]
 
 
 class AsyncNoop:

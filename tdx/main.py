@@ -88,6 +88,7 @@ def create_tdx_app(
                 port=settings.tdx.realtime_tcp_port,
                 provider="tdx",
                 ingest=ingest_tdx,
+                validate_owner=app_gateway.owner_matches,
             )
         try:
             yield

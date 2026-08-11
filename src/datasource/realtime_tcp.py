@@ -2,9 +2,10 @@
 
 Protocol: [uint32 BE length][JSON]. Frame types:
 
-    register       handshake — records the connection identity; per-frame
-                   owner/epoch validation still runs inside the shared
-                   snapshot pipeline (post_snapshot)
+    register       handshake — binds the connection to the bridge owner's
+                   lease/epoch (validated against the provider gateway when a
+                   validator is injected); snapshot frames get the bound
+                   identity injected so provider ingesters can validate
     snapshot       same validation + broadcast pipeline as HTTP /snapshot
     observability  bridge-side counters -> structured log line (OO searchable;
                    the bridge has no OTel SDK)
@@ -53,12 +54,17 @@ async def handle_connection(
     *,
     provider: str,
     ingest: Callable[[dict[str, Any]], Coroutine[Any, Any, None]],
+    validate_owner: Callable[[str, str], Coroutine[Any, Any, bool]]
+    | None = None,
 ) -> None:
     """One bridge connection: register handshake, then snapshot/observability.
 
     Provider-specific snapshot handling is injected via `ingest` (TDX:
     gateway.post_snapshot + broadcast; QMT: subscription controller which
     publishes internally) — the protocol layer never duplicates validation.
+    When `validate_owner` is injected (TDX gateway owner_matches), the register
+    frame's lease/epoch must match the active owner before the connection is
+    bound; snapshot frames then carry the bound identity injected into them.
     """
     peer = writer.get_extra_info("peername")
     try:
@@ -67,6 +73,31 @@ async def handle_connection(
             _log.warning("tcp register missing provider=%s peer=%s", provider, peer)
             await _try_error(writer, "register_required", "first frame must be register")
             return
+        lease_token = first.get("leaseToken")
+        stream_epoch = first.get("streamEpoch")
+        if validate_owner is not None:
+            if not isinstance(lease_token, str) or not isinstance(stream_epoch, str):
+                _log.warning(
+                    "tcp register missing identity provider=%s peer=%s",
+                    provider,
+                    peer,
+                )
+                await _try_error(
+                    writer, "owner_mismatch", "register must carry leaseToken and streamEpoch"
+                )
+                return
+            owner_ok = await validate_owner(lease_token, stream_epoch)
+            if not owner_ok:
+                _log.warning(
+                    "tcp register rejected provider=%s peer=%s lease=%s",
+                    provider,
+                    peer,
+                    lease_token,
+                )
+                await _try_error(
+                    writer, "owner_mismatch", "register lease/epoch does not match the active owner"
+                )
+                return
         _log.info(
             "tcp registered provider=%s peer=%s bridgeBuildId=%s",
             provider,
@@ -79,6 +110,12 @@ async def handle_connection(
                 return
             frame_type = frame.get("type")
             if frame_type == "snapshot":
+                # Connection-level identity: the register handshake bound the
+                # lease/epoch; inject it so provider ingesters can validate.
+                if lease_token is not None:
+                    frame.setdefault("leaseToken", lease_token)
+                if stream_epoch is not None:
+                    frame.setdefault("streamEpoch", stream_epoch)
                 try:
                     await ingest(frame)
                 except Exception as exc:
@@ -122,6 +159,8 @@ async def serve(
     port: int,
     provider: str,
     ingest: Callable[[dict[str, Any]], Coroutine[Any, Any, None]],
+    validate_owner: Callable[[str, str], Coroutine[Any, Any, bool]]
+    | None = None,
 ) -> asyncio.AbstractServer:
     """Start the TCP ingestion server (call from the app lifespan)."""
     return await asyncio.start_server(
@@ -130,6 +169,7 @@ async def serve(
             writer,
             provider=provider,
             ingest=ingest,
+            validate_owner=validate_owner,
         ),
         host,
         port,
