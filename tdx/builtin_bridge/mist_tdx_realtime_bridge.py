@@ -53,13 +53,11 @@ OBSERVABILITY_INTERVAL_SECONDS = 30.0
 
 # E transport: persistent TCP (default) or legacy HTTP POST.
 MIST_TDX_TRANSPORT = os.environ.get("MIST_TDX_TRANSPORT", "tcp")  # tcp|http
-# Quote API used inside the callback. Default market_snapshot: terminal-tested
-# 2026-08-11 — full_tick returned fetch_none on 10/10 callbacks (the tdxquant
-# SDK has no get_full_tick; the plan-B example that used it is a QMT example),
-# while market_snapshot fetch succeeded on every callback (fetch_none=0) and
-# restored the full pipeline. The reentry concern discussed 08-10 did not
-# manifest in production observation. Keep the env switch for experiments.
-MIST_TDX_QUOTE_API = os.environ.get("MIST_TDX_QUOTE_API", "market_snapshot")  # market_snapshot|full_tick
+# Quote API used inside the callback. market_snapshot is the only terminal-tested
+# path: full_tick returned fetch_none on 10/10 callbacks 2026-08-11 (the tdxquant
+# SDK has no get_full_tick; the plan-B example that used it is a QMT example).
+# The dead get_full_tick branch was removed; get_quote() now always resolves to
+# get_market_snapshot.
 MIST_TDX_TCP_HOST = os.environ.get("MIST_TDX_TCP_HOST", "127.0.0.1")
 MIST_TDX_TCP_PORT = int(os.environ.get("MIST_TDX_TCP_PORT", "9003"))
 
@@ -249,20 +247,9 @@ class TqCenterWrapper:
             print(f"[mist-bridge] get_market_snapshot error for {code}: {e}")
             return None
 
-    def get_full_tick(self, code: str) -> dict | None:
-        try:
-            result = self._tq.get_full_tick(code)
-            if isinstance(result, str):
-                return json.loads(result)
-            return result
-        except Exception as e:
-            print(f"[mist-bridge] get_full_tick error for {code}: {e}")
-            return None
-
     def get_quote(self, code: str) -> dict | None:
-        """Quote source used inside the callback (env-switchable)."""
-        if MIST_TDX_QUOTE_API == "full_tick":
-            return self.get_full_tick(code)
+        """Quote source used inside the callback. market_snapshot only —
+        get_full_tick is a QMT method, not present on the tdxquant SDK."""
         return self.get_market_snapshot(code)
 
     def get_subscribe_hq_stock_list(self) -> list[str]:
