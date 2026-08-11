@@ -17,6 +17,7 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from collections import deque
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Tuple, cast
 
 if TYPE_CHECKING:
@@ -111,7 +112,10 @@ STATE.send_dropped = 0
 STATE.send_failures = 0
 STATE.callback_holders = {}
 
-BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v2.0"
+BRIDGE_BUILD_ID = "mist-qmt-realtime-bridge-v3.0"
+
+BRIDGE_QUEUE_MAX = 1000
+BRIDGE_QUEUE: deque = deque(maxlen=BRIDGE_QUEUE_MAX)  # thin callback → main-thread drain
 
 
 def _compute_artifact_sha256() -> str:
@@ -284,6 +288,7 @@ def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
         control_count = _poll_subscription_control(ContextInfo)
         if STATE.sender is not None and STATE.register_frame is not None:
             STATE.sender.reconnect_if_needed(STATE.register_frame)
+            _drain_bridge_queue()
         if STATE.tick_count % OBSERVABILITY_TICK_INTERVAL == 0:
             _send_observability(STATE.owner_id, STATE.lease_token, STATE.generation, STATE.sender)
         _log_tick(history_count, control_count, 0)
@@ -507,15 +512,35 @@ def _make_subscription_callback(holder: Dict[str, Any]) -> Any:
                 return
             accepted = _prepare_callback_native(native_value)
             if accepted is not None:
-                _push_snapshot(
-                    subscription_id,
-                    datetime.datetime.now().astimezone().isoformat(),
-                    accepted,
-                )
+                payload = {
+                    "subscriptionId": subscription_id,
+                    "capturedAt": datetime.datetime.now().astimezone().isoformat(),
+                    "native": accepted,
+                }
+                BRIDGE_QUEUE.append(payload)  # thin: no send, no SDK call
+                STATE.callback_count += 1
         except Exception as exc:
             _bounded_diagnostic("callback_error", str(exc))
 
     return callback
+
+
+def _drain_bridge_queue() -> int:
+    """Main-thread: drain BRIDGE_QUEUE → push. Returns drained count.
+
+    Symmetric with the TDX bridge _drain_bridge_queue; QMT payloads already
+    carry the native data so no fetch is needed.
+    """
+    drained = 0
+    while BRIDGE_QUEUE:
+        payload = BRIDGE_QUEUE.popleft()
+        _push_snapshot(
+            payload["subscriptionId"],
+            payload["capturedAt"],
+            payload["native"],
+        )
+        drained += 1
+    return drained
 
 
 def _prepare_callback_native(native_value: Any) -> Any:

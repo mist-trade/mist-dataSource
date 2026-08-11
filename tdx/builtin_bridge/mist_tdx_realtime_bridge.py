@@ -36,6 +36,7 @@ import struct
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 
 # --- Configuration ----------------------------------------------------
 
@@ -47,7 +48,8 @@ HTTP_TIMEOUT_SECONDS = 2.0
 RETRY_BASE_SECONDS = 0.25
 RETRY_MAX_SECONDS = 5.0
 RECONCILE_BATCH = 50
-DIRTY_QUEUE_MAX = 200
+BRIDGE_QUEUE_MAX = 1000
+BRIDGE_QUEUE: deque[str] = deque(maxlen=BRIDGE_QUEUE_MAX)  # thin callback → main-thread drain
 
 OBSERVABILITY_INTERVAL_SECONDS = 30.0
 
@@ -67,7 +69,7 @@ ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 SCHEMA_VERSION = 2
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v2.1"
+BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v3.0"
 
 
 def _resolve_script_path():
@@ -401,11 +403,11 @@ def _init_sender(owner: BridgeOwner):
     return sender, register_frame
 
 
-def _make_subscription_callback(tq_wrapper: TqCenterWrapper, owner: BridgeOwner, sender, counters: dict):
-    """Subscribe callback: pull the authoritative quote and push inline.
+def _make_subscription_callback(counters: dict):
+    """Subscribe callback: append the changed code to BRIDGE_QUEUE (thin).
 
-    Official TDX example pattern: the terminal supports SDK calls inside the
-    subscribe_hq callback. send() is non-blocking; the main loop reconnects.
+    C0.1 invariant: the callback makes no SDK calls and no transport send.
+    The main loop owns all fetch + push by draining the queue.
     """
 
     def on_quote_update(data_str: str) -> None:
@@ -414,19 +416,31 @@ def _make_subscription_callback(tq_wrapper: TqCenterWrapper, owner: BridgeOwner,
             code = data.get("Code")
             if code:
                 code = _format_code(code)
+                BRIDGE_QUEUE.append(code)  # GIL-atomic; thin
                 counters["callback_count"] += 1
-                native = tq_wrapper.get_quote(code)
-                if native is None:
-                    counters["fetch_none"] += 1
-                    return
-                counters["fetch_count"] += 1
-                captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
-                captured_at += _tz_offset_suffix()
-                _push_snapshot(owner, sender, counters, code, captured_at, native)
         except Exception:
             pass  # Never raise in callback.
 
     return on_quote_update
+
+
+def _drain_bridge_queue(
+    tq_wrapper: TqCenterWrapper, owner: BridgeOwner, sender, counters: dict
+) -> int:
+    """Main-thread: drain BRIDGE_QUEUE → fetch + push. Returns drained count."""
+    drained = 0
+    while BRIDGE_QUEUE:
+        code = BRIDGE_QUEUE.popleft()
+        native = tq_wrapper.get_quote(code)
+        if native is None:
+            counters["fetch_none"] += 1
+            continue
+        counters["fetch_count"] += 1
+        captured_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        captured_at += _tz_offset_suffix()
+        _push_snapshot(owner, sender, counters, code, captured_at, native)
+        drained += 1
+    return drained
 
 
 def _push_snapshot(
@@ -509,7 +523,7 @@ def run_bridge() -> None:
         "send_dropped": 0,
     }
     last_obs_at = time.monotonic()
-    quote_callback = _make_subscription_callback(tq_wrapper, owner, sender, counters)
+    quote_callback = _make_subscription_callback(counters)
 
     print("[mist-bridge] starting main loop")
     while True:
@@ -521,6 +535,7 @@ def run_bridge() -> None:
             if MIST_TDX_TRANSPORT == "tcp":
                 register_frame = _make_register_frame(owner)
                 sender.reconnect_if_needed(register_frame)
+                _drain_bridge_queue(tq_wrapper, owner, sender, counters)
                 now = time.monotonic()
                 if now - last_obs_at >= OBSERVABILITY_INTERVAL_SECONDS:
                     _send_observability(owner, sender, counters)

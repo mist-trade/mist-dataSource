@@ -116,3 +116,51 @@ def test_snapshot_delivery_has_no_producer_identity_or_retry_loop() -> None:
     assert "next_producer_sequence" not in source
     assert "max_retries" not in source
     assert source.count('BRIDGE_ENDPOINT + "/snapshot"') == 1
+
+
+def _extract_function_section(source: str, name: str) -> str:
+    """Return the source slice for a top-level def (up to the next ^def)."""
+    marker = f"def {name}("
+    start = source.index(marker)
+    end = source.index("\ndef ", start + 1)
+    return source[start:end]
+
+
+_TDX_SOURCE = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text(encoding="utf-8")
+_QMT_BRIDGE_DIR = _BRIDGE_DIR.parent.parent / "qmt" / "builtin_bridge"
+_QMT_SOURCE = (_QMT_BRIDGE_DIR / "mist_qmt_realtime_bridge.py").read_text(encoding="utf-8")
+
+
+def test_tdx_callback_is_thin_no_sdk_no_send() -> None:
+    """TDX subscribe callback must not call SDK methods or transport send."""
+    section = _extract_function_section(_TDX_SOURCE, "_make_subscription_callback")
+    assert "get_market_snapshot" not in section
+    assert "get_quote" not in section
+    assert "_push_snapshot" not in section
+    assert "sender" not in section
+    assert "BRIDGE_QUEUE.append" in section
+
+
+def test_qmt_callback_is_thin_no_send() -> None:
+    """QMT subscribe callback must not call _push_snapshot or sender.send."""
+    section = _extract_function_section(_QMT_SOURCE, "_make_subscription_callback")
+    assert "_push_snapshot" not in section
+    assert "sender" not in section
+    assert ".send(" not in section
+    assert "BRIDGE_QUEUE.append" in section
+
+
+def test_bridges_align_queue_and_drain_symbols() -> None:
+    """Both bridges use BRIDGE_QUEUE and _drain_bridge_queue (alignment)."""
+    for source in (_TDX_SOURCE, _QMT_SOURCE):
+        assert "BRIDGE_QUEUE" in source
+        assert "_drain_bridge_queue" in source
+
+
+def test_bridge_queue_maxlen_drops_oldest() -> None:
+    from collections import deque
+
+    q: deque = deque(maxlen=3)
+    for i in range(5):
+        q.append(i)
+    assert list(q) == [2, 3, 4]
