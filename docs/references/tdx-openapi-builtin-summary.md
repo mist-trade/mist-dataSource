@@ -14,24 +14,6 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Parameters: -
 - Responses: 200: TdxDatasourceHealth
 
-## GET /providers
-
-- Operation ID: `providers_providers_get`
-- Tags: V1
-- Summary: Providers
-- Request Body: `-`
-- Parameters: -
-- Responses: 200: -
-
-## GET /tdx/bridge/evidence/{symbol}
-
-- Operation ID: `bridge_native_evidence_tdx_bridge_evidence__symbol__get`
-- Tags: TDX Bridge
-- Summary: Bridge Native Evidence
-- Request Body: `-`
-- Parameters: symbol (path, string, required=true)
-- Responses: 200: object; 422: HTTPValidationError
-
 ## GET /tdx/bridge/health
 
 - Operation ID: `bridge_health_tdx_bridge_health_get`
@@ -40,6 +22,15 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Request Body: `-`
 - Parameters: -
 - Responses: 200: TdxBridgeHealth
+
+## POST /tdx/bridge/observability
+
+- Operation ID: `post_observability_tdx_bridge_observability_post`
+- Tags: TDX Bridge
+- Summary: Post Observability
+- Request Body: `ObservabilityRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
 
 ## POST /tdx/bridge/owner
 
@@ -405,6 +396,7 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 
 - `FormulaCallRequest`
 - `HTTPValidationError`
+- `ObservabilityRequest`
 - `OwnerRegisterRequest`
 - `PollRequest`
 - `RawTdxCallRequest`

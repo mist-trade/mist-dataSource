@@ -26,7 +26,6 @@ def _paths(target: FastAPI = app) -> set[str]:
 
 def test_tdx_mounts_only_v1_and_builtin_realtime_surfaces() -> None:
     paths = _paths()
-    assert "/providers" in paths
     assert "/v1/bars/query" in paths
     assert "/v1/snapshots/query" not in paths
     assert "/tdx/bridge/owner" in paths

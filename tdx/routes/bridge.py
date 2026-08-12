@@ -270,26 +270,3 @@ async def bridge_health(request: Request) -> dict[str, Any]:
     gateway = _get_gateway(request)
     return await gateway.health()
 
-
-@router.get("/tdx/bridge/evidence/{symbol}")
-async def bridge_native_evidence(symbol: str, request: Request) -> dict[str, Any]:
-    """Return bounded native HIL evidence without owner credentials."""
-    _require_loopback(request)
-    if request.query_params:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "code": "TDX_BRIDGE_EVIDENCE_UNKNOWN_FIELDS",
-                "message": "native evidence accepts no query fields",
-                "retryable": False,
-                "fields": sorted(request.query_params.keys()),
-            },
-        )
-    gateway = _get_gateway(request)
-    try:
-        return await gateway.read_native_evidence(symbol)
-    except GatewayError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=_gateway_error(exc),
-        ) from exc

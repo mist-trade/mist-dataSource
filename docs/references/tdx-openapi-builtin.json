@@ -49,6 +49,51 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ObservabilityRequest": {
+        "additionalProperties": false,
+        "description": "Bridge-side counters for E-0 throughput observation (no OTel in terminal).",
+        "properties": {
+          "counters": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Counters",
+            "type": "object"
+          },
+          "intervalSeconds": {
+            "default": 30.0,
+            "title": "Intervalseconds",
+            "type": "number"
+          },
+          "leaseToken": {
+            "title": "Leasetoken",
+            "type": "string"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender"
+          },
+          "streamEpoch": {
+            "title": "Streamepoch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken",
+          "streamEpoch",
+          "counters"
+        ],
+        "title": "ObservabilityRequest",
+        "type": "object"
+      },
       "OwnerRegisterRequest": {
         "additionalProperties": false,
         "properties": {
@@ -518,7 +563,6 @@
           "bridgeBuildId",
           "bridgeArtifactSha256",
           "ownerAgeSeconds",
-          "bridgeArtifactSha256",
           "desiredRevision",
           "convergedRevision",
           "desiredSymbols",
@@ -1514,47 +1558,48 @@
         "summary": "Health"
       }
     },
-    "/providers": {
+    "/tdx/bridge/health": {
       "get": {
-        "operationId": "providers_providers_get",
+        "operationId": "bridge_health_tdx_bridge_health_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TdxBridgeHealth"
+                }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "Providers",
+        "summary": "Bridge Health",
         "tags": [
-          "V1"
+          "TDX Bridge"
         ]
       }
     },
-    "/tdx/bridge/evidence/{symbol}": {
-      "get": {
-        "description": "Return bounded native HIL evidence without owner credentials.",
-        "operationId": "bridge_native_evidence_tdx_bridge_evidence__symbol__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "symbol",
-            "required": true,
-            "schema": {
-              "title": "Symbol",
-              "type": "string"
+    "/tdx/bridge/observability": {
+      "post": {
+        "description": "Accept bridge-side counters (E-0) and surface them as a log line.\n\nThe terminal bridge has no OTel SDK; this endpoint is its observability\nchannel into the datasource's OpenObserve log stream.",
+        "operationId": "post_observability_tdx_bridge_observability_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityRequest"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Bridge Native Evidence Tdx Bridge Evidence  Symbol  Get",
+                  "title": "Response Post Observability Tdx Bridge Observability Post",
                   "type": "object"
                 }
               }
@@ -1572,28 +1617,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Bridge Native Evidence",
-        "tags": [
-          "TDX Bridge"
-        ]
-      }
-    },
-    "/tdx/bridge/health": {
-      "get": {
-        "operationId": "bridge_health_tdx_bridge_health_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TdxBridgeHealth"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Bridge Health",
+        "summary": "Post Observability",
         "tags": [
           "TDX Bridge"
         ]

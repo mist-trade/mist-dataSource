@@ -6,7 +6,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.datasource.capabilities import build_provider_manifests
 from src.datasource.contracts import (
     BEIJING_TZ,
     DatasourceError,
@@ -215,16 +214,6 @@ async def _call_provider(
         return _failure(request, exc, provider="tdx")
     except Exception as exc:
         return _failure(request, exc, provider="tdx")
-
-
-@router.get("/providers")
-async def providers(request: Request):
-    provider = _get_provider(request)
-    status = "available" if provider is not None else "unavailable"
-    return _success(
-        request,
-        {"providers": build_provider_manifests(tdx_status=status)},
-    )
 
 
 @router.post("/v1/bars/query")

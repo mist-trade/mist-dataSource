@@ -137,11 +137,6 @@ class TdxRealtimeGateway:
     _last_failure_code: str | None = None
     _last_snapshot_monotonic: float | None = None
     _last_snapshot_at: str | None = None
-    # Bounded loopback-only HIL evidence. One latest accepted native payload
-    # per currently desired symbol; never contains the owner lease token.
-    _native_evidence: dict[str, dict[str, Any]] = field(
-        default_factory=lambda: dict[str, dict[str, Any]]()
-    )
     # Async lock for state transitions.
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _mutation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -240,7 +235,6 @@ class TdxRealtimeGateway:
             self._last_reported_active = set()
             self._completed_native_probe_revision = 0
             self._reset_reconcile_retry_locked()
-            self._native_evidence.clear()
             self._last_snapshot_monotonic = None
             self._last_snapshot_at = None
             result = {
@@ -297,7 +291,6 @@ class TdxRealtimeGateway:
             # Invalidate convergence: old observedNative is stale for the new revision.
             self._converged_revision = -1
             self._observed_native_symbols = set()
-            self._native_evidence.clear()
             self._reset_reconcile_retry_locked()
             self._convergence_changed.set()
             return self._desired_revision
@@ -312,7 +305,6 @@ class TdxRealtimeGateway:
             self._desired_revision += 1
             self._converged_revision = -1
             self._observed_native_symbols = set()
-            self._native_evidence.clear()
             self._reset_reconcile_retry_locked()
             self._convergence_changed.set()
             return self._desired_revision
@@ -327,7 +319,6 @@ class TdxRealtimeGateway:
             self._desired_revision += 1
             self._converged_revision = -1
             self._observed_native_symbols = set()
-            self._native_evidence.clear()
             self._reset_reconcile_retry_locked()
             self._convergence_changed.set()
             return self._desired_revision
@@ -487,16 +478,6 @@ class TdxRealtimeGateway:
                     )
                     self._last_snapshot_monotonic = time.monotonic()
                     self._last_snapshot_at = dt.datetime.now(dt.UTC).isoformat()
-                    self._native_evidence[symbol] = {
-                        "symbol": symbol,
-                        "ownerId": owner.owner_id,
-                        "bridgeBuildId": owner.bridge_build_id,
-                        "generation": owner.generation,
-                        "streamEpoch": owner.stream_epoch,
-                        "capturedAt": captured_at,
-                        "native": copy.deepcopy(native),
-                        "frame": copy.deepcopy(frame),
-                    }
             except GatewayError as exc:
                 span.add_event("rejected", {"reason": exc.code})
                 span.set_status(trace.StatusCode.ERROR, exc.code)
@@ -525,23 +506,6 @@ class TdxRealtimeGateway:
             )
             ds_metrics.record_snapshot_accepted("tdx")
             return {"accepted": True, "frame": frame}
-
-    async def read_native_evidence(self, symbol: str) -> dict[str, Any]:
-        """Return the latest accepted native HIL evidence for one symbol.
-
-        The route layer keeps this loopback-only. Returning a deep copy avoids
-        callers mutating gateway state, and the stored shape deliberately has
-        no lease token.
-        """
-        async with self._lock:
-            evidence = self._native_evidence.get(symbol)
-            if evidence is None or symbol not in self._desired_symbols:
-                raise GatewayError(
-                    "TDX_BRIDGE_EVIDENCE_NOT_FOUND",
-                    f"no native evidence for {symbol}",
-                    retryable=True,
-                )
-            return copy.deepcopy(evidence)
 
     @staticmethod
     def _validate_rfc3339(value: str, *, field_name: str) -> None:

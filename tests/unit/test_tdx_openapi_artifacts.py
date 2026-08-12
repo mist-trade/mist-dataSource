@@ -46,7 +46,7 @@ def test_mode_specific_openapi_artifacts_document_conditional_routes() -> None:
     }
 
     assert "/tdx/bridge/health" in schemas["tdx-builtin"]["paths"]
-    assert "/tdx/bridge/evidence/{symbol}" in schemas["tdx-builtin"]["paths"]
+    assert "/tdx/bridge/evidence/{symbol}" not in schemas["tdx-builtin"]["paths"]
     assert "/v1/snapshots/query" not in schemas["tdx-builtin"]["paths"]
     assert "/qmt/realtime/health" not in schemas["qmt-off"]["paths"]
     assert "/qmt/realtime/health" in schemas["qmt-builtin"]["paths"]

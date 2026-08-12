@@ -14,24 +14,6 @@ Generated from the `tdx` FastAPI app in `builtin` mode.
 - Parameters: -
 - Responses: 200: TdxDatasourceHealth
 
-## GET /providers
-
-- Operation ID: `providers_providers_get`
-- Tags: V1
-- Summary: Providers
-- Request Body: `-`
-- Parameters: -
-- Responses: 200: -
-
-## GET /tdx/bridge/evidence/{symbol}
-
-- Operation ID: `bridge_native_evidence_tdx_bridge_evidence__symbol__get`
-- Tags: TDX Bridge
-- Summary: Bridge Native Evidence
-- Request Body: `-`
-- Parameters: symbol (path, string, required=true)
-- Responses: 200: object; 422: HTTPValidationError
-
 ## GET /tdx/bridge/health
 
 - Operation ID: `bridge_health_tdx_bridge_health_get`

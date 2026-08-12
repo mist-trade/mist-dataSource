@@ -51,6 +51,41 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ObservabilityRequest": {
+        "additionalProperties": false,
+        "description": "Bridge-side counters for E-0 throughput observation (no OTel in terminal).",
+        "properties": {
+          "counters": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Counters",
+            "type": "object"
+          },
+          "intervalSeconds": {
+            "default": 30.0,
+            "title": "Intervalseconds",
+            "type": "number"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender"
+          }
+        },
+        "required": [
+          "counters"
+        ],
+        "title": "ObservabilityRequest",
+        "type": "object"
+      },
       "OwnerRequest": {
         "additionalProperties": false,
         "properties": {
@@ -831,6 +866,50 @@
           }
         },
         "summary": "Bridge Health",
+        "tags": [
+          "QMT Bridge"
+        ]
+      }
+    },
+    "/qmt/bridge/observability": {
+      "post": {
+        "description": "Accept bridge-side counters (E-0) and surface them as a log line.\n\nLoopback-only; the counters carry no sensitive data, so owner validation\nis intentionally omitted (unlike TDX, the QMT controller exposes no public\nidentity check for auxiliary endpoints).",
+        "operationId": "post_observability_qmt_bridge_observability_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Observability Qmt Bridge Observability Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Observability",
         "tags": [
           "QMT Bridge"
         ]

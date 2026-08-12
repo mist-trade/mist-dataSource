@@ -41,6 +41,15 @@ Generated from the `qmt` FastAPI app in `off` mode.
 - Parameters: -
 - Responses: 200: QmtBridgeHealth
 
+## POST /qmt/bridge/observability
+
+- Operation ID: `post_observability_qmt_bridge_observability_post`
+- Tags: QMT Bridge
+- Summary: Post Observability
+- Request Body: `ObservabilityRequest`
+- Parameters: -
+- Responses: 200: object; 422: HTTPValidationError
+
 ## POST /qmt/bridge/owner
 
 - Operation ID: `register_owner_qmt_bridge_owner_post`
@@ -108,6 +117,7 @@ Generated from the `qmt` FastAPI app in `off` mode.
 
 - `CommandRequest`
 - `HTTPValidationError`
+- `ObservabilityRequest`
 - `OwnerRequest`
 - `PollRequest`
 - `QmtBarQueryRequest`

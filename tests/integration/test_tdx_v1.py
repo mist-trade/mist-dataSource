@@ -591,68 +591,6 @@ def test_v1_provider_lookup_reads_request_app_state() -> None:
     assert tdx_v1_routes._get_provider(request) is provider
 
 
-@pytest.mark.asyncio
-async def test_providers_returns_tdx_provider_envelope(v1_client: AsyncClient) -> None:
-    response = await v1_client.get("/providers", headers={"x-request-id": "req-providers"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    assert body["requestId"] == "req-providers"
-    assert body["provider"] == "tdx"
-    assert body["data"]["providers"][0]["id"] == "tdx"
-
-
-@pytest.mark.asyncio
-async def test_providers_returns_tdx_capability_manifest_only(
-    v1_client: AsyncClient,
-) -> None:
-    response = await v1_client.get("/providers")
-
-    assert response.status_code == 200
-    body = response.json()
-    providers = {provider["id"]: provider for provider in body["data"]["providers"]}
-
-    assert set(providers) == {"tdx"}
-
-    tdx_families = {
-        capability["family"]: capability["status"]
-        for capability in providers["tdx"]["capabilities"]
-    }
-
-    assert tdx_families["bars"] == "supported"
-    assert "snapshots" not in tdx_families
-    assert tdx_families["sector-members"] == "supported"
-    assert tdx_families["calendar"] == "supported"
-    assert tdx_families["securities"] == "supported"
-    assert tdx_families["security-info"] == "supported"
-    assert tdx_families["sector-list"] == "supported"
-    assert tdx_families["price-volume"] == "supported"
-    assert tdx_families["security-relations"] == "supported"
-    assert tdx_families["ipo-info"] == "supported"
-    assert tdx_families["share-capital"] == "supported"
-    assert tdx_families["dividend-factors"] == "supported"
-    assert tdx_families["convertible-bonds"] == "supported"
-    assert tdx_families["etf-info"] == "supported"
-    assert tdx_families["financial-data"] == "supported"
-    assert tdx_families["single-finance-value"] == "supported"
-    assert tdx_families["stock-trade-aggregate"] == "supported"
-    assert tdx_families["sector-trade-aggregate"] == "supported"
-    assert tdx_families["market-trade-aggregate"] == "supported"
-    assert "report-data" not in tdx_families
-    assert tdx_families["formula-data"] == "supported"
-
-    tdx_capabilities = {
-        capability["family"]: capability for capability in providers["tdx"]["capabilities"]
-    }
-    assert "get_bars" in tdx_capabilities["bars"]["providerMethods"]
-    assert "get_market_data" in tdx_capabilities["bars"]["nativeMethods"]
-    assert "get_market_data" not in tdx_capabilities["bars"]["providerMethods"]
-    assert "nativeMethods" in tdx_capabilities["raw-diagnostics"]
-    assert tdx_families["formula-metadata"] == "supported"
-    assert tdx_families["formula-execution"] == "supported"
-    assert tdx_families["formula-batch-execution"] == "supported"
-    assert tdx_families["formulas"] == "supported"
 
 
 @pytest.mark.parametrize(
