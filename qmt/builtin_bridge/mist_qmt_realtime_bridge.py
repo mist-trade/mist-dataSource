@@ -231,9 +231,15 @@ class SocketSender:
             self.dropped_frames += 1
             return False
 
-    def reconnect_if_needed(self, _register_payload: dict) -> bool:
-        """Reconnect when the socket is gone. Main-loop/tick context only."""
+    def reconnect_if_needed(self, register_payload: dict) -> bool:
+        """Reconnect when the socket is gone. Main-loop/tick context only.
+
+        The caller rebuilds the register frame from the CURRENT owner identity
+        before each reconnect; store it so _connect() registers with the fresh
+        lease (a stale startup frame is rejected after a datasource restart).
+        """
         if self._sock is None:
+            self._register_payload = register_payload
             return self._connect()
         return True
 
