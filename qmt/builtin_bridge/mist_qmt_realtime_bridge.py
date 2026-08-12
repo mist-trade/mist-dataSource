@@ -255,21 +255,31 @@ class SocketSender:
         self._sock.sendall(header + data)
 
 
+def _make_register_frame() -> dict:
+    """Build the TCP register frame from CURRENT owner identity.
+
+    Refreshed on every reconnect: after a datasource restart the gateway
+    owner changes, and a stale frame is rejected forever (mirrors TDX
+    e686b25 register-frame refresh).
+    """
+    return {
+        "type": "register",
+        "provider": "qmt",
+        "ownerId": STATE.owner_id,
+        "leaseToken": STATE.lease_token,
+        "generation": STATE.generation,
+        "bridgeBuildId": BRIDGE_BUILD_ID,
+        "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+    }
+
+
 def _init_sender() -> None:
     """E: open the persistent TCP connection and register (best effort)."""
     if QMT_BRIDGE_TRANSPORT != "tcp":
         return
     try:
         STATE.sender = SocketSender(QMT_TCP_HOST, QMT_TCP_PORT)
-        STATE.register_frame = {
-            "type": "register",
-            "provider": "qmt",
-            "ownerId": STATE.owner_id,
-            "leaseToken": STATE.lease_token,
-            "generation": STATE.generation,
-            "bridgeBuildId": BRIDGE_BUILD_ID,
-            "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
-        }
+        STATE.register_frame = _make_register_frame()
         STATE.sender.connect(STATE.register_frame)
     except Exception as exc:
         # Sender is optional: a failure falls back to the HTTP transport.
@@ -287,6 +297,7 @@ def mist_qmt_realtime_bridge_tick(ContextInfo: BridgeContextInfo) -> None:
         history_count = _poll_history(ContextInfo)
         control_count = _poll_subscription_control(ContextInfo)
         if STATE.sender is not None and STATE.register_frame is not None:
+            STATE.register_frame = _make_register_frame()
             STATE.sender.reconnect_if_needed(STATE.register_frame)
             _drain_bridge_queue()
         if STATE.tick_count % OBSERVABILITY_TICK_INTERVAL == 0:
