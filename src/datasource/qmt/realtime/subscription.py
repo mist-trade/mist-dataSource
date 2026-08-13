@@ -1067,6 +1067,17 @@ class QmtSubscriptionController:
                     and detail.get("failure") is None
                 ):
                     unknown_count += 1
+                elif (
+                    method == "unsubscribe_quote"
+                    and detail.get("failure") is None
+                    and type(success) is bool
+                    and success is False
+                ):
+                    # SDK 明确返回 false = 该订阅已不存在（终端重启等）→ 该候选视为已清理，
+                    # 避免重启后 registry 恢复失效 sub_id 重新进入 unsubscribe 死锁。
+                    sub_id = intent.get("subId")
+                    if type(sub_id) is int and sub_id in candidates:
+                        self._resolve_replayed_candidate(candidates, sub_id)
                 continue
             if kind == "registry_transition":
                 transition = detail.get("transition")
@@ -1188,7 +1199,12 @@ class QmtSubscriptionController:
                 and reply.failure is None
                 and reply.success_present
                 and type(reply.success) is bool
-                and reply.success is True
+            )
+            # success=True=取消成功；success=False=SDK 侧已不存在（终端重启等）——两者都算清除确认
+            confirmed_by = (
+                "startup_boolean_true"
+                if confirmed and reply.success is True
+                else "startup_boolean_false_absent"
             )
             outcome = "confirmed" if confirmed else "unconfirmed"
         except QmtSubscriptionControlError as exc:
@@ -1203,7 +1219,7 @@ class QmtSubscriptionController:
             if confirmed:
                 transition_durable = self._append_transition(
                     "unsubscribed",
-                    {**intent, "confirmedBy": "startup_boolean_true"},
+                    {**intent, "confirmedBy": confirmed_by},
                 )
                 if transition_durable:
                     self._resolve_replayed_candidate(self._startup_candidates, candidate.sub_id)
@@ -1483,6 +1499,14 @@ class QmtSubscriptionController:
         confirmed_by: str | None = None
         if reply.success_present and type(reply.success) is bool and reply.success is True:
             confirmed_by = "hil_boolean_true"
+        elif (
+            reply.success_present
+            and type(reply.success) is bool
+            and reply.success is False
+        ):
+            # SDK 明确返回 false = 该订阅在 SDK 侧已不存在（如终端重启后状态丢失）。
+            # 视为清理确认：清 registry 让 sync 继续重建，避免 unsubscribe 失败永久阻塞 subscribe。
+            confirmed_by = "hil_boolean_false_absent"
         elif (
             reply.success_present
             and type(reply.success) is int

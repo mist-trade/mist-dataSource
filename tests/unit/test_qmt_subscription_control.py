@@ -180,9 +180,10 @@ async def test_true_unsubscribe_is_confirmed_directly(
 
 
 @pytest.mark.asyncio
-async def test_false_unsubscribe_remains_unconfirmed(
+async def test_false_unsubscribe_confirms_absent(
     tmp_path: Path,
 ) -> None:
+    """SDK 明确返回 false = 订阅已不存在（如终端重启后状态丢失）→ 视为清理确认。"""
     controller, _ = _controller(tmp_path)
     controller.registry.singles = {"300502.SZ": 123}
 
@@ -197,17 +198,13 @@ async def test_false_unsubscribe_remains_unconfirmed(
         command["callSequence"],
         QmtNativeReply(success_present=True, success=False, failure=None),
     )
-    assert await task == (
-        "unsubscribed",
-        {
-            "failure": {
-                "symbol": "300502.SZ",
-                "reason": "QMT_UNSUBSCRIBE_UNCONFIRMED",
-                "subscriptionState": "unknown",
-            }
-        },
+    assert await task == ("unsubscribed", {"success": None})
+    assert controller.registry.public_value()["singles"] == {}
+    assert controller.journal.last_record is not None
+    assert (
+        controller.journal.last_record["detail"]["confirmedBy"]
+        == "hil_boolean_false_absent"
     )
-    assert controller.registry.public_value()["singles"] == {"300502.SZ": 123}
 
 
 @pytest.mark.asyncio
@@ -270,6 +267,57 @@ async def test_sync_cancels_whole_then_sorted_singles_and_creates_exact_whole(
             "symbols": ["000001.SZ", "300502.SZ"],
         },
         "singles": {},
+    }
+
+
+@pytest.mark.asyncio
+async def test_sync_continues_subscribe_when_unsubscribe_reports_absent(
+    tmp_path: Path,
+) -> None:
+    """回归：终端重启后 SDK 无旧订阅 → unsubscribe 返回 false（absent）
+    → 不得阻塞 subscribe，否则永久死锁（2026-08-13 开盘事故）。"""
+    controller, _ = _controller(tmp_path)
+    controller.registry.whole = QmtWholeSubscription(665, ("300502.SZ",))
+
+    task = asyncio.create_task(
+        controller.execute("sync_subscriptions", symbols=["300502.SZ"])
+    )
+    await _wait_for_slot(controller)
+    command = controller.poll_command("owner", "token", 1)
+    assert command == {
+        "callSequence": 1,
+        "method": "unsubscribe_quote",
+        "subId": 665,
+        "symbol": None,
+    }
+    controller.post_result(
+        "owner",
+        "token",
+        1,
+        command["callSequence"],
+        QmtNativeReply(success_present=True, success=False, failure=None),
+    )
+    await asyncio.sleep(0)
+
+    await _wait_for_slot(controller)
+    command = controller.poll_command("owner", "token", 1)
+    assert command == {
+        "callSequence": 2,
+        "method": "subscribe_whole_quote",
+        "symbols": ["300502.SZ"],
+    }
+    controller.post_result(
+        "owner",
+        "token",
+        1,
+        command["callSequence"],
+        QmtNativeReply(success_present=True, success=777, failure=None),
+    )
+
+    assert await task == ("subscriptions_synced", {"success": 777})
+    assert controller.registry.public_value()["whole"] == {
+        "subId": 777,
+        "symbols": ["300502.SZ"],
     }
 
 
@@ -1025,7 +1073,7 @@ async def test_startup_replay_cleans_complete_open_handle_once_before_ready(
 
 
 @pytest.mark.asyncio
-async def test_startup_cleanup_continues_after_false_and_keeps_replacement_blocked(
+async def test_startup_cleanup_confirms_absent_and_completes(
     tmp_path: Path,
 ) -> None:
     journal = _journal(tmp_path)
@@ -1095,23 +1143,18 @@ async def test_startup_cleanup_continues_after_false_and_keeps_replacement_block
     await cleanup
 
     health = controller.health()
-    assert health["startupReconciliation"]["phase"] == "degraded"
-    assert health["startupReconciliation"]["recoverableCount"] == 1
+    assert health["startupReconciliation"]["phase"] == "completed"
+    assert health["startupReconciliation"]["recoverableCount"] == 0
     assert health["startupReconciliation"]["attemptTotals"] == {
-        "confirmed": 1,
-        "unconfirmed": 1,
+        "confirmed": 2,
+        "unconfirmed": 0,
         "timeout": 0,
         "exception": 0,
         "durability_failed": 0,
     }
     assert await controller.execute("sync_subscriptions", symbols=[]) == (
         "subscriptions_synced",
-        {
-            "failure": {
-                "symbol": None,
-                "reason": "QMT_JOURNAL_RECONCILIATION_REQUIRED",
-            }
-        },
+        {"success": None},
     )
 
 
