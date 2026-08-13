@@ -68,6 +68,9 @@ MIST_TDX_TCP_PORT = int(os.environ.get("MIST_TDX_TCP_PORT", "9003"))
 ACQUISITION_PROFILE = "tdx.get_market_snapshot"
 SCHEMA_VERSION = 2
 
+# Bounded diagnostic text length (aligns with QMT bridge).
+BOUNDED_LOG_TEXT = 300
+
 # Build identity (computed at load time).
 BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v3.0"
 
@@ -409,6 +412,10 @@ def _init_sender(owner: BridgeOwner):
     return sender, register_frame
 
 
+def _bounded_diagnostic(event: str, reason: str) -> None:
+    print("[mist-bridge] " + event[:80] + " reason=" + str(reason)[:BOUNDED_LOG_TEXT])
+
+
 def _make_subscription_callback(counters: dict):
     """Subscribe callback: append the changed code to BRIDGE_QUEUE (thin).
 
@@ -424,8 +431,10 @@ def _make_subscription_callback(counters: dict):
                 code = _format_code(code)
                 BRIDGE_QUEUE.append(code)  # GIL-atomic; thin
                 counters["callback_count"] += 1
-        except Exception:
-            pass  # Never raise in callback.
+        except Exception as exc:
+            # Bounded diagnostic (aligns with QMT bridge): callback errors must
+            # never raise, but must never be silent either (F4-q).
+            _bounded_diagnostic("callback_error", str(exc))
 
     return on_quote_update
 

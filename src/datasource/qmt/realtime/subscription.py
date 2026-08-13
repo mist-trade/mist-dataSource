@@ -1189,6 +1189,7 @@ class QmtSubscriptionController:
         candidate.attempted = True
         outcome = "exception"
         confirmed = False
+        confirmed_by = "startup_boolean_false_absent"
         try:
             reply, durable = await self._native_call(
                 "unsubscribe_quote",
