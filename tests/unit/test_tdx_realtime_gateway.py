@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from src.datasource.realtime.stall_detector import ActivityWindow, StallDetector
 from src.datasource.tdx.realtime.gateway import (
     ACCEPTED_ACQUISITION_PROFILE,
     ACCEPTED_SCHEMA_VERSION,
@@ -579,5 +580,136 @@ class TestSnapshotAcceptance:
                     native=_native_snapshot(),
                 )
             assert exc_info.value.code == "TDX_BRIDGE_LEASE_INVALID"
+
+        async_loop.run_until_complete(run())
+
+
+class TestStallRecovery:
+    """Subscription recovery state machine wiring (spec R1/R2)."""
+
+    _IN_WINDOW = __import__("datetime").datetime(2026, 8, 20, 10, 0)
+
+    def _stall(self, clock: list[float]) -> StallDetector:
+        return StallDetector(
+            source="tdx",
+            window=ActivityWindow(
+                env_value="09:15-11:30,13:00-15:00",
+                now=lambda: self._IN_WINDOW,
+            ),
+            stall_grace_seconds=180.0,
+            max_recovery_cycles=3,
+            now=lambda: clock[0],
+        )
+
+    def test_pushing_poll_returns_full_desired(self, async_loop) -> None:
+        clock: list[float] = [1000.0]
+        stall = self._stall(clock)
+        gw = TdxRealtimeGateway(max_subscriptions=100, _stall=stall)
+
+        async def run() -> None:
+            await gw.register_owner(
+                owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
+            )
+            await gw.sync_desired(["600519.SH"])
+            gw._last_reported_active = {"600519.SH"}  # already reported to terminal
+            stall.evaluate()  # in window, no activity -> pushing
+            assert stall.push_state == "pushing"
+            poll = await gw.poll(
+                lease_token=gw.owner.lease_token,  # type: ignore[union-attr]
+                stream_epoch=gw.owner.stream_epoch,  # type: ignore[union-attr]
+            )
+            assert poll["subscribe"] == ["600519.SH"]  # full re-issue
+
+        async_loop.run_until_complete(run())
+
+    def test_verified_poll_returns_diff(self, async_loop) -> None:
+        clock: list[float] = [1000.0]
+        stall = self._stall(clock)
+        gw = TdxRealtimeGateway(max_subscriptions=100, _stall=stall)
+
+        async def run() -> None:
+            await gw.register_owner(
+                owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
+            )
+            await gw.sync_desired(["600519.SH"])
+            gw._last_reported_active = {"600519.SH"}
+            stall.observe_snapshot()  # data flowing -> verified
+            assert stall.push_state == "verified"
+            poll = await gw.poll(
+                lease_token=gw.owner.lease_token,  # type: ignore[union-attr]
+                stream_epoch=gw.owner.stream_epoch,  # type: ignore[union-attr]
+            )
+            assert poll["subscribe"] == []  # incremental diff (already active)
+
+        async_loop.run_until_complete(run())
+
+    def test_post_snapshot_moves_state_to_verified(self, async_loop) -> None:
+        clock: list[float] = [1000.0]
+        stall = self._stall(clock)
+        gw = TdxRealtimeGateway(max_subscriptions=100, _stall=stall)
+
+        async def run() -> None:
+            await gw.register_owner(
+                owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
+            )
+            rev = await gw.sync_desired(["600519.SH"])
+            await gw.post_result(
+                lease_token=gw.owner.lease_token,  # type: ignore[union-attr]
+                stream_epoch=gw.owner.stream_epoch,  # type: ignore[union-attr]
+                desired_revision=rev,
+                applied_revision=rev,
+                active=["600519.SH"],
+                rejected=[],
+            )  # converged
+            stall.evaluate()
+            assert stall.push_state == "pushing"  # arm pushing first
+            await gw.post_snapshot(
+                lease_token=gw.owner.lease_token,  # type: ignore[union-attr]
+                stream_epoch=gw.owner.stream_epoch,  # type: ignore[union-attr]
+                symbol="600519.SH",
+                captured_at="2026-07-16T14:30:01.000+08:00",
+                native=_native_snapshot(),
+            )
+            assert stall.push_state == "verified"  # snapshot fed detector
+
+        async_loop.run_until_complete(run())
+
+    def test_register_owner_resets_to_full_subscribe(self, async_loop) -> None:
+        clock: list[float] = [1000.0]
+        stall = self._stall(clock)
+        gw = TdxRealtimeGateway(max_subscriptions=100, _stall=stall)
+
+        async def run() -> None:
+            await gw.register_owner(
+                owner_id="b", bridge_build_id="s", bridge_artifact_sha256="h", **CONTRACT_KWARGS
+            )
+            await gw.sync_desired(["600519.SH"])
+            # register_owner cleared _last_reported_active -> a diff against the
+            # empty active set is the full desired list (re-register => resubscribe).
+            poll = await gw.poll(
+                lease_token=gw.owner.lease_token,  # type: ignore[union-attr]
+                stream_epoch=gw.owner.stream_epoch,  # type: ignore[union-attr]
+            )
+            # Fresh registration cleared _last_reported_active -> full list even
+            # in IDLE (diff against empty active set).
+            assert poll["subscribe"] == ["600519.SH"]
+
+        async_loop.run_until_complete(run())
+
+    def test_health_exposes_push_state(self, async_loop) -> None:
+        clock: list[float] = [1000.0]
+        stall = self._stall(clock)
+        gw = TdxRealtimeGateway(max_subscriptions=100, _stall=stall)
+
+        async def run() -> None:
+            stall.evaluate()
+            health = await gw.health()
+            assert health["pushState"] == "pushing"
+            assert health["stallDetected"] is True
+            assert health["stallEscalated"] is False
+            stall.observe_snapshot()
+            health2 = await gw.health()
+            assert health2["pushState"] == "verified"
+            assert health2["stallDetected"] is False
 
         async_loop.run_until_complete(run())

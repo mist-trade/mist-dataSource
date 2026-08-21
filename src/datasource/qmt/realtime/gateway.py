@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from src.core.logging import get_logger
+from src.datasource import metrics as ds_metrics
+
+_log = get_logger(__name__)
+
 DEFAULT_MAX_OUTSTANDING_COMMANDS = 64
 DEFAULT_MAX_RETAINED_RESULTS = 64
 DEFAULT_RESULT_TTL_SECONDS = 300.0
@@ -195,6 +200,16 @@ class QmtCommandGateway:
             lease_token = "lease-" + secrets.token_urlsafe(24)
             generation = previous.generation + 1 if previous else 1
             registered_at = now
+        prev_generation = previous.generation if previous is not None else 0
+        owner_changed = previous is None or previous.owner_id != owner_id
+        _log.info(
+            "bridge re-registered source=qmt gen=%d->%d ownerId=%r ownerChanged=%s",
+            prev_generation,
+            generation,
+            owner_id,
+            owner_changed,
+        )
+        ds_metrics.record_owner_registration("qmt", owner_changed)
         self._owner = QmtBridgeOwner(
             owner_id=owner_id,
             lease_token=lease_token,

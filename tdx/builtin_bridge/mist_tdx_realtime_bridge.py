@@ -53,6 +53,15 @@ BRIDGE_QUEUE: deque[str] = deque(maxlen=BRIDGE_QUEUE_MAX)  # thin callback → m
 
 OBSERVABILITY_INTERVAL_SECONDS = 30.0
 
+# Stall-confirmed re-arm (spec realtime-subscription-restart-recovery R3).
+# Off by default: enables unsubscribe+subscribe force re-arm when the datasource
+# keeps re-issuing the full desired list (PUSHING) but callbacks are not
+# advancing — i.e. `subscribe_hq` on an already-listed symbol was a no-op
+# (suspected from the 2026-08-14 incident). Enabled only after terminal HIL
+# confirms the no-op semantics. Cooldown avoids a per-poll hot re-arm loop.
+REARM_ENABLED = os.environ.get("REARM_ENABLED", "false").strip().lower() == "true"
+REARM_MIN_INTERVAL_SECONDS = 30.0
+
 # E transport: persistent TCP (default) or legacy HTTP POST.
 MIST_TDX_TRANSPORT = os.environ.get("MIST_TDX_TRANSPORT", "tcp")  # tcp|http
 # Quote API used inside the callback. market_snapshot is the only terminal-tested
@@ -72,7 +81,7 @@ SCHEMA_VERSION = 2
 BOUNDED_LOG_TEXT = 300
 
 # Build identity (computed at load time).
-BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v3.0"
+BRIDGE_BUILD_ID = "mist-tdx-realtime-bridge-v3.1"
 
 
 def _resolve_script_path():
@@ -523,6 +532,15 @@ def _register_owner(owner: BridgeOwner) -> None:
 
 def run_bridge() -> None:
     """Main bridge loop. Registers, reconciles subscriptions, pushes quotes."""
+    _bounded_diagnostic(
+        "bridge_start",
+        (
+            f"pid={os.getpid()} parentPid={os.getppid()} "
+            f"startedAt={time.strftime('%Y-%m-%dT%H:%M:%S')} "
+            f"transport={MIST_TDX_TRANSPORT} build={BRIDGE_BUILD_ID} "
+            f"rearmEnabled={REARM_ENABLED}"
+        ),
+    )
     tq_wrapper = TqCenterWrapper()
     tq_wrapper.initialize()
 
@@ -539,6 +557,9 @@ def run_bridge() -> None:
     }
     last_obs_at = time.monotonic()
     quote_callback = _make_subscription_callback(counters)
+    # Stall-confirmed re-arm bookkeeping (only when REARM_ENABLED).
+    last_rearm_cb_count: int | None = None
+    last_rearm_at = 0.0
 
     print("[mist-bridge] starting main loop")
     while True:
@@ -618,6 +639,28 @@ def run_bridge() -> None:
                     tq_wrapper.subscribe_hq(batch, quote_callback)
                     owner._active_native.update(batch)
                     print(f"[mist-bridge] subscribed: {batch}")
+                # Stall-confirmed re-arm: the datasource is re-issuing the full
+                # desired list (PUSHING) but callbacks are not advancing —
+                # subscribe_hq on an already-listed symbol may be a no-op
+                # (2026-08-14 suspicion). Re-arm = unsubscribe then subscribe
+                # to force the SDK to re-attach delivery. Cooldown-gated.
+                if REARM_ENABLED:
+                    now_mono = time.monotonic()
+                    if (
+                        last_rearm_cb_count is not None
+                        and counters["callback_count"] == last_rearm_cb_count
+                        and now_mono - last_rearm_at >= REARM_MIN_INTERVAL_SECONDS
+                    ):
+                        print(
+                            f"[mist-bridge] re-arm: callback stalled after re-subscribe; "
+                            f"unsubscribe+subscribe {to_subscribe}"
+                        )
+                        for i in range(0, len(to_subscribe), RECONCILE_BATCH):
+                            batch = to_subscribe[i : i + RECONCILE_BATCH]
+                            tq_wrapper.unsubscribe_hq(batch)
+                            tq_wrapper.subscribe_hq(batch, quote_callback)
+                        last_rearm_at = now_mono
+                    last_rearm_cb_count = counters["callback_count"]
 
             # 3. Verify native subscription set matches desired (fail-closed).
             # Report the FULL normalized native set — gateway checks convergence

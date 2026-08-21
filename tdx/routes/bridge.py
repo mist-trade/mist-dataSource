@@ -261,6 +261,13 @@ async def post_observability(
         json.dumps(body.counters, sort_keys=True),
         json.dumps(body.sender, sort_keys=True) if body.sender else "none",
     )
+    # Feed bridge counters into the recovery state machine as auxiliary
+    # activity signal (best-effort; counters is a typed dict[str, float]).
+    counters = body.counters
+    await gateway.observe_bridge_activity(
+        callback_count=int(counters["callback_count"]) if "callback_count" in counters else None,
+        fetch_count=int(counters["fetch_count"]) if "fetch_count" in counters else None,
+    )
     return {"accepted": True}
 
 

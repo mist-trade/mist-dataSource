@@ -47,6 +47,10 @@ class TdxBridgeHealth(BridgeHealth):
         alias="lastSnapshotAgeSeconds",
         ge=0,
     )
+    # Subscription recovery state machine (realtime-subscription-restart-recovery).
+    push_state: Literal["idle", "pushing", "verified"] = Field(alias="pushState")
+    stall_detected: bool = Field(alias="stallDetected")
+    stall_escalated: bool = Field(alias="stallEscalated")
     control_totals: list[dict[str, Any]] = Field(alias="controlTotals")
 
 

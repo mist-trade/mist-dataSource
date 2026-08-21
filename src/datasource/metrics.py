@@ -60,6 +60,18 @@ def init_metrics() -> None:
         "mist_datasource_startup_ok",
         description="Successful startup per source (1 ok; absent after crash)",
     )
+    _INSTRUMENTS["stall_active"] = m.create_gauge(
+        "mist_datasource_subscription_stall_active",
+        description="Subscription stall active per source (1 pushing / 0 otherwise)",
+    )
+    _INSTRUMENTS["stall_total"] = m.create_counter(
+        "mist_datasource_subscription_stall_total",
+        description="Subscription stall transitions per source and outcome",
+    )
+    _INSTRUMENTS["owner_registration"] = m.create_counter(
+        "mist_datasource_owner_registration_total",
+        description="Bridge owner registrations per source and owner-changed flag",
+    )
 
 
 def register_snapshot_age_callback(source: str, factory: Callable[[], float | None]) -> None:
@@ -136,3 +148,21 @@ def set_startup_ok(source: str, ok: bool) -> None:
     inst = _INSTRUMENTS.get("startup_ok")
     if inst is not None:
         inst.set(1 if ok else 0, {"source": source})
+
+
+def set_stall_active(source: str, active: bool) -> None:
+    inst = _INSTRUMENTS.get("stall_active")
+    if inst is not None:
+        inst.set(1 if active else 0, {"source": source})
+
+
+def record_stall(source: str, outcome: str) -> None:
+    inst = _INSTRUMENTS.get("stall_total")
+    if inst is not None:
+        inst.add(1, {"source": source, "outcome": outcome})
+
+
+def record_owner_registration(source: str, owner_changed: bool) -> None:
+    inst = _INSTRUMENTS.get("owner_registration")
+    if inst is not None:
+        inst.add(1, {"source": source, "owner_changed": "true" if owner_changed else "false"})

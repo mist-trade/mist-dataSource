@@ -534,6 +534,15 @@
             ],
             "title": "Ownerid"
           },
+          "pushState": {
+            "enum": [
+              "idle",
+              "pushing",
+              "verified"
+            ],
+            "title": "Pushstate",
+            "type": "string"
+          },
           "ready": {
             "title": "Ready",
             "type": "boolean"
@@ -554,6 +563,14 @@
             "minimum": 0.0,
             "title": "Reconcileretryattempt",
             "type": "integer"
+          },
+          "stallDetected": {
+            "title": "Stalldetected",
+            "type": "boolean"
+          },
+          "stallEscalated": {
+            "title": "Stallescalated",
+            "type": "boolean"
           }
         },
         "required": [
@@ -576,6 +593,9 @@
           "lastFailureRetryable",
           "lastSnapshotAt",
           "lastSnapshotAgeSeconds",
+          "pushState",
+          "stallDetected",
+          "stallEscalated",
           "controlTotals"
         ],
         "title": "TdxBridgeHealth",

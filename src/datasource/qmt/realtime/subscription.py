@@ -23,6 +23,7 @@ from opentelemetry import trace
 from src.core.logging import get_logger
 from src.datasource import metrics as ds_metrics
 from src.datasource.qmt.realtime.contract import QMT_SYMBOL_PATTERN
+from src.datasource.realtime.stall_detector import ActivityWindow, StallDetector
 from src.datasource.realtime_native_safety import (
     NativePayloadSafetyError,
     validate_native_payload_safety,
@@ -738,6 +739,7 @@ class QmtSubscriptionController:
         timeout_seconds: float = DEFAULT_CONTROL_TIMEOUT_SECONDS,
         startup_timeout_seconds: float = DEFAULT_STARTUP_RECONCILIATION_TIMEOUT_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        stall: StallDetector | None = None,
     ) -> None:
         self.registry = QmtSubscriptionRegistry()
         self.journal = journal
@@ -766,6 +768,12 @@ class QmtSubscriptionController:
             "exception": 0,
             "durability_failed": 0,
         }
+        # Subscription recovery state machine (spec realtime-subscription-restart-recovery).
+        self._stall = stall or StallDetector(source="qmt", window=ActivityWindow(), now=clock)
+        self._stall_tick_seconds = 5.0
+        # Most recent desired set (backend sync provides it; watchdog force-sync
+        # reuses it so it can re-issue without a backend round-trip).
+        self._last_desired: tuple[str, ...] = ()
         self._restore_startup_state()
 
     async def execute(
@@ -895,6 +903,7 @@ class QmtSubscriptionController:
                     self._callback_counts.get(subscription_id, 0) + 1
                 )
                 self._callback_last_seen[subscription_id] = self._clock()
+                self._stall.observe_snapshot()
             accepted: dict[str, Any] = {}
             rejected: list[dict[str, str]] = []
             for raw_symbol, value in native.items():
@@ -952,6 +961,12 @@ class QmtSubscriptionController:
             return {"accepted": sorted(accepted), "rejected": rejected}
 
     def health(self) -> dict[str, Any]:
+        callback_last_seen_values = list(self._callback_last_seen.values())
+        callback_last_seen_age = (
+            round(self._clock() - max(callback_last_seen_values), 3)
+            if callback_last_seen_values
+            else None
+        )
         return {
             "ready": self.journal.healthy and not self.reconciliation_required,
             "journalHealthy": self.journal.healthy,
@@ -963,6 +978,10 @@ class QmtSubscriptionController:
             "inFlight": self._slot is not None,
             "callSequence": self._call_sequence,
             "callbackObservedHandleCount": len(self._callback_last_seen),
+            "callbackLastSeenAgeSeconds": callback_last_seen_age,
+            "pushState": self._stall.push_state,
+            "stallDetected": self._stall.stall_detected,
+            "stallEscalated": self._stall.stall_escalated,
             "controlTotals": [
                 {
                     "operation": operation,
@@ -981,6 +1000,33 @@ class QmtSubscriptionController:
             },
             "journal": self.journal.health(),
         }
+
+    async def run_recovery_watchdog(self) -> None:
+        """Subscription recovery watchdog (in-process, no process restart).
+
+        In PUSHING (in-window, no data flowing) triggers an immediate full
+        resubscribe (cancel + subscribe_whole_quote = QMT re-arm), bypassing the
+        backend's ~60s sync cadence. Journal reconciliation and healthy gates
+        are enforced inside ``execute`` (already skip when not ready).
+        """
+        while True:
+            await asyncio.sleep(self._stall_tick_seconds)
+            was_escalated = self._stall.stall_escalated
+            self._stall.evaluate()
+            if self._stall.push_state == "pushing" and self._last_desired:
+                await self.execute("sync_subscriptions", symbols=list(self._last_desired))
+                self._stall.note_recovery()
+            ds_metrics.set_stall_active("qmt", self._stall.stall_detected)
+            if self._stall.stall_escalated and not was_escalated:
+                ds_metrics.record_stall("qmt", "escalated")
+                _log.error(
+                    "subscription stall escalated source=qmt state=%s "
+                    "grace=%ss maxCycles=%d cyclesDone=%d; no auto-restart",
+                    self._stall.push_state,
+                    self._stall.grace_seconds,
+                    self._stall.max_recovery_cycles,
+                    self._stall.recovery_cycles_done,
+                )
 
     async def reconcile_startup(self) -> None:
         """Run one bounded, deterministic cleanup pass before first ready."""
@@ -1392,6 +1438,11 @@ class QmtSubscriptionController:
 
     async def _sync(self, symbols: Sequence[str]) -> int | None:
         desired = _normalize_symbols(symbols)
+        self._last_desired = desired
+        # VERIFIED + registry already covers desired => zero SDK calls
+        # (retire the unconditional 60s cancel+subscribe_whole_quote loop).
+        if self._stall.push_state == "verified" and self._registry_covers(desired):
+            return None
         failures: list[QmtSubscriptionControlError] = []
         whole = self.registry.whole
         if whole is not None:
@@ -1420,6 +1471,18 @@ class QmtSubscriptionController:
         if not desired:
             return None
         return await self._subscribe_whole(desired)
+
+    def _registry_covers(self, desired: tuple[str, ...]) -> bool:
+        """True when the registry's active set equals the desired set.
+
+        Active set = whole.subscription symbols union single-subscription keys.
+        Equality (not subset) so stale/extra subscriptions also force re-sync.
+        """
+        active: set[str] = set()
+        if self.registry.whole is not None:
+            active.update(self.registry.whole.symbols)
+        active.update(self.registry.singles.keys())
+        return active == set(desired)
 
     async def _subscribe(self, symbol: str) -> int:
         if self.registry.contains_symbol(symbol):

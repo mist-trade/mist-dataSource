@@ -6,6 +6,7 @@ an operator explicitly selects ``off`` for rollback.
 """
 
 import asyncio
+import contextlib
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -123,10 +124,17 @@ def create_qmt_app(
         if active_collector is not None:
             await active_collector.start()
         tcp_server: asyncio.AbstractServer | None = None
+        stall_watchdog: asyncio.Task[None] | None = None
         subscription_controller = getattr(
             target_app.state, "qmt_subscription_controller", None
         )
         if mode == "builtin" and subscription_controller is not None:
+            # Symmetry with TDX: observe snapshot-age gauge for QMT too.
+            if active_collector is not None:
+                ds_metrics.register_snapshot_age_callback(
+                    "qmt",
+                    lambda: active_collector.health()["lastSnapshotAgeSeconds"],
+                )
             # E: persistent TCP ingestion for bridge frames (change E).
             from src.datasource.realtime_tcp import serve as serve_realtime_tcp
 
@@ -146,9 +154,16 @@ def create_qmt_app(
                 provider="qmt",
                 ingest=ingest_qmt,
             )
+            stall_watchdog = asyncio.create_task(
+                subscription_controller.run_recovery_watchdog()
+            )
         try:
             yield
         finally:
+            if stall_watchdog is not None:
+                stall_watchdog.cancel()
+                with contextlib.suppress(BaseException):
+                    await stall_watchdog
             if tcp_server is not None:
                 tcp_server.close()
                 await tcp_server.wait_closed()

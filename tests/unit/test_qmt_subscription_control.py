@@ -17,6 +17,7 @@ from src.datasource.qmt.realtime.subscription import (
     QmtWholeSubscription,
     configured_qmt_unsubscribe_success_values,
 )
+from src.datasource.realtime.stall_detector import ActivityWindow, StallDetector
 
 
 def _journal(tmp_path: Path) -> QmtSubscriptionJournal:
@@ -1406,3 +1407,103 @@ def test_finishes_consuming_already_durable_context_observation(tmp_path: Path) 
     assert restarted.health()["reconciliationRequired"] is False
     assert not processing.exists()
     assert restarted.journal.record_sequence == 2
+
+
+class TestSubscriptionRecovery:
+    """State-machine-driven sync semantics (spec R1/R2/R3)."""
+
+    _IN_WINDOW = datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+
+    def _controller_with_stall(self, tmp_path: Path, clock: list[float]):
+        published: list[dict[str, Any]] = []
+        stall = StallDetector(
+            source="qmt",
+            window=ActivityWindow(
+                env_value="09:15-11:30,13:00-15:00",
+                now=lambda: self._IN_WINDOW,
+            ),
+            stall_grace_seconds=180.0,
+            max_recovery_cycles=3,
+            now=lambda: clock[0],
+        )
+        controller = QmtSubscriptionController(
+            journal=_journal(tmp_path),
+            owner_validator=lambda _owner, _token, _generation: None,
+            publisher=published.append,
+            unsubscribe_success_values=frozenset({0}),
+            timeout_seconds=1.0,
+            clock=lambda: clock[0],
+            stall=stall,
+        )
+        return controller, published, stall
+
+    @pytest.mark.asyncio
+    async def test_verified_sync_is_zero_sdk(self, tmp_path: Path) -> None:
+        clock: list[float] = [1000.0]
+        controller, _, stall = self._controller_with_stall(tmp_path, clock)
+        stall.observe_snapshot()  # data flowing -> verified
+        assert controller.health()["pushState"] == "verified"
+        controller.registry.whole = QmtWholeSubscription(sub_id=777, symbols=("300502.SZ",))
+        resp, data = await controller.execute(
+            "sync_subscriptions", symbols=["300502.SZ"]
+        )
+        assert resp == "subscriptions_synced"
+        # No slot created -> no SDK call (loop-based cancel+subscribe retired).
+        assert controller.poll_command("owner", "token", 1) is None
+        assert controller.registry.whole.sub_id == 777  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_pushing_sync_reissues_whole(self, tmp_path: Path) -> None:
+        clock: list[float] = [1000.0]
+        controller, _, stall = self._controller_with_stall(tmp_path, clock)
+        stall.evaluate()  # in window, no activity -> pushing
+        assert controller.health()["pushState"] == "pushing"
+        controller.registry.whole = QmtWholeSubscription(sub_id=665, symbols=("300502.SZ",))
+        task = asyncio.create_task(
+            controller.execute("sync_subscriptions", symbols=["300502.SZ"])
+        )
+        await _wait_for_slot(controller)
+        cmd = controller.poll_command("owner", "token", 1)
+        assert cmd["method"] == "unsubscribe_quote"  # cancel old whole first (re-arm)
+        controller.post_result(
+            "owner", "token", 1, cmd["callSequence"],
+            QmtNativeReply(success_present=True, success=False, failure=None),
+        )
+        await asyncio.sleep(0)
+        await _wait_for_slot(controller)
+        cmd2 = controller.poll_command("owner", "token", 1)
+        assert cmd2["method"] == "subscribe_whole_quote"
+        assert cmd2["symbols"] == ["300502.SZ"]
+        controller.post_result(
+            "owner", "token", 1, cmd2["callSequence"],
+            QmtNativeReply(success_present=True, success=888, failure=None),
+        )
+        await asyncio.sleep(0)
+        resp, _ = await task
+        assert resp == "subscriptions_synced"
+        assert controller.registry.whole.sub_id == 888
+
+    @pytest.mark.asyncio
+    async def test_force_sync_respects_reconciliation(self, tmp_path: Path) -> None:
+        clock: list[float] = [1000.0]
+        controller, _, stall = self._controller_with_stall(tmp_path, clock)
+        stall.evaluate()
+        controller.reconciliation_required = True
+        resp, data = await controller.execute(
+            "sync_subscriptions", symbols=["300502.SZ"]
+        )
+        assert data["failure"]["reason"] == "QMT_JOURNAL_RECONCILIATION_REQUIRED"
+        assert controller.poll_command("owner", "token", 1) is None
+
+    def test_health_exposes_push_state(self, tmp_path: Path) -> None:
+        clock: list[float] = [1000.0]
+        controller, _, stall = self._controller_with_stall(tmp_path, clock)
+        stall.evaluate()
+        health = controller.health()
+        assert health["pushState"] == "pushing"
+        assert health["stallDetected"] is True
+        assert health["stallEscalated"] is False
+        stall.observe_snapshot()
+        health2 = controller.health()
+        assert health2["pushState"] == "verified"
+        assert health2["stallDetected"] is False

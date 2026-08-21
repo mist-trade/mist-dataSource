@@ -31,6 +31,7 @@ from opentelemetry import trace
 
 from src.core.logging import get_logger
 from src.datasource import metrics as ds_metrics
+from src.datasource.realtime.stall_detector import ActivityWindow, StallDetector
 from src.datasource.realtime_native_safety import validate_native_payload_safety
 from src.datasource.tdx.market_normalization import dedupe_normalized_symbols, dedupe_stable
 from src.datasource.tdx.realtime.contract import (
@@ -137,6 +138,12 @@ class TdxRealtimeGateway:
     _last_failure_code: str | None = None
     _last_snapshot_monotonic: float | None = None
     _last_snapshot_at: str | None = None
+    # Subscription recovery state machine (spec realtime-subscription-restart-recovery).
+    _stall: StallDetector = field(
+        default_factory=lambda: StallDetector(source="tdx", window=ActivityWindow())
+    )
+    _stall_tick_seconds: float = 5.0
+    _last_cb_count: int | None = None
     # Async lock for state transitions.
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _mutation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -213,8 +220,19 @@ class TdxRealtimeGateway:
                         )
                     self._retired_owner_ids.add(existing.owner_id)
             self._takeover_candidate = None
+            prev_generation = self._owner.generation if self._owner is not None else 0
+            prev_owner_id = self._owner.owner_id if self._owner is not None else None
             self._owner_generation_counter += 1
             generation = self._owner_generation_counter
+            owner_changed = prev_owner_id != owner_id
+            _log.info(
+                "bridge re-registered source=tdx gen=%d->%d ownerId=%r ownerChanged=%s",
+                prev_generation,
+                generation,
+                owner_id,
+                owner_changed,
+            )
+            ds_metrics.record_owner_registration("tdx", owner_changed)
             stream_epoch = self._new_stream_epoch(owner_id, generation)
             lease_token = self._new_lease_token()
             self._owner = BridgeOwner(
@@ -349,9 +367,15 @@ class TdxRealtimeGateway:
                 "unsubscribe": [
                     s for s in self._last_reported_active if s not in self._desired_symbols
                 ],
-                "subscribe": [
-                    s for s in self._desired_symbols if s not in self._last_reported_active
-                ],
+                "subscribe": (
+                    # PUSHING: full re-issue of desired (bridge re-subscribes all
+                    # symbol — recovery substrate). Otherwise incremental diff.
+                    list(self._desired_symbols)
+                    if self._stall.push_state == "pushing"
+                    else [
+                        s for s in self._desired_symbols if s not in self._last_reported_active
+                    ]
+                ),
                 "retryAfterMs": retry_after_ms,
             }
 
@@ -478,6 +502,7 @@ class TdxRealtimeGateway:
                     )
                     self._last_snapshot_monotonic = time.monotonic()
                     self._last_snapshot_at = dt.datetime.now(dt.UTC).isoformat()
+                    self._stall.observe_snapshot()
             except GatewayError as exc:
                 span.add_event("rejected", {"reason": exc.code})
                 span.set_status(trace.StatusCode.ERROR, exc.code)
@@ -506,6 +531,48 @@ class TdxRealtimeGateway:
             )
             ds_metrics.record_snapshot_accepted("tdx")
             return {"accepted": True, "frame": frame}
+
+    async def observe_bridge_activity(
+        self,
+        *,
+        callback_count: int | None = None,
+        fetch_count: int | None = None,
+    ) -> None:
+        """Feed bridge observability counters as auxiliary activity signal.
+
+        Called from the observability route/frame handler. Only a moving
+        callback counter is treated as activity (a frozen counter is not).
+        This is best-effort: a missing/None counter advances nothing.
+        """
+        del fetch_count  # reserved auxiliary signal (not a stall sign on its own)
+        if callback_count is not None and callback_count != self._last_cb_count:
+            self._last_cb_count = callback_count
+            self._stall.observe_callback()
+
+    async def run_stall_watchdog(self) -> None:
+        """Subscription recovery watchdog (in-process, no process restart).
+
+        Recovery rounds are counted per tick (default 5s): PUSHING keeps the
+        poll returning the full desired set (bridge re-subscribes), and each
+        tick counts one recovery round towards escalation.
+        """
+        while True:
+            await asyncio.sleep(self._stall_tick_seconds)
+            was_escalated = self._stall.stall_escalated
+            self._stall.evaluate()
+            if self._stall.push_state == "pushing":
+                self._stall.note_recovery()
+            ds_metrics.set_stall_active("tdx", self._stall.stall_detected)
+            if self._stall.stall_escalated and not was_escalated:
+                ds_metrics.record_stall("tdx", "escalated")
+                _log.error(
+                    "subscription stall escalated source=tdx state=%s "
+                    "grace=%ss maxCycles=%d cyclesDone=%d; no auto-restart",
+                    self._stall.push_state,
+                    self._stall.grace_seconds,
+                    self._stall.max_recovery_cycles,
+                    self._stall.recovery_cycles_done,
+                )
 
     @staticmethod
     def _validate_rfc3339(value: str, *, field_name: str) -> None:
@@ -823,6 +890,9 @@ class TdxRealtimeGateway:
                     if self._last_snapshot_monotonic is not None
                     else None
                 ),
+                "pushState": self._stall.push_state,
+                "stallDetected": self._stall.stall_detected,
+                "stallEscalated": self._stall.stall_escalated,
                 "controlTotals": [
                     {
                         "operation": operation,

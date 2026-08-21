@@ -164,3 +164,18 @@ def test_bridge_queue_maxlen_drops_oldest() -> None:
     for i in range(5):
         q.append(i)
     assert list(q) == [2, 3, 4]
+
+
+def test_terminal_bridge_rearm_config_gate() -> None:
+    # spec R3: REARM_ENABLED off by default (HIL-confirmed no-op enables later).
+    assert _bridge_mod.REARM_ENABLED is False
+    assert _bridge_mod.REARM_MIN_INTERVAL_SECONDS >= 0.0
+    assert _bridge_mod.BRIDGE_BUILD_ID == "mist-tdx-realtime-bridge-v3.1"
+
+
+def test_terminal_bridge_contains_rearm_path() -> None:
+    source = (_BRIDGE_DIR / "mist_tdx_realtime_bridge.py").read_text(encoding="utf-8")
+    assert "re-arm: callback stalled after re-subscribe" in source
+    assert "unsubscribe_hq(batch)" in source
+    assert "subscribe_hq(batch, quote_callback)" in source
+    assert "REARM_ENABLED" in source

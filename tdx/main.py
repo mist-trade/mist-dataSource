@@ -6,6 +6,7 @@ operator explicitly selects ``off`` for rollback.
 """
 
 import asyncio
+import contextlib
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from typing import Any, Literal, cast
@@ -63,6 +64,7 @@ def create_tdx_app(
     @asynccontextmanager
     async def lifespan(_target: FastAPI) -> AsyncGenerator[None]:
         tcp_server: asyncio.AbstractServer | None = None
+        stall_watchdog: asyncio.Task[None] | None = None
         if mode == "builtin" and app_gateway is not None and app_manager is not None:
             # E: persistent TCP ingestion for bridge frames (change E).
             from src.datasource.realtime_tcp import serve as serve_realtime_tcp
@@ -90,9 +92,14 @@ def create_tdx_app(
                 ingest=ingest_tdx,
                 validate_owner=app_gateway.owner_matches,
             )
+            stall_watchdog = asyncio.create_task(app_gateway.run_stall_watchdog())
         try:
             yield
         finally:
+            if stall_watchdog is not None:
+                stall_watchdog.cancel()
+                with contextlib.suppress(BaseException):
+                    await stall_watchdog
             if tcp_server is not None:
                 tcp_server.close()
                 await tcp_server.wait_closed()
