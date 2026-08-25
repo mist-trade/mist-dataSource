@@ -72,6 +72,10 @@ def init_metrics() -> None:
         "mist_datasource_owner_registration_total",
         description="Bridge owner registrations per source and owner-changed flag",
     )
+    _INSTRUMENTS["reconciliation_required"] = m.create_gauge(
+        "mist_datasource_subscription_reconciliation_required",
+        description="Subscription control blocked by journal reconciliation (1 required / 0 resolved)",
+    )
 
 
 def register_snapshot_age_callback(source: str, factory: Callable[[], float | None]) -> None:
@@ -166,3 +170,10 @@ def record_owner_registration(source: str, owner_changed: bool) -> None:
     inst = _INSTRUMENTS.get("owner_registration")
     if inst is not None:
         inst.add(1, {"source": source, "owner_changed": "true" if owner_changed else "false"})
+
+
+def set_reconciliation_required(source: str, required: bool) -> None:
+    inst = _INSTRUMENTS.get("reconciliation_required")
+    if inst is not None:
+        inst.set(1 if required else 0, {"source": source})
+

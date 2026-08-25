@@ -21,7 +21,16 @@ def test_init_metrics_registers_all_instruments() -> None:
     _setup()
     # assert the private registry contains the instruments
     registered = set(ds_metrics._INSTRUMENTS.keys())
-    assert {"accepted", "rejected", "bridge_ready", "owner_stale", "control", "ws_clients", "startup_ok"} <= registered
+    assert {
+        "accepted",
+        "rejected",
+        "bridge_ready",
+        "owner_stale",
+        "control",
+        "ws_clients",
+        "startup_ok",
+        "reconciliation_required",
+    } <= registered
 
 
 def test_init_metrics_idempotent() -> None:
@@ -40,5 +49,7 @@ def test_helpers_do_not_throw_after_registration() -> None:
     ds_metrics.record_control("tdx", "subscribe", "success", "none")
     ds_metrics.set_ws_clients("tdx", 1)
     ds_metrics.set_startup_ok("qmt", True)
+    ds_metrics.set_reconciliation_required("qmt", True)
+    ds_metrics.set_reconciliation_required("qmt", False)
     # all instrument references exist
     assert "age" not in ds_metrics._INSTRUMENTS  # age registered separately

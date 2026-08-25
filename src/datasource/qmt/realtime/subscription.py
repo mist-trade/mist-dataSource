@@ -755,6 +755,7 @@ class QmtSubscriptionController:
         self._callback_counts: dict[int, int] = {}
         self._callback_last_seen: dict[int, float] = {}
         self.reconciliation_required = False
+        ds_metrics.set_reconciliation_required("qmt", False)
         self._control_counts: dict[tuple[str, str, str], int] = {}
         self._startup_lock = asyncio.Lock()
         self._startup_phase = "not_started"
@@ -1052,6 +1053,7 @@ class QmtSubscriptionController:
             self.reconciliation_required = bool(
                 self._startup_candidates or self._startup_unknown_count
             )
+            ds_metrics.set_reconciliation_required("qmt", self.reconciliation_required)
             self._startup_phase = "degraded" if self.reconciliation_required else "completed"
             self._startup_duration_seconds = max(0.0, self._clock() - started)
 
@@ -1201,6 +1203,7 @@ class QmtSubscriptionController:
         self._startup_candidates = candidates
         self._startup_unknown_count = unknown_count
         self.reconciliation_required = bool(candidates or unknown_count)
+        ds_metrics.set_reconciliation_required("qmt", self.reconciliation_required)
 
     def _resolve_replayed_candidate(
         self,
@@ -1289,6 +1292,7 @@ class QmtSubscriptionController:
         self._startup_unknown_count = 0
         self._startup_phase = "completed"
         self.reconciliation_required = False
+        ds_metrics.set_reconciliation_required("qmt", False)
 
     def observe_rebuilt_context(
         self,
@@ -1695,6 +1699,7 @@ class QmtSubscriptionController:
     ) -> None:
         self.registry.retained_recovery.add((bucket, symbol, sub_id))
         self.reconciliation_required = True
+        ds_metrics.set_reconciliation_required("qmt", True)
         with suppress(QmtSubscriptionJournalError):
             self.journal.append(
                 "retained_recovery",
