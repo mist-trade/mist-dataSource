@@ -1,68 +1,30 @@
-# TDX Builtin Realtime Bridge 运维
+# tdx/builtin_bridge — 通达信内置实时桥接脚本
 
-`mist_tdx_realtime_bridge.py` 在 TDX 终端环境中运行，是 realtime native SDK 的唯一
-owner。脚本目标语法为 Python 3.7+，只依赖标准库与官方 `tqcenter`，没有 fake SDK、
-自建线程、子进程或监听端口。
+`mist_tdx_realtime_bridge.py` 运行于 Windows 通达信终端的 Python 插件环境中，是 TDX 实时原生 SDK（`tqcenter`）的唯一持有者（Owner）。
 
-## 首次安装
+---
 
-1. 将脚本放入 `TDX_INSTALL_DIR/PYPlugins/user/`。
-2. 在 TQ 策略管理器中注册脚本并启用自动运行。
-3. 由操作员自行维护安装位置和文件版本。
-4. 确认 Docker 中的 `tdx-datasource` 已运行，且宿主映射
-   `http://127.0.0.1:9001` 可访问。
+## 🎯 模块职责
 
-首次注册和后续版本覆盖都属于人工操作。每次 bridge 版本变化，操作员必须覆盖
-`PYPlugins/user` 中的 installed file，并让 TDX 重新加载；终端正常重启
-只会启动当前已安装的已注册脚本。deploy 和 recovery workflow 不复制、注册、删除或
-升级策略。
+- **原生行情驱动**：通过通达信 `tqcenter` SDK 的 `subscribe_hq` / `unsubscribe_hq` 接口管理行情订阅。
+- **快照直推**：捕获实时行情 Snapshot 并通过 TCP 直推至容器网关（`:9003`），由容器转为 WebSocket 分发。
+- **租约与防并发 (Fencing)**：向 `tdx-datasource` 注册 Owner 租约并定期心跳，防止多终端冲突。
 
-installed path 与文件摘要属于终端操作员维护信息，不作为 datasource/deploy workflow
-输入。自动化只通过 owner health 核验运行时 `bridgeBuildId` 和协议行为。
+---
 
-## 运行链路
+## 📦 安装与运维步骤
 
-脚本启动后：
+1. **部署路径**：将 `mist_tdx_realtime_bridge.py` 复制到通达信目录 `TDX_INSTALL_DIR/PYPlugins/user/`。
+2. **注册启用**：在通达信“TQ 策略管理器”中注册该脚本并勾选“自动运行”。
+3. **版本更新**：代码更新时由操作员手动覆盖文件并触发 TDX 重新加载。
 
-1. 解析 TQ 策略管理器提供的 installed script path，并用该路径调用 `tq.initialize(...)`。
-2. `POST /tdx/bridge/owner` 注册 owner。
-3. 每秒 `poll` desired revision。
-4. 用 `subscribe_hq` / `unsubscribe_hq` 收敛完整订阅集合。
-5. 回调后调用 `get_market_snapshot` 并 POST native snapshot。
-6. owner 被 fencing 后退出或重新注册，不与新实例并行写入。
+---
 
-## 健康检查
+## 🩺 诊断与健康检查
 
 ```powershell
+# 查询宿主侧 Bridge 状态
 Invoke-RestMethod http://127.0.0.1:9001/tdx/bridge/health
 ```
 
-重点字段：
-
-- 根 `/health` 的 `bridge.ready=true`
-- `/tdx/bridge/health` 的顶层 `ready=true`
-- `ownerId` 与 `ownerAgeSeconds`
-- `desiredRevision == convergedRevision`
-- `desiredSymbols == convergedSymbols`
-- `lastFailureCode` 为空
-
-Public `/health` 提供摘要；lease 和 evidence 细节只允许 loopback 访问。
-
-## 停止与卸载
-
-停止或卸载只能在 TQ 策略管理器中人工执行。停止后 owner 约 10 秒变 stale；新实例
-经过 bounded takeover grace 接管，旧实例收到 lease fencing 后退出。不要让 Action
-按 PID 强杀任意 Python 进程。
-
-## 常见问题
-
-- `tqcenter not available`：确认从 TQ 策略管理器启动，并检查 `numpy`、native DLL
-  与 Python 环境。
-- `TDX did not expose a file-backed strategy path`：必须从 `PYPlugins/user` 注册实际文件，
-  不要把脚本粘贴到没有文件路径的临时执行上下文。
-- `OWNER_ACTIVE`：保持新实例重试，等待旧 owner stale/takeover；不要重复注册多个
-  自动运行项。
-- `NOT_CONVERGED`：检查 backend desired set、revision 和 TDX subscription 结果。
-- `lease lost`：通常发生于 datasource 重启，脚本会重新注册。
-- `native code is missing`：检查 symbol canonicalization；TDX native code 与
-  `600030.SH` 等 product code 不得混用。
+- 核心检查项：`bridge.ready == true`、`desiredRevision == convergedRevision`、无 `lastFailureCode`。
