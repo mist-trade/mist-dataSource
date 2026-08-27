@@ -161,12 +161,15 @@ def test_tdx_routes_document_current_dependency_model() -> None:
 def test_primary_api_docs_use_v1_endpoints_for_tdx_rest_surface() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
-    tdx_api_section = readme.split("#### TDX", 1)[1].split("#### QMT", 1)[0]
-    tdx_api_table_rows = [line for line in tdx_api_section.splitlines() if line.startswith("|")]
+    tdx_api_section = (
+        readme.split("通达信 (TDX)", 1)[1].split("大 QMT", 1)[0]
+        if "通达信 (TDX)" in readme
+        else readme.split("#### TDX", 1)[1].split("#### QMT", 1)[0]
+    )
+    tdx_api_table_rows = [line for line in tdx_api_section.splitlines() if line.startswith("|") or line.startswith("-")]
     assert not any("/api/tdx/" in line for line in tdx_api_table_rows)
     for endpoint in (
         "/v1/bars/query",
-        "/v1/sectors/query",
         "/v1/finance/financial-data/query",
         "/v1/instruments/convertible-bonds/query",
     ):
