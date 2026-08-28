@@ -1,8 +1,11 @@
 from typing import Any
 
 from src.core.config import settings
-from src.datasource.tdx.errors import TdxNativeError as TdxNativeError
-from src.datasource.tdx.errors import TdxSymbolNotFoundError as TdxSymbolNotFoundError
+from src.datasource.tdx.errors import (
+    TdxMethodForbiddenError as TdxMethodForbiddenError,
+    TdxNativeError as TdxNativeError,
+    TdxSymbolNotFoundError as TdxSymbolNotFoundError,
+)
 from src.datasource.tdx.http_client import TdxHttpClient
 from src.datasource.tdx.models import TdxBar
 from src.datasource.tdx.normalizers.formula import (
@@ -19,10 +22,42 @@ from src.datasource.tdx.operations.sector import TdxSectorOperations
 
 TDX_HEALTH_PROBE_SYMBOL = "600519.SH"
 
+FORBIDDEN_RAW_METHODS: set[str] = {
+    "order_stock",
+    "cancel_order",
+    "send_order",
+    "buy_stock",
+    "sell_stock",
+    "cancel_order_stock",
+    "query_order",
+    "query_trade",
+    "query_capital",
+    "query_position",
+    "query_account",
+    "query_asset",
+    "query_deal",
+    "get_orders",
+    "get_positions",
+    "get_capital",
+    "get_account_data",
+    "get_trade_account",
+}
+
+FORBIDDEN_RAW_PREFIXES: tuple[str, ...] = (
+    "order_",
+    "buy_",
+    "sell_",
+    "cancel_order",
+    "send_order",
+    "entrust_",
+    "withdraw_",
+)
+
 __all__ = [
     "TdxDatasourceProvider",
     "TdxFormulaRequestLimitError",
     "TdxFormulaTimeoutError",
+    "TdxMethodForbiddenError",
     "TdxNativeError",
     "TdxSymbolNotFoundError",
 ]
@@ -308,6 +343,12 @@ class TdxDatasourceProvider:
         )
 
     async def raw_call(self, method: str, params: dict[str, Any] | list[Any] | None = None) -> Any:
+        normalized_method = (method or "").strip().lower()
+        if (
+            normalized_method in FORBIDDEN_RAW_METHODS
+            or any(normalized_method.startswith(prefix) for prefix in FORBIDDEN_RAW_PREFIXES)
+        ):
+            raise TdxMethodForbiddenError(method=method)
         return await self.client.call(method, params)
 
     async def get_sector_list(self, list_type: int = 0) -> list[dict[str, Any]]:

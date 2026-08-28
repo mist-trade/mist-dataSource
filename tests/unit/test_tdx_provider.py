@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from src.core.config import settings
+from src.datasource.tdx.errors import TdxMethodForbiddenError
 from src.datasource.tdx.provider import TdxDatasourceProvider, TdxFormulaTimeoutError
 
 REQUIRED_MARKET_DATA_FIELDS = ["Open", "High", "Low", "Close", "Volume", "Amount"]
@@ -299,6 +300,35 @@ async def test_raw_call_proxies_exact_method_and_params():
 
     assert result == {"ok": True}
     assert fake_client.calls == [("some_method", {"x": 1})]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "forbidden_method",
+    [
+        "order_stock",
+        "cancel_order",
+        "send_order",
+        "buy_stock",
+        "sell_stock",
+        "ORDER_STOCK",
+        "order_limit_price",
+        "withdraw_order",
+        "query_account",
+        "get_positions",
+    ],
+)
+async def test_raw_call_blocks_forbidden_trading_methods(forbidden_method: str):
+    fake_client = FakeTdxHttpClient({})
+    provider = TdxDatasourceProvider(fake_client)
+
+    with pytest.raises(TdxMethodForbiddenError) as exc_info:
+        await provider.raw_call(forbidden_method, {"stock": "600519"})
+
+    assert exc_info.value.code == "TDX_METHOD_FORBIDDEN"
+    assert exc_info.value.details["method"] == forbidden_method
+    assert fake_client.calls == []
+
 
 
 @pytest.mark.asyncio
