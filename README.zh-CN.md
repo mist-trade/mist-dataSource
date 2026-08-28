@@ -1,8 +1,8 @@
 <p align="right">
-  <a href="./README.zh-CN.md">中文</a> | <strong>English</strong>
+  <strong>中文</strong> | <a href="./README.md">English</a>
 </p>
 
-# Mist Datasource — TDX/QMT Market Data Gateway
+# Mist Datasource 行情数据源桥接系统
 
 <p align="left">
   <img src="https://img.shields.io/badge/Python-3.12-blue.svg" alt="Python 3.12" />
@@ -11,11 +11,10 @@
   <img src="https://img.shields.io/badge/License-BSD--3--Clause-green.svg" alt="License" />
 </p>
 
-Low-level market-data gateway for Mist, built on Python 3.12 & FastAPI. Two containerized services wrap the TDX and native QMT desktop terminals, exposing unified HTTP historical K-line queries and high-performance WebSocket realtime streaming.
-
-> 中文版见 [README.zh-CN.md](./README.zh-CN.md)。
-
 Mist Datasource 是 Mist 系统的底层行情适配网关，基于 Python 3.12 与 FastAPI 构建。通过两个独立的容器化服务，分别封装通达信（TDX）桌面终端与原生大 QMT（ThinkTrader）终端的专有能力，对外提供标准化的 HTTP 历史 K 线查询与高性能 WebSocket 实时行情流推送。
+
+
+
 
 ---
 
