@@ -13,34 +13,32 @@
 
 Low-level market-data gateway for Mist, built on Python 3.12 & FastAPI. Two containerized services wrap the TDX and native QMT desktop terminals, exposing unified HTTP historical K-line queries and high-performance WebSocket realtime streaming.
 
-> 中文版见 [README.zh-CN.md](./README.zh-CN.md)。
-
-Mist Datasource 是 Mist 系统的底层行情适配网关，基于 Python 3.12 与 FastAPI 构建。通过两个独立的容器化服务，分别封装通达信（TDX）桌面终端与原生大 QMT（ThinkTrader）终端的专有能力，对外提供标准化的 HTTP 历史 K 线查询与高性能 WebSocket 实时行情流推送。
+> See [README.zh-CN.md](./README.zh-CN.md) for Chinese.
 
 ---
 
-## 🌟 核心特性
+## 🌟 Core Features
 
-- **双独立微服务网关架构**：
-  - **TDX Datasource（端口: 9001）**：非实时接口直连通达信官方 `:17709`，实时行情通过内置 Python Bridge 直推 Snapshot。
-  - **QMT Datasource（端口: 9002）**：通过内置 Python 桥接驱动原生 `subscribe_quote` / `get_market_data_ex` 接口，输出原生数据。
-- **Schema-V2 Native Map Frame 实时推送**：严格规范化的实时 WebSocket 数据帧格式，实现极低延迟与零数据拷贝开销。
-- **声明式订阅控制四方法**：标准化支持 `syncSubscriptions`（全量对齐）、`subscribe`（增量）、`unsubscribe`（退订）、`getSubscriptions`（查询）。
-- **QMT 订阅状态 Journal 持久化**：持久化记录订阅集指纹（`subscription-journal.jsonl`），支持进程重启与网络抖动后的毫秒级无损恢复。
-- **无状态容器化安全运行**：容器内以非 root 用户、只读根文件系统运行，仅对本地回环（Loopback）开放管理端点。
+- **Dual microservice gateway**:
+  - **TDX Datasource (:9001)**: non-realtime queries hit the official TDX `:17709` directly; realtime snapshots are pushed via the built-in Python Bridge.
+  - **QMT Datasource (:9002)**: drives native `subscribe_quote` / `get_market_data_ex` via the built-in Python bridge and emits raw data.
+- **Schema-V2 Native Map Frame realtime push**: strictly normalized WebSocket frame format for ultra-low latency and zero-copy overhead.
+- **Declarative 4-method subscription control**: `syncSubscriptions` (full alignment), `subscribe` (incremental), `unsubscribe` (remove), `getSubscriptions` (query).
+- **QMT subscription journal persistence**: fingerprints the subscription set to `subscription-journal.jsonl` for lossless recovery across restarts & network blips.
+- **Stateless hardened containers**: runs as non-root with a read-only root filesystem, management endpoints only on loopback.
 
 ---
 
-## 🔄 拓扑与数据链路
+## 🔄 Topology & Data Path
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                 Windows 宿主交互桌面会话                    │
+│                 Windows Host — Interactive Session          │
 │                                                             │
-│   [TDX Desktop 终端]              [原生大 QMT 终端]         │
+│   [TDX Desktop Terminal]          [Native QMT Terminal]     │
 │           │                               │                 │
-│   (PYPlugins/user Bridge)         (内置 Python Bridge)       │
-│           │ TCP 直推                      │ TCP 直推 / Poll  │
+│   (PYPlugins/user Bridge)         (Built-in Python Bridge)  │
+│           │ TCP push                      │ TCP push / Poll │
 └───────────┼───────────────────────────────┼─────────────────┘
             │                               │
 ┌───────────▼───────────────────────────────▼─────────────────┐
@@ -62,89 +60,89 @@ Mist Datasource 是 Mist 系统的底层行情适配网关，基于 Python 3.12 
 
 ---
 
-## 📋 环境要求与 Python 兼容性
+## 📋 Requirements & Python Compatibility
 
-| 运行环境 | Python 版本要求 | 依赖说明 |
+| Runtime | Python Version | Notes |
 | :--- | :--- | :--- |
-| **Datasource 容器** | `Python 3.12` | FastAPI, Pydantic v2, Uvicorn, WebSockets |
-| **TDX Builtin Bridge** | `Python 3.7+` 语法 | 宿主实机 Python 3.12 + 官方 `tqcenter` |
-| **QMT Builtin Bridge** | `Python 3.6` 语法 | 严格限制标准库 HTTP Polling，禁止 Python 3.7+ 特性语法 |
+| **Datasource Container** | `Python 3.12` | FastAPI, Pydantic v2, Uvicorn, WebSockets |
+| **TDX Builtin Bridge** | `Python 3.7+` syntax | Host Python 3.12 + official `tqcenter` |
+| **QMT Builtin Bridge** | `Python 3.6` syntax | Stdlib-only HTTP polling, no Python 3.7+ syntax |
 
 ---
 
-## 🚀 快速开始 (本地开发)
+## 🚀 Quick Start (Local Dev)
 
-仓库使用 `uv` 进行现代化的 Python 依赖管理：
+Uses `uv` for modern Python dependency management:
 
-### 1. 同步虚拟环境
+### 1. Sync virtual environment
 
 ```bash
 uv sync --frozen --python 3.12
 ```
 
-### 2. 启动本地调试服务
+### 2. Start local debug services
 
 ```bash
-# 启动 TDX Datasource 服务 (端口: 9001)
+# TDX Datasource (:9001)
 uv run uvicorn tdx.main:app --port 9001 --reload
 
-# 启动 QMT Datasource 服务 (端口: 9002)
+# QMT Datasource (:9002)
 uv run uvicorn qmt.main:app --port 9002 --reload
 ```
 
 ---
 
-## 🔌 核心接口与端点
+## 🔌 Core Endpoints
 
-### 1. 通达信 (TDX) 网关 — `:9001`
-- `GET /health`：网关与 Bridge 健康状态。
-- `POST /v1/bars/query`：历史 K 线数据查询（标准化 Rows 输出）。
-- `POST /v1/finance/financial-data/query`：财务数据查询。
-- `POST /v1/instruments/convertible-bonds/query`：转债数据查询。
-- `WS /ws/realtime/tdx/{client_id}`：实时 Snapshot 数据流订阅。
+### 1. TDX Gateway — `:9001`
+- `GET /health`: gateway & Bridge health.
+- `POST /v1/bars/query`: historical K-line query (normalized Rows output).
+- `POST /v1/finance/financial-data/query`: financial data query.
+- `POST /v1/instruments/convertible-bonds/query`: convertible bond query.
+- `WS /ws/realtime/tdx/{client_id}`: realtime Snapshot stream.
 
-### 2. 大 QMT 网关 — `:9002`
-- `GET /health`：网关与 Bridge 健康状态。
-- `POST /v1/bars/query`：原生历史 K 线查询（返回 native `data.marketData`）。
-- `POST /qmt/bridge/subscriptions/*`：四方法订阅控制指令。
-- `WS /ws/realtime/qmt/{client_id}`：实时行情原生数据流订阅。
+### 2. QMT Gateway — `:9002`
+- `GET /health`: gateway & Bridge health.
+- `POST /v1/bars/query`: native historical K-line query (returns `data.marketData`).
+- `POST /qmt/bridge/subscriptions/*`: 4-method subscription control.
+- `WS /ws/realtime/qmt/{client_id}`: realtime native stream.
 
 ---
 
-## 🧪 测试与质量门禁
+## 🧪 Testing & Quality Gates
 
 ```bash
-# 运行 Pytest 单元测试
+# Pytest unit tests
 uv run pytest
 
-# 代码静态检查与规范
+# Lint & typecheck
 uv run ruff check .
 uv run pyright
 
-# 导出确定性 OpenAPI 规范文档
+# Export deterministic OpenAPI docs
 uv run python scripts/export_openapi.py --all
 ```
 
 ---
 
-## 🚢 生产镜像与运维
+## 🚢 Production Image & Ops
 
-同一个不可变 Docker 镜像用于启动两个独立微服务：
+One immutable Docker image runs two microservices:
 
 ```bash
-# 生产镜像构建
+# Production image build
 docker build -t ghcr.io/mist-trade/mist-datasource:<tag> .
 
-# 宿主机运维重启
+# Host ops restart
 powershell -File scripts/manage-datasource-containers.ps1 -Source tdx -Action restart
 powershell -File scripts/manage-datasource-containers.ps1 -Source qmt -Action restart
 ```
 
-- TDX Bridge 运维指引：请参阅 [`tdx/builtin_bridge/README.md`](./tdx/builtin_bridge/README.md)。
-- QMT Bridge 运维指引：请参阅 [`qmt/builtin_bridge/README.md`](./qmt/builtin_bridge/README.md)。
+- TDX Bridge ops: [`tdx/builtin_bridge/README.md`](./tdx/builtin_bridge/README.md)
+- QMT Bridge ops: [`qmt/builtin_bridge/README.md`](./qmt/builtin_bridge/README.md)
 
 ---
 
-## 📄 许可证
+## 📄 License
 
-本项目遵循 [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause) 开源许可证。
+Licensed under [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause).
