@@ -115,8 +115,16 @@ class SubscriptionSnapshotRequest(SubscriptionLeaseRequest):
 
 
 class ObservabilityRequest(BridgeModel):
-    """Bridge-side counters for E-0 throughput observation (no OTel in terminal)."""
+    """Bridge-side counters for E-0 throughput observation (no OTel in terminal).
 
+    Bridge sends ownerId/leaseToken/generation alongside intervalSeconds;
+    model accepts them as optional aliases to avoid 422 when extra=forbid.
+    No loopback ownership check is done here (same as before).
+    """
+
+    owner_id: str | None = Field(default=None, alias="ownerId")
+    lease_token: str | None = Field(default=None, alias="leaseToken")
+    generation: StrictInt | None = None
     interval_seconds: float = Field(default=30.0, alias="intervalSeconds")
     counters: dict[str, float]
     sender: dict[str, Any] | None = None

@@ -32,8 +32,20 @@ class TraceContextFormatter(logging.Formatter):
 
 
 def setup_logging() -> None:
-    """Configure application logging with OTel trace-context injection."""
+    """Configure application logging with OTel trace-context injection.
+
+    stdout (docker logs) at WARNING, OTel log export at LOG_LEVEL (INFO):
+    avoids `docker logs` spam (poll/ingest/httpx 200) while keeping OO searchable
+    at INFO. Root level stays INFO so the OTel LoggingHandler still receives
+    INFO records; only the StreamHandler is gated. Also lowers uvicorn.access
+    and httpx to WARNING on stdout.
+    """
+    import os
+
+    stdout_level_name = os.getenv("MIST_STDOUT_LOG_LEVEL", "WARNING")
+    stdout_level = getattr(logging, stdout_level_name.upper(), logging.WARNING)
     handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(stdout_level)
     handler.setFormatter(
         TraceContextFormatter(
             "%(asctime)s - %(name)s - %(levelname)s - "
@@ -44,6 +56,9 @@ def setup_logging() -> None:
         level=getattr(logging, settings.log_level.upper()),
         handlers=[handler],
     )
+    # Keep access/httpx chatter out of docker logs without dropping from OO.
+    for noisy in ("uvicorn.access", "httpx"):
+        logging.getLogger(noisy).setLevel(max(stdout_level, logging.WARNING))
 
 
 def get_logger(name: str) -> logging.Logger:
