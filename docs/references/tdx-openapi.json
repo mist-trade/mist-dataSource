@@ -353,7 +353,7 @@
             "title": "Fields"
           },
           "fillData": {
-            "default": true,
+            "default": false,
             "title": "Filldata",
             "type": "boolean"
           },

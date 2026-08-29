@@ -36,7 +36,7 @@ class QmtBarQueryRequest(QmtV1Model):
     end_time: str = ""
     count: int = -1
     dividend_type: str = "none"
-    fill_data: bool = True
+    fill_data: bool = False
     include_raw: bool = False
 
 

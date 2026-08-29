@@ -72,7 +72,7 @@ class TdxBarQueryRequest(TdxModel):
     count: int | None = None
     fields: list[str] | None = None
     dividend_type: Literal["none", "front", "back"] = Field(default="front", alias="dividendType")
-    fill_data: bool = Field(default=True, alias="fillData")
+    fill_data: bool = Field(default=False, alias="fillData")
     include_raw: bool = Field(default=False, alias="includeRaw")
 
     @field_validator("start_time", "end_time", mode="before")

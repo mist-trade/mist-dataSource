@@ -68,7 +68,7 @@ class QmtMarketOperations:
             "end_time": end_time or "",
             "count": count if count is not None else -1,
             "dividend_type": dividend_type or "none",
-            "fill_data": True if fill_data is None else bool(fill_data),
+            "fill_data": False if fill_data is None else bool(fill_data),
         }
         command = command_gateway.enqueue(
             "get_market_data_ex",
