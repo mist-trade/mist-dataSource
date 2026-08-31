@@ -1072,6 +1072,22 @@ class QmtSubscriptionController:
         pending: dict[int, dict[str, Any]] = {}
         candidates: dict[int, _StartupRecoveryCandidate] = {}
         unknown_count = 0 if self.journal.healthy else 1
+
+        # Pre-scan: startup_recovery_result with confirmed=True resolves intents
+        # even if no matching terminal exists (terminal is a stricter signal but
+        # not always written for confirmed-True results).
+        confirmed_result_subids: set[int] = set()
+        for record in self.journal.replay_records:
+            detail_value = record.get("detail")
+            if (
+                record.get("kind") == "startup_recovery_result"
+                and isinstance(detail_value, dict)
+            ):
+                detail = cast(dict[str, Any], detail_value)
+                sub_id = detail.get("subId")
+                if type(sub_id) is int and detail.get("confirmed") is True:
+                    confirmed_result_subids.add(sub_id)
+
         for record in self.journal.replay_records:
             kind = record.get("kind")
             detail_value = record.get("detail")
@@ -1191,6 +1207,8 @@ class QmtSubscriptionController:
                 sub_id = detail.get("subId")
                 if type(sub_id) is int and sub_id in candidates:
                     candidates[sub_id].attempted = True
+                elif type(sub_id) is int and sub_id in confirmed_result_subids:
+                    pass  # Already resolved by a confirmed result; not unknown.
                 else:
                     unknown_count += 1
                 continue
@@ -1313,20 +1331,27 @@ class QmtSubscriptionController:
         """Earliest RFC3339 (UTC epoch) among unresolved recovery intents.
 
         Unresolved = a `startup_recovery_intent` whose subId never reached a
-        `startup_recovery_terminal` (confirmed), or a native intent without a
-        matching native result. Returns None when nothing is unresolved.
+        `startup_recovery_terminal` (confirmed), AND has no
+        `startup_recovery_result` with `confirmed=True`; or a native intent
+        without a matching native result. Returns None when nothing is unresolved.
         """
         terminal_subids: set[int] = set()
+        confirmed_result_subids: set[int] = set()
         for record in self.journal.replay_records:
             detail_value = record.get("detail")
-            if record.get("kind") != "startup_recovery_terminal" or not isinstance(
-                detail_value, dict
-            ):
+            if not isinstance(detail_value, dict):
                 continue
             detail = cast(dict[str, Any], detail_value)
-            sub_id = detail.get("subId")
-            if type(sub_id) is int and detail.get("confirmed") is True:
-                terminal_subids.add(sub_id)
+            if record.get("kind") == "startup_recovery_terminal":
+                sub_id = detail.get("subId")
+                if type(sub_id) is int and detail.get("confirmed") is True:
+                    terminal_subids.add(sub_id)
+            elif record.get("kind") == "startup_recovery_result":
+                sub_id = detail.get("subId")
+                if type(sub_id) is int and detail.get("confirmed") is True:
+                    confirmed_result_subids.add(sub_id)
+
+        resolved_subids = terminal_subids | confirmed_result_subids
 
         earliest: float | None = None
 
@@ -1345,7 +1370,7 @@ class QmtSubscriptionController:
             detail = cast(dict[str, Any], detail_value)
             if kind == "startup_recovery_intent":
                 sub_id = detail.get("subId")
-                if type(sub_id) is int and sub_id not in terminal_subids:
+                if type(sub_id) is int and sub_id not in resolved_subids:
                     consider(recorded_at)
             elif kind == "native_intent":
                 # Orphan native intent: no paired native_result anywhere.
