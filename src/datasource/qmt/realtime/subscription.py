@@ -1361,6 +1361,21 @@ class QmtSubscriptionController:
             if parsed is not None and (earliest is None or parsed < earliest):
                 earliest = parsed
 
+        # Pre-build the set of native_result callSequences once (O(N)); the
+        # unmatched-intent check below then uses set lookup instead of a
+        # per-intent full-scan (previous O(N^2) blocked the event loop for
+        # ~24s on a 47k-record journal during owner re-registration).
+        native_result_call_sequences: set[int] = set()
+        for record in self.journal.replay_records:
+            if record.get("kind") != "native_result":
+                continue
+            detail_value = record.get("detail")
+            if not isinstance(detail_value, dict):
+                continue
+            call_sequence = cast(dict[str, Any], detail_value).get("callSequence")
+            if type(call_sequence) is int:
+                native_result_call_sequences.add(call_sequence)
+
         for record in self.journal.replay_records:
             kind = record.get("kind")
             detail_value = record.get("detail")
@@ -1377,13 +1392,7 @@ class QmtSubscriptionController:
                 call_sequence = detail.get("callSequence")
                 if type(call_sequence) is not int or call_sequence <= 0:
                     continue
-                paired = any(
-                    record.get("kind") == "native_result"
-                    and isinstance(record.get("detail"), dict)
-                    and record["detail"].get("callSequence") == call_sequence
-                    for record in self.journal.replay_records
-                )
-                if not paired:
+                if call_sequence not in native_result_call_sequences:
                     consider(recorded_at)
         return earliest
 
