@@ -78,6 +78,7 @@ class QmtBridgeOwner:
     bridge_build_id: str
     bridge_artifact_sha256: str
     bridge_runtime_fingerprint: str
+    started_at: str | None  # bridge 进程启动时间 "%Y-%m-%d %H:%M:%S"（终端本地, +8）
 
 
 @dataclass(frozen=True)
@@ -181,6 +182,7 @@ class QmtCommandGateway:
         bridge_build_id: str = "unknown",
         bridge_artifact_sha256: str = "unknown",
         bridge_runtime_fingerprint: str = "unknown",
+        started_at: str | None = None,
     ) -> QmtBridgeOwner:
         now = self._clock()
         previous = self._owner
@@ -219,6 +221,7 @@ class QmtCommandGateway:
             bridge_build_id=bridge_build_id,
             bridge_artifact_sha256=bridge_artifact_sha256,
             bridge_runtime_fingerprint=bridge_runtime_fingerprint,
+            started_at=started_at,
         )
         return self._owner
 
@@ -236,8 +239,13 @@ class QmtCommandGateway:
             bridge_build_id=self._owner.bridge_build_id,
             bridge_artifact_sha256=self._owner.bridge_artifact_sha256,
             bridge_runtime_fingerprint=self._owner.bridge_runtime_fingerprint,
+            started_at=self._owner.started_at,
         )
         return self._owner
+
+    def owner_started_at(self) -> str | None:
+        """Bridge (terminal process) start time, or None when no owner."""
+        return self._owner.started_at if self._owner is not None else None
 
     def validate_owner(self, owner_id: str, lease_token: str, generation: int) -> None:
         """Validate and heartbeat the current bridge lease without exposing its token."""
@@ -472,6 +480,7 @@ class QmtCommandGateway:
             "bridgeRuntimeFingerprint": (
                 self._owner.bridge_runtime_fingerprint if self._owner else None
             ),
+            "startedAt": self._owner.started_at if self._owner else None,
             "ready": self._owner is not None and not owner_stale,
             "pendingCount": len(self._pending),
             "inFlightCount": len(self._in_flight),

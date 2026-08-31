@@ -76,6 +76,10 @@ def init_metrics() -> None:
         "mist_datasource_subscription_reconciliation_required",
         description="Subscription control blocked by journal reconciliation (1 required / 0 resolved)",
     )
+    _INSTRUMENTS["auto_unlock"] = m.create_counter(
+        "mist_datasource_auto_unlock_total",
+        description="QMT reconciliation auto-unlock attempts (objective terminal restart evidence)",
+    )
 
 
 def register_snapshot_age_callback(source: str, factory: Callable[[], float | None]) -> None:
@@ -176,4 +180,16 @@ def set_reconciliation_required(source: str, required: bool) -> None:
     inst = _INSTRUMENTS.get("reconciliation_required")
     if inst is not None:
         inst.set(1 if required else 0, {"source": source})
+
+
+def record_auto_unlock(source: str, outcome: str) -> None:
+    """Record qmt reconciliation auto-unlock attempts.
+
+    outcome is a bounded enum: auto_unlocked | skipped_no_started_at |
+    skipped_unparseable_started_at | skipped_no_unresolved |
+    skipped_terminal_not_restarted.
+    """
+    inst = _INSTRUMENTS.get("auto_unlock")
+    if inst is not None:
+        inst.add(1, {"source": source, "outcome": outcome})
 

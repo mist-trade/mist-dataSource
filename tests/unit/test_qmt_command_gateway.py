@@ -130,6 +130,7 @@ def test_qmt_command_gateway_health_reports_owner_readiness_and_staleness() -> N
         "bridgeBuildId": None,
         "bridgeArtifactSha256": None,
         "bridgeRuntimeFingerprint": None,
+        "startedAt": None,
         "ready": False,
         "pendingCount": 0,
         "inFlightCount": 0,

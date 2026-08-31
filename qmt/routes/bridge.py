@@ -240,6 +240,7 @@ async def register_owner(payload: OwnerRequest, request: Request) -> dict[str, A
             bridge_build_id=payload.bridge_build_id,
             bridge_artifact_sha256=payload.bridge_artifact_sha256,
             bridge_runtime_fingerprint=payload.bridge_runtime_fingerprint,
+            started_at=payload.started_at,
         )
     except QmtBridgeOwnershipError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

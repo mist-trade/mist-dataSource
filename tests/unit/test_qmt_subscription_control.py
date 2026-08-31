@@ -1507,3 +1507,121 @@ class TestSubscriptionRecovery:
         health2 = controller.health()
         assert health2["pushState"] == "verified"
         assert health2["stallDetected"] is False
+
+
+# ---------------------------------------------------------------------------
+# Objective terminal-restart auto-unlock (auto-unlock-qmt-reconciliation)
+# ---------------------------------------------------------------------------
+
+def _controller_with_started_at(
+    tmp_path: Path,
+    *,
+    started_at: str | None,
+) -> tuple[QmtSubscriptionController, list[dict[str, Any]]]:
+    published: list[dict[str, Any]] = []
+    controller = QmtSubscriptionController(
+        journal=_journal(tmp_path),
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=published.append,
+        unsubscribe_success_values=frozenset({0}),
+        timeout_seconds=1.0,
+        bridge_started_at_provider=(lambda: started_at) if started_at is not None else None,
+    )
+    return controller, published
+
+
+def test_auto_unlock_when_terminal_restarted_after_intent(tmp_path: Path) -> None:
+    """Terminal startedAt strictly after the unresolved recovery intent -> unlock."""
+    journal = _journal(tmp_path)
+    journal.append("startup_recovery_intent", {"bucket": "whole", "subId": 159, "symbol": None})
+    intent_at = journal.last_record["recordedAt"]  # RFC3339, e.g. now UTC
+    controller = QmtSubscriptionController(
+        journal=journal,
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=[] .append,
+        unsubscribe_success_values=frozenset({0}),
+        timeout_seconds=1.0,
+        bridge_started_at_provider=lambda: _local_plus_8_later_than(intent_at),
+    )
+    # controller construction restored the orphan -> reconciliation required
+    assert controller.reconciliation_required is True
+
+    controller._startup_phase = "running"
+    controller._attempt_auto_unlock()
+
+    assert controller.reconciliation_required is False
+    assert controller.health()["startupReconciliation"]["phase"] == "completed"
+    assert controller.journal.last_record["kind"] == "operator_observation"
+    assert (
+        controller.journal.last_record["detail"]["recoveryMode"]
+        == "terminal_process_restarted"
+    )
+
+
+def test_auto_unlock_skipped_when_terminal_not_restarted(tmp_path: Path) -> None:
+    """startedAt before the unresolved intent -> no unlock (fail-closed)."""
+    journal = _journal(tmp_path)
+    journal.append("startup_recovery_intent", {"bucket": "whole", "subId": 159, "symbol": None})
+    # startedAt far in the PAST (well before the intent) regardless of intent time
+    controller = QmtSubscriptionController(
+        journal=journal,
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=[].append,
+        unsubscribe_success_values=frozenset({0}),
+        timeout_seconds=1.0,
+        bridge_started_at_provider=lambda: "2000-01-01 09:00:00",
+    )
+    assert controller.reconciliation_required is True
+
+    controller._startup_phase = "running"
+    controller._attempt_auto_unlock()
+
+    assert controller.reconciliation_required is True
+    assert controller.journal.last_record["kind"] != "operator_observation"
+
+
+def test_auto_unlock_skipped_when_no_started_at_provider(tmp_path: Path) -> None:
+    """No bridge startedAt (older bridge) -> no unlock."""
+    journal = _journal(tmp_path)
+    journal.append("startup_recovery_intent", {"bucket": "whole", "subId": 159, "symbol": None})
+    controller = QmtSubscriptionController(
+        journal=journal,
+        owner_validator=lambda _owner, _token, _generation: None,
+        publisher=[].append,
+        unsubscribe_success_values=frozenset({0}),
+        timeout_seconds=1.0,
+        # no bridge_started_at_provider
+    )
+    assert controller.reconciliation_required is True
+
+    controller._startup_phase = "running"
+    controller._attempt_auto_unlock()
+
+    assert controller.reconciliation_required is True
+
+
+def test_auto_unlock_skipped_when_journal_clean(tmp_path: Path) -> None:
+    """No unresolved recovery intent -> no unlock."""
+    controller, _ = _controller_with_started_at(tmp_path, started_at="2099-01-01 09:00:00")
+    controller._startup_phase = "running"
+    controller.reconciliation_required = True
+    controller._attempt_auto_unlock()
+
+    assert controller.reconciliation_required is True
+    assert controller.journal.last_record is None or controller.journal.last_record["kind"] != "operator_observation"
+
+
+def test_earliest_unresolved_uses_orphan_native_intent(tmp_path: Path) -> None:
+    """Orphan native intent (no native_result) counts as unresolved."""
+    controller, _ = _controller_with_started_at(tmp_path, started_at="2099-01-01 09:00:00")
+    controller.journal.append(
+        "native_intent", {"callSequence": 1, "method": "subscribe_quote", "subId": 123}
+    )
+    assert controller._earliest_unresolved_recovery_time() is not None
+
+
+def _local_plus_8_later_than(rfc3339_utc: str) -> str:
+    """Return a bridge-style local +8 time safely after the RFC3339 UTC string."""
+    utc_dt = datetime.fromisoformat(rfc3339_utc.replace("Z", "+00:00"))
+    later_local = (utc_dt + timedelta(hours=1)).astimezone(UTC) + timedelta(hours=8)
+    return later_local.strftime("%Y-%m-%d %H:%M:%S")

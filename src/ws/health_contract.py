@@ -62,6 +62,7 @@ class QmtBridgeHealth(BridgeHealth):
     owner_stale: bool = Field(alias="ownerStale")
     bridge_artifact_sha256: str | None = Field(alias="bridgeArtifactSha256")
     bridge_runtime_fingerprint: str | None = Field(alias="bridgeRuntimeFingerprint")
+    started_at: str | None = Field(alias="startedAt")
     pending_count: int = Field(alias="pendingCount", ge=0)
     in_flight_count: int = Field(alias="inFlightCount", ge=0)
     result_count: int = Field(alias="resultCount", ge=0)

@@ -276,6 +276,7 @@ def _make_register_frame() -> dict:
         "generation": STATE.generation,
         "bridgeBuildId": BRIDGE_BUILD_ID,
         "bridgeArtifactSha256": BRIDGE_ARTIFACT_SHA256,
+        "startedAt": STATE.started_at,
     }
 
 

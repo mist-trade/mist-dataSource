@@ -740,6 +740,7 @@ class QmtSubscriptionController:
         startup_timeout_seconds: float = DEFAULT_STARTUP_RECONCILIATION_TIMEOUT_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         stall: StallDetector | None = None,
+        bridge_started_at_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self.registry = QmtSubscriptionRegistry()
         self.journal = journal
@@ -749,6 +750,7 @@ class QmtSubscriptionController:
         self._timeout_seconds = timeout_seconds
         self._startup_timeout_seconds = startup_timeout_seconds
         self._clock = clock
+        self._bridge_started_at_provider = bridge_started_at_provider
         self._mutation_lock = asyncio.Lock()
         self._slot: _NativeSlot | None = None
         self._call_sequence = 0
@@ -1054,6 +1056,15 @@ class QmtSubscriptionController:
                 self._startup_candidates or self._startup_unknown_count
             )
             ds_metrics.set_reconciliation_required("qmt", self.reconciliation_required)
+            if self.reconciliation_required:
+                # Terminal-restart objective evidence unlock: the QMT bridge
+                # runs inside the terminal process, so its startedAt is the
+                # terminal process load time. If the terminal restarted AFTER
+                # the earliest unresolved recovery intent, every stale subId
+                # has necessarily vanished with the old SDK process — the same
+                # evidence an operator observation asserts. Auto-write it so a
+                # known-clean terminal restart is not blocked forever.
+                self._attempt_auto_unlock()
             self._startup_phase = "degraded" if self.reconciliation_required else "completed"
             self._startup_duration_seconds = max(0.0, self._clock() - started)
 
@@ -1293,6 +1304,119 @@ class QmtSubscriptionController:
         self._startup_phase = "completed"
         self.reconciliation_required = False
         ds_metrics.set_reconciliation_required("qmt", False)
+
+    # ------------------------------------------------------------------
+    # Objective terminal-restart auto-unlock
+    # ------------------------------------------------------------------
+
+    def _earliest_unresolved_recovery_time(self) -> float | None:
+        """Earliest RFC3339 (UTC epoch) among unresolved recovery intents.
+
+        Unresolved = a `startup_recovery_intent` whose subId never reached a
+        `startup_recovery_terminal` (confirmed), or a native intent without a
+        matching native result. Returns None when nothing is unresolved.
+        """
+        terminal_subids: set[int] = set()
+        for record in self.journal.replay_records:
+            detail_value = record.get("detail")
+            if record.get("kind") != "startup_recovery_terminal" or not isinstance(
+                detail_value, dict
+            ):
+                continue
+            detail = cast(dict[str, Any], detail_value)
+            sub_id = detail.get("subId")
+            if type(sub_id) is int and detail.get("confirmed") is True:
+                terminal_subids.add(sub_id)
+
+        earliest: float | None = None
+
+        def consider(recorded_at: str) -> None:
+            nonlocal earliest
+            parsed = _parse_rfc3339_epoch(recorded_at)
+            if parsed is not None and (earliest is None or parsed < earliest):
+                earliest = parsed
+
+        for record in self.journal.replay_records:
+            kind = record.get("kind")
+            detail_value = record.get("detail")
+            recorded_at = record.get("recordedAt")
+            if not isinstance(detail_value, dict) or not isinstance(recorded_at, str):
+                continue
+            detail = cast(dict[str, Any], detail_value)
+            if kind == "startup_recovery_intent":
+                sub_id = detail.get("subId")
+                if type(sub_id) is int and sub_id not in terminal_subids:
+                    consider(recorded_at)
+            elif kind == "native_intent":
+                # Orphan native intent: no paired native_result anywhere.
+                call_sequence = detail.get("callSequence")
+                if type(call_sequence) is not int or call_sequence <= 0:
+                    continue
+                paired = any(
+                    record.get("kind") == "native_result"
+                    and isinstance(record.get("detail"), dict)
+                    and record["detail"].get("callSequence") == call_sequence
+                    for record in self.journal.replay_records
+                )
+                if not paired:
+                    consider(recorded_at)
+        return earliest
+
+    @property
+    def _bridge_started_at(self) -> str | None:
+        if self._bridge_started_at_provider is None:
+            return None
+        return self._bridge_started_at_provider()
+
+    def _attempt_auto_unlock(self) -> None:
+        """Fail-closed auto unlock when the terminal demonstrably restarted.
+
+        Evidence: bridge `startedAt` (terminal process load time, +8 local)
+        strictly later than the earliest unresolved recovery intent. The old
+        SDK process is then guaranteed gone, so every stale subId is invalid —
+        the exact claim an operator observation makes. Manual observation path
+        stays authoritative; this only removes the manual step for the case
+        the terminal itself already restarted.
+        """
+        if not self.reconciliation_required:
+            return
+        if self._startup_phase != "running":
+            return  # only during the startup reconciliation pass
+        if not self.journal.healthy:
+            return
+        started_at = self._bridge_started_at
+        if started_at is None:
+            ds_metrics.record_auto_unlock("qmt", "skipped_no_started_at")
+            return
+        started_epoch = _parse_terminal_local_time_epoch(started_at)
+        if started_epoch is None:
+            ds_metrics.record_auto_unlock("qmt", "skipped_unparseable_started_at")
+            return
+        earliest = self._earliest_unresolved_recovery_time()
+        if earliest is None:
+            ds_metrics.record_auto_unlock("qmt", "skipped_no_unresolved")
+            return
+        if started_epoch <= earliest:
+            ds_metrics.record_auto_unlock("qmt", "skipped_terminal_not_restarted")
+            return
+        # Terminal restarted after the unresolved intent: safe to unlock.
+        affected_sequence = self.journal.record_sequence
+        evidence_digest = hashlib.sha256(
+            f"{started_at}:{affected_sequence}".encode()
+        ).hexdigest()
+        self.journal.append(
+            "operator_observation",
+            {
+                "affectedJournalSequence": affected_sequence,
+                "recoveryMode": "terminal_process_restarted",
+                "operatorEvidenceDigest": evidence_digest,
+                "observationTime": datetime.now(UTC).isoformat(),
+                "physicalSubscriptionsAssumedReleased": True,
+            },
+        )
+        self.registry = QmtSubscriptionRegistry()
+        self._clear_startup_recovery_state()
+        ds_metrics.record_auto_unlock("qmt", "auto_unlocked")
 
     def observe_rebuilt_context(
         self,
@@ -2106,3 +2230,36 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _parse_rfc3339_epoch(recorded_at: str) -> float | None:
+    """Parse a journal RFC3339 recordedAt (UTC) to epoch seconds.
+
+    Returns None when the value is not an RFC3339 string.
+    """
+    if not RFC3339_PATTERN.fullmatch(recorded_at):
+        return None
+    try:
+        parsed = datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.timestamp()
+
+
+def _parse_terminal_local_time_epoch(started_at: str, utc_offset_hours: int = 8) -> float | None:
+    """Parse bridge startedAt (terminal local "%Y-%m-%d %H:%M:%S", +8) to UTC epoch.
+
+    Returns None when the value is not parseable. The +8 default matches the
+    project decision: the QMT terminal is always deployed in Asia/Shanghai.
+    The explicit tzinfo replace is required: a naive strptime().timestamp()
+    would interpret as the container's own TZ, not Asia/Shanghai.
+    """
+    try:
+        parsed = datetime.strptime(started_at, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return (
+        parsed - timedelta(hours=utc_offset_hours)
+    ).replace(tzinfo=UTC).timestamp()

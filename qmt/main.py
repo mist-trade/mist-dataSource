@@ -109,6 +109,7 @@ def create_qmt_app(
                 if unsubscribe_success_values is not None
                 else configured_qmt_unsubscribe_success_values()
             ),
+            bridge_started_at_provider=app_gateway.owner_started_at,
         )
         observation_path = os.environ.get(
             QMT_CONTEXT_REBUILD_OBSERVATION_PATH_ENV,
