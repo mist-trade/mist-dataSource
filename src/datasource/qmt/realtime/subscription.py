@@ -1393,6 +1393,10 @@ class QmtSubscriptionController:
             return None
         return self._bridge_started_at_provider()
 
+    def attempt_auto_unlock(self) -> None:
+        """Public entry for owner re-registration retry (routes/bridge.py)."""
+        self._attempt_auto_unlock()
+
     def _attempt_auto_unlock(self) -> None:
         """Fail-closed auto unlock when the terminal demonstrably restarted.
 
@@ -1405,8 +1409,8 @@ class QmtSubscriptionController:
         """
         if not self.reconciliation_required:
             return
-        if self._startup_phase != "running":
-            return  # only during the startup reconciliation pass
+        if self._startup_phase not in {"running", "degraded"}:
+            return  # startup reconciliation pass or owner re-registration retry
         if not self.journal.healthy:
             return
         started_at = self._bridge_started_at

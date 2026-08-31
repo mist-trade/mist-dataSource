@@ -244,6 +244,12 @@ async def register_owner(payload: OwnerRequest, request: Request) -> dict[str, A
         )
     except QmtBridgeOwnershipError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Bridge (terminal) identity now carries started_at. If subscription control
+    # is journal-blocked and the terminal demonstrably restarted after the
+    # unresolved intent, unlock now — reconcile_startup may have run before the
+    # owner registered (started_at absent), so this is the deterministic retry.
+    controller = get_subscription_controller(request)
+    controller.attempt_auto_unlock()
     return {
         "ownerId": owner.owner_id,
         "registeredAt": owner.registered_at,
